@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TMR Support Platform — Phase 1 Design</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <link rel="stylesheet" href="tokens.css"/>
+
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; font-family: "Geist", system-ui, sans-serif; color: #2a251f; }
+    *, *::before, *::after { box-sizing: border-box; }
+    #root { width: 100vw; height: 100vh; }
+    /* hide scrollbars on artboard contents (already in tokens.css) */
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Design Canvas (provides DesignCanvas, DCSection, DCArtboard) -->
+  <script type="text/babel" src="design-canvas.jsx"></script>
+
+  <!-- Shared icons + chrome -->
+  <script type="text/babel" src="Icons.jsx"></script>
+  <script type="text/babel" src="screens/_DashChrome.jsx"></script>
+
+  <!-- Screens -->
+  <script type="text/babel" src="screens/01-Submit.jsx"></script>
+  <script type="text/babel" src="screens/02-Auth.jsx"></script>
+  <script type="text/babel" src="screens/03-MyTickets.jsx"></script>
+  <script type="text/babel" src="screens/04-TicketCustomer.jsx"></script>
+  <script type="text/babel" src="screens/05-AgentInbox.jsx"></script>
+  <script type="text/babel" src="screens/06-AgentTicket.jsx"></script>
+  <script type="text/babel" src="screens/07-CustomerProfile.jsx"></script>
+  <script type="text/babel" src="screens/08-Settings.jsx"></script>
+
+  <!-- App -->
+  <script type="text/babel">
+    const App = () => (
+      <DesignCanvas
+        title="TMR Support Platform"
+        subtitle="Phase 1 · 8 screens · Dark dashboard · White portal"
+      >
+        <DCSection
+          id="portal"
+          title="Customer Portal"
+          subtitle="White surface · Public-facing · 4 pages — submit, auth, list, ticket"
+        >
+          <DCArtboard id="p1" label="1 · Submit a ticket"        width={1280} height={1180}>
+            <Screen01_Submit/>
+          </DCArtboard>
+          <DCArtboard id="p2" label="2 · Sign in / Sign up"      width={1280} height={860}>
+            <Screen02_Auth/>
+          </DCArtboard>
+          <DCArtboard id="p3" label="3 · My Tickets"             width={1280} height={1000}>
+            <Screen03_MyTickets/>
+          </DCArtboard>
+          <DCArtboard id="p4" label="4 · Ticket view (customer)" width={1280} height={1180}>
+            <Screen04_Ticket/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="dashboard"
+          title="Agent Dashboard"
+          subtitle="Dark surface · Internal · 4 pages — inbox, ticket, customer profile, settings"
+        >
+          <DCArtboard id="d5" label="5 · Inbox"                width={1440} height={900}>
+            <Screen05_Inbox/>
+          </DCArtboard>
+          <DCArtboard id="d6" label="6 · Ticket detail (agent)" width={1440} height={980}>
+            <Screen06_AgentTicket/>
+          </DCArtboard>
+          <DCArtboard id="d7" label="7 · Customer profile slide-over" width={1440} height={900}>
+            <Screen07_CustomerProfile/>
+          </DCArtboard>
+          <DCArtboard id="d8" label="8 · Settings · Branding" width={1440} height={980}>
+            <Screen08_Settings/>
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App/>);
+  </script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+/* ============================================================
+   TMR Support Platform — Design Tokens
+   Per the brief: two surfaces (white Portal, dark Dashboard)
+   sharing a blue accent + Geist/DM Sans / Geist Mono type.
+   ============================================================ */
+
+:root {
+  /* ---------- Portal (white surface) ---------- */
+  --p-bg:        #FFFFFF;
+  --p-surface:   #F7F7F8;
+  --p-surface-2: #FAFAFB;
+  --p-border:    #E4E4E7;
+  --p-border-2:  #EFEFF2;
+  --p-text:      #09090B;
+  --p-text-2:    #52525B;
+  --p-text-3:    #71717A;
+  --p-text-4:    #A1A1AA;
+  --p-accent:    #2563EB;
+  --p-accent-hv: #1D4ED8;
+  --p-accent-bg: #EFF4FE;
+  --p-success:   #16A34A;
+  --p-success-bg:#E8F5EC;
+  --p-warning:   #D97706;
+  --p-warning-bg:#FDF2E2;
+  --p-danger:    #DC2626;
+  --p-danger-bg: #FCE9E9;
+  --p-purple:    #7C3AED;
+  --p-purple-bg: #F2EBFE;
+
+  /* ---------- Dashboard (dark surface) ---------- */
+  --d-bg:        #0A0A0A;
+  --d-surface:   #141414;
+  --d-raised:    #1C1C1E;
+  --d-raised-2:  #232326;
+  --d-border:    #27272A;
+  --d-border-2:  #1F1F22;
+  --d-text:      #FAFAFA;
+  --d-text-2:    #D4D4D8;
+  --d-text-3:    #A1A1AA;
+  --d-text-4:    #71717A;
+  --d-accent:    #3B82F6;
+  --d-accent-hv: #60A5FA;
+  --d-accent-bg: rgba(59,130,246,0.12);
+  --d-success:   #22C55E;
+  --d-success-bg:rgba(34,197,94,0.14);
+  --d-warning:   #F59E0B;
+  --d-warning-bg:rgba(245,158,11,0.14);
+  --d-danger:    #EF4444;
+  --d-danger-bg: rgba(239,68,68,0.14);
+  --d-purple:    #A78BFA;
+  --d-purple-bg: rgba(167,139,250,0.14);
+  --d-note-bg:   rgba(245,158,11,0.06);
+  --d-note-line: rgba(245,158,11,0.30);
+
+  /* ---------- Radii ---------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+
+  /* ---------- Type ---------- */
+  --font-display: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Geist", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    "Geist Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ---------- Surface helpers ---------- */
+.surface-portal {
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+.surface-dashboard {
+  background: var(--d-bg);
+  color: var(--d-text);
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Reset within artboards ---------- */
+.surface-portal *, .surface-dashboard * {
+  box-sizing: border-box;
+}
+.surface-portal button, .surface-dashboard button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* ---------- Mono helper ---------- */
+.mono { font-family: var(--font-mono); font-feature-settings: "ss01"; }
+
+/* ---------- Label (Meta) ---------- */
+.meta {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ---------- Status pills (portal) ---------- */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px; letter-spacing: 0.01em; }
+.pill .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+
+.pill.open    { color: #1D4ED8; background: #EFF4FE; }
+.pill.prog    { color: #B45309; background: #FDF2E2; }
+.pill.wait    { color: #6D28D9; background: #F2EBFE; }
+.pill.res     { color: #15803D; background: #E8F5EC; }
+.pill.urgent  { color: #B91C1C; background: #FCE9E9; }
+
+.pill.d-open    { color: #93C5FD; background: rgba(59,130,246,0.14); }
+.pill.d-prog    { color: #FCD34D; background: rgba(245,158,11,0.14); }
+.pill.d-wait    { color: #C4B5FD; background: rgba(167,139,250,0.16); }
+.pill.d-res     { color: #86EFAC; background: rgba(34,197,94,0.14); }
+.pill.d-urgent  { color: #FCA5A5; background: rgba(239,68,68,0.14); }
+
+/* ---------- Focus ring helper ---------- */
+.focus-ring { box-shadow: 0 0 0 2px rgba(37,99,235,0.20); }
+
+/* ---------- Skeleton shimmer ---------- */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+/* Hide scrollbars inside artboards for clean screenshots */
+.artboard-clean::-webkit-scrollbar { display: none; }
+.artboard-clean { scrollbar-width: none; }

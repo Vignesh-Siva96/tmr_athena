@@ -1,0 +1,23 @@
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+FROM base AS builder
+WORKDIR /app
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/types/package.json ./packages/types/
+COPY packages/config/package.json ./packages/config/
+COPY apps/portal/package.json ./apps/portal/
+RUN pnpm install --frozen-lockfile
+COPY packages/ ./packages/
+COPY apps/portal/ ./apps/portal/
+RUN pnpm --filter @tmr/portal build
+
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/apps/portal/.next/standalone ./
+COPY --from=builder /app/apps/portal/.next/static ./apps/portal/.next/static
+COPY --from=builder /app/apps/portal/public ./apps/portal/public
+EXPOSE 3000
+CMD ["node", "apps/portal/server.js"]

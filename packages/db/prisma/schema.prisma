@@ -1,0 +1,347 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── APP CONFIG (single row — edited via Settings page) ───────────────────────
+
+model AppConfig {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appName          String  @default("Support")
+  logoUrl          String?
+  portalTagline    String?
+  primaryColor     String  @default("#2563EB")
+  accentColor      String  @default("#0EA5E9")
+  emailDisplayName String  @default("Support")
+  supportEmail     String?
+  customDomain     String?
+
+  // GitHub webhook config
+  githubWebhookSecret        String?
+  webhookVerifiedAt          DateTime?
+  fixDeployedLabel           String  @default("fix-deployed")
+  pendingConfirmationLabel   String  @default("pending-customer-confirmation")
+
+  notifications  Notification[]
+}
+
+// ─── USERS (customers) ────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  password  String?
+  isGuest   Boolean  @default(false)
+  googleId  String?  @unique
+
+  lastActiveAt DateTime?
+
+  tickets       Ticket[]       @relation("TicketCustomer")
+  messages      Message[]      @relation("MessageAuthorUser")
+  magicTokens   MagicToken[]
+  customerNotes CustomerNote[]
+
+  @@index([email])
+}
+
+model MagicToken {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+// ─── AGENTS (internal team) ───────────────────────────────────────────────────
+
+model Agent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email     String    @unique
+  name      String
+  avatarUrl String?
+  password  String?
+  googleId  String?   @unique
+  role      AgentRole @default(AGENT)
+
+  isActive     Boolean  @default(true)
+  lastActiveAt DateTime?
+
+  inviteToken    String?  @unique
+  inviteAccepted Boolean  @default(false)
+
+  assignedTickets   Ticket[]       @relation("TicketAssignee")
+  messages          Message[]      @relation("MessageAuthorAgent")
+  customerNotes     CustomerNote[]
+  notificationReads NotificationRead[]
+
+  @@index([email])
+}
+
+enum AgentRole {
+  ADMIN
+  AGENT
+}
+
+// ─── TICKETS ──────────────────────────────────────────────────────────────────
+
+model Ticket {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  number    Int            @unique @default(autoincrement())
+  title     String
+  status    TicketStatus   @default(OPEN)
+  priority  TicketPriority @default(NORMAL)
+  category  TicketCategory
+  product   String?
+  connector String?
+  source    TicketSource   @default(PORTAL)
+
+  userId     String
+  user       User   @relation("TicketCustomer", fields: [userId], references: [id])
+
+  assigneeId String?
+  assignee   Agent?  @relation("TicketAssignee", fields: [assigneeId], references: [id])
+
+  emailThreadId String  @unique @default(cuid())
+
+  githubIssue   GithubIssue?
+  messages      Message[]
+  attachments   Attachment[]
+  tags          Tag[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([userId])
+  @@index([assigneeId])
+  @@index([emailThreadId])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  BUG_REPORT
+  FEATURE_REQUEST
+  QUESTION
+  BILLING
+  OTHER
+}
+
+enum TicketSource {
+  PORTAL
+  EMAIL
+}
+
+// ─── MESSAGES ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  type      MessageType @default(REPLY)
+  body      String
+  bodyHtml  String?
+
+  authorUserId  String?
+  authorUser    User?   @relation("MessageAuthorUser", fields: [authorUserId], references: [id])
+
+  authorAgentId String?
+  authorAgent   Agent?  @relation("MessageAuthorAgent", fields: [authorAgentId], references: [id])
+
+  sentVia    MessageSentVia?
+  isInternal Boolean @default(false)
+
+  attachments Attachment[]
+
+  @@index([ticketId])
+  @@index([ticketId, createdAt])
+}
+
+enum MessageType {
+  REPLY
+  INTERNAL_NOTE
+  SYSTEM_EVENT
+}
+
+enum MessageSentVia {
+  PORTAL
+  EMAIL
+  PORTAL_AND_EMAIL
+}
+
+// ─── ATTACHMENTS ──────────────────────────────────────────────────────────────
+
+model Attachment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  ticketId  String?
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id])
+
+  filename  String
+  mimeType  String
+  size      Int
+  url       String
+  isLink    Boolean @default(false)
+  linkUrl   String?
+}
+
+// ─── TAGS ─────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  name    String  @unique
+  color   String  @default("#71717A")
+  tickets Ticket[]
+}
+
+// ─── GITHUB ───────────────────────────────────────────────────────────────────
+
+model GithubConfig {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accessToken    String
+  githubUsername String
+  githubUserId   String
+
+  defaultRepo String?
+}
+
+model GithubIssue {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticketId String @unique
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  issueNumber  Int
+  repo         String
+  issueUrl     String
+  title        String
+  state        String @default("open")
+  reviewers    Int    @default(0)
+  daysOpen     Int    @default(0)
+  lastSyncedAt DateTime?
+}
+
+// ─── CANNED RESPONSES ─────────────────────────────────────────────────────────
+
+model CannedResponse {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name String
+  body String
+}
+
+// ─── CUSTOMER NOTES ───────────────────────────────────────────────────────────
+
+model CustomerNote {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id])
+
+  body String
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  createdAt DateTime         @default(now())
+
+  type      NotificationType
+
+  // Human-readable content
+  title     String
+  body      String?
+
+  // Related ticket (if applicable)
+  ticketId  String?
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  // GitHub issue context
+  githubIssueNumber Int?
+  githubRepo        String?
+  githubIssueTitle  String?
+
+  // Which AppConfig this notification belongs to (always the single row)
+  appConfigId String?
+  appConfig   AppConfig? @relation(fields: [appConfigId], references: [id], onDelete: SetNull)
+
+  // Per-agent read tracking
+  reads NotificationRead[]
+
+  @@index([createdAt])
+  @@index([ticketId])
+}
+
+model NotificationRead {
+  id             String       @id @default(cuid())
+  readAt         DateTime     @default(now())
+
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, agentId])
+}
+
+enum NotificationType {
+  GITHUB_FIX_DEPLOYED
+}

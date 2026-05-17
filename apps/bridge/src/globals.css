@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── DARK THEME (default) ───────────────────────────────────────────────── */
+:root {
+  --d-bg: #0A0A0A;
+  --d-surface: #141414;
+  --d-raised: #1C1C1E;
+  --d-raised-2: #232326;
+  --d-border: #27272A;
+  --d-border-2: #1F1F22;
+  --d-text: #FAFAFA;
+  --d-text-2: #D4D4D8;
+  --d-text-3: #A1A1AA;
+  --d-text-4: #71717A;
+  --d-accent: #3B82F6;
+  --d-accent-hv: #60A5FA;
+  --d-accent-bg: rgba(59,130,246,0.12);
+  --d-success: #22C55E;
+  --d-success-bg: rgba(34,197,94,0.14);
+  --d-warning: #F59E0B;
+  --d-warning-bg: rgba(245,158,11,0.14);
+  --d-danger: #EF4444;
+  --d-danger-bg: rgba(239,68,68,0.14);
+  --d-purple: #A78BFA;
+  --d-purple-bg: rgba(167,139,250,0.14);
+  --d-note-bg: rgba(245,158,11,0.06);
+  --d-note-line: rgba(245,158,11,0.30);
+  --d-note-text: #FDE68A;
+  --d-shadow-card: none;
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 12px;
+  --font-display: "Geist", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Geist", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ─── LIGHT THEME — only active when data-theme="light" on <html> ─────────
+   Dark theme is completely unaffected. Zero existing code changes needed.   */
+html[data-theme="light"] {
+  /* Surfaces */
+  --d-bg:      #F4F5F7;
+  --d-surface: #F8F9FB;
+  --d-raised:  #FFFFFF;
+  --d-raised-2:#FAFBFC;
+
+  /* Borders */
+  --d-border:   #E4E7EC;
+  --d-border-2: #EFF1F4;
+
+  /* Text */
+  --d-text:   #0B0D12;
+  --d-text-2: #4B5563;
+  --d-text-3: #6B7280;
+  --d-text-4: #9CA3AF;
+
+  /* Accent */
+  --d-accent:    #2563EB;
+  --d-accent-hv: #1D4ED8;
+  --d-accent-bg: #EFF4FF;
+
+  /* Semantic */
+  --d-success:    #047857;
+  --d-success-bg: #ECFDF5;
+  --d-warning:    #B45309;
+  --d-warning-bg: #FEF3C7;
+  --d-danger:     #B91C1C;
+  --d-danger-bg:  #FEF2F2;
+  --d-purple:     #6D28D9;
+  --d-purple-bg:  #F3EEFF;
+
+  /* Internal note */
+  --d-note-bg:   #FEF7E6;
+  --d-note-line: #D97706;
+  --d-note-text: #92400E;
+
+  /* Shadows (replace tone-only elevation from dark) */
+  --d-shadow-card: 0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06);
+  --d-shadow-lg:   0 4px 12px rgba(15,23,42,0.04), 0 16px 32px rgba(15,23,42,0.08);
+}
+
+/* ─── CARD ELEVATION — only active in light mode ────────────────────────── */
+html[data-theme="light"] [style*="background: var(--d-raised)"],
+html[data-theme="light"] [style*="background:var(--d-raised)"] {
+  box-shadow: var(--d-shadow-card);
+}
+
+/* ─── BASE ───────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html { font-size: 15px; }
+body {
+  background: var(--d-bg);
+  color: var(--d-text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.mono { font-family: var(--font-mono); }
+
+/* ─── STATUS PILLS ───────────────────────────────────────────────────────── */
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.01em; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Dark pill colours (default) */
+.d-open   { color: #93C5FD; background: rgba(59,130,246,0.14); }
+.d-prog   { color: #FCD34D; background: rgba(245,158,11,0.14); }
+.d-wait   { color: #C4B5FD; background: rgba(167,139,250,0.16); }
+.d-res    { color: #86EFAC; background: rgba(34,197,94,0.14); }
+.d-urgent { color: #FCA5A5; background: rgba(239,68,68,0.14); }
+
+/* Light pill overrides */
+html[data-theme="light"] .d-open   { color: #1D4ED8; background: #EFF4FF; }
+html[data-theme="light"] .d-prog   { color: #B45309; background: #FEF3C7; }
+html[data-theme="light"] .d-wait   { color: #6D28D9; background: #F3EEFF; }
+html[data-theme="light"] .d-res    { color: #047857; background: #ECFDF5; }
+html[data-theme="light"] .d-urgent { color: #B91C1C; background: #FEF2F2; }
+
+/* ─── SHIMMER ────────────────────────────────────────────────────────────── */
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+html[data-theme="light"] .shimmer {
+  background: linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 100%);
+  background-size: 200% 100%;
+}
