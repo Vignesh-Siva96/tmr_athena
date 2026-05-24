@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
+import { QueueService } from '../queue/queue.service'
 import type { CreateMessageDto, UpdateMessageDto } from './messages.dto'
 import type { MessageType, MessageSentVia, TicketStatus } from '@tmr/db'
 
@@ -16,11 +17,14 @@ interface CallerContext {
 
 const MESSAGE_EDIT_WINDOW_MS = 5 * 60 * 1000
 
+const REOPENABLE_STATUSES: TicketStatus[] = ['RESOLVED', 'CLOSED']
+
 @Injectable()
 export class MessagesService {
   constructor(
     private readonly db: PrismaService,
     private readonly emailService: EmailService,
+    private readonly queueService: QueueService,
   ) {}
 
   async create(
@@ -70,6 +74,18 @@ export class MessagesService {
         else if (caller.role === 'user' && ticket.status === 'WAITING') newStatus = 'IN_PROGRESS'
       }
 
+      // Reopen tracking: customer replied on a resolved/closed ticket
+      if (!isInternal && caller.role === 'user' && REOPENABLE_STATUSES.includes(ticket.status as TicketStatus)) {
+        newStatus = 'IN_PROGRESS'
+        await tx.ticket.update({
+          where: { id: ticketId },
+          data: {
+            reopenCount: { increment: 1 },
+            reopenedAt: new Date(),
+          },
+        })
+      }
+
       if (newStatus) {
         await tx.ticket.update({ where: { id: ticketId }, data: { status: newStatus } })
         await tx.message.create({
@@ -80,7 +96,7 @@ export class MessagesService {
       return newMessage
     })
 
-    // Send email: agent reply → email to customer
+    // Send email: agent reply → email to customer; store returned Message-ID for threading
     if (caller.role === 'agent' && !isInternal) {
       const appConfig = await this.db.appConfig.findFirst()
       if (appConfig) {
@@ -90,8 +106,18 @@ export class MessagesService {
             message as Parameters<typeof this.emailService.sendAgentReply>[1],
             appConfig,
           )
+          .then((msgId) => {
+            if (msgId) {
+              return this.db.message.update({ where: { id: message.id }, data: { messageId: msgId } })
+            }
+          })
           .catch((err: unknown) => console.error('Email send failed:', err))
       }
+    }
+
+    // Enqueue AI sentiment analysis for customer replies
+    if (!isInternal && caller.role === 'user' && dto.type === 'REPLY') {
+      this.queueService.enqueueAnalyzeMessage({ messageId: message.id, ticketId }).catch(() => {})
     }
 
     return { message }

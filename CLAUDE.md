@@ -3,9 +3,43 @@
 You are building **TMR Support Platform** — a multi-tenant customer support ticketing system
 for Two Minute Reports (TMR). Read this file fully before doing anything else.
 
-> **STATE.md is the living source of truth.** Read `STATE.md` at the start of every session
-> to understand the current state of the app, architecture decisions, and known issues.
-> Update `STATE.md` at the end of every session — feature statuses, decisions made, issues found.
+---
+
+## 🔴 Documentation rule — do this without being told
+
+Two docs travel with the code. Keep both current as part of shipping a change.
+**Treat them as part of "done." A task is not finished until they're updated.**
+
+| File | What it captures | When to update |
+|---|---|---|
+| [`STATE.md`](STATE.md) | History — decisions, known issues, session-by-session changelog | At the end of every session (always) + when a decision is made |
+| [`docs/atlas/`](docs/atlas/) | Present state — per-feature reference (stack, flow, key files) | When you materially change a feature (see triggers below) |
+
+### Before reporting a task complete, run this 30-second checklist
+
+1. **Touched any feature behavior, flow, or dependency?** → Edit the matching `docs/atlas/<feature>.md`.
+2. **Added/renamed a controller endpoint, NestJS module, or Prisma model?** → Run `pnpm atlas:gen` to refresh `docs/atlas/_generated/`.
+3. **Made an architecture decision or hit a non-obvious gotcha?** → Add a row to the Decisions table in STATE.md.
+4. **About to say "done" or end the session?** → Append a Session Log entry to STATE.md summarizing what changed.
+
+If none of the four apply, say "no docs needed" explicitly so it's clear you checked.
+
+### What counts as a "material change" to a feature
+
+- New endpoint, new NestJS module, new external dependency
+- A change in data flow (added a queue, swapped a library, removed a service)
+- A non-obvious decision someone will want to find later
+- A new known gap or limitation
+
+### What does NOT trigger a docs update
+
+- Typos, formatting, internal renames with no external surface
+- One-line bug fixes where the feature behaves the same after as before
+- Reverting a change that hasn't shipped
+
+`docs/atlas/_generated/` is never edited by hand — only `pnpm atlas:gen` writes there.
+
+This is a culture rule, not a CI gate. **The user has explicitly asked not to have to remind us.** Be the diligent author.
 
 ---
 

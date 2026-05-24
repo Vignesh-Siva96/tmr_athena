@@ -29,6 +29,26 @@ model AppConfig {
   fixDeployedLabel           String  @default("fix-deployed")
   pendingConfirmationLabel   String  @default("pending-customer-confirmation")
 
+  // IMAP inbound config
+  imapHost        String?
+  imapPort        Int?     @default(993)
+  imapUser        String?
+  imapPasswordEnc String?
+  imapUseTls      Boolean  @default(true)
+  imapFolder      String   @default("INBOX")
+
+  // SMTP outbound config (per-org, overrides env)
+  smtpHost        String?
+  smtpPort        Int?     @default(587)
+  smtpUser        String?
+  smtpPasswordEnc String?
+  smtpFrom        String?
+
+  // Inbound state
+  inboundEnabled  Boolean  @default(false)
+  inboundLastUid  Int?
+  verpSecret      String?
+
   notifications  Notification[]
 }
 
@@ -46,14 +66,31 @@ model User {
   isGuest   Boolean  @default(false)
   googleId  String?  @unique
 
+  source      UserSource  @default(PORTAL)
+  isVerified  Boolean     @default(false)
+  emailStatus EmailStatus @default(ACTIVE)
+
   lastActiveAt DateTime?
 
-  tickets       Ticket[]       @relation("TicketCustomer")
-  messages      Message[]      @relation("MessageAuthorUser")
+  tickets       Ticket[]         @relation("TicketCustomer")
+  messages      Message[]        @relation("MessageAuthorUser")
   magicTokens   MagicToken[]
   customerNotes CustomerNote[]
+  signals       CustomerSignal[]
 
   @@index([email])
+}
+
+enum UserSource {
+  PORTAL
+  EMAIL
+  INVITE
+}
+
+enum EmailStatus {
+  ACTIVE
+  BOUNCING
+  BLOCKED
 }
 
 model MagicToken {
@@ -126,16 +163,27 @@ model Ticket {
 
   emailThreadId String  @unique @default(cuid())
 
+  // AI / customer intelligence
+  topicId         String?
+  topic           Topic?   @relation(fields: [topicId], references: [id])
+  reopenedAt      DateTime?
+  reopenCount     Int       @default(0)
+  firstResolvedAt DateTime?
+
   githubIssue   GithubIssue?
   messages      Message[]
   attachments   Attachment[]
   tags          Tag[]
   notifications Notification[]
+  rating        TicketRating?
+  aiUsages      AiUsage[]
+  signals       CustomerSignal[]
 
   @@index([status])
   @@index([userId])
   @@index([assigneeId])
   @@index([emailThreadId])
+  @@index([topicId])
 }
 
 enum TicketStatus {
@@ -189,10 +237,22 @@ model Message {
   sentVia    MessageSentVia?
   isInternal Boolean @default(false)
 
+  messageId  String?  @unique
+  inReplyTo  String?
+  bodyRaw    String?  @db.Text
+
+  // AI sentiment analysis
+  sentimentScore Float?
+  sentimentLabel SentimentLabel?
+  analyzedAt     DateTime?
+
   attachments Attachment[]
+  aiUsages    AiUsage[]
+  signals     CustomerSignal[]
 
   @@index([ticketId])
   @@index([ticketId, createdAt])
+  @@index([messageId])
 }
 
 enum MessageType {
@@ -344,4 +404,110 @@ model NotificationRead {
 
 enum NotificationType {
   GITHUB_FIX_DEPLOYED
+  CHURN_RISK_DETECTED
 }
+
+// ─── SENTIMENT ────────────────────────────────────────────────────────────────
+
+enum SentimentLabel {
+  NEGATIVE
+  NEUTRAL
+  POSITIVE
+}
+
+// ─── AI TOPICS ────────────────────────────────────────────────────────────────
+
+model Topic {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  name        String   @unique
+  description String?
+  ticketCount Int      @default(0)
+  tickets     Ticket[]
+}
+
+// ─── TICKET RATING (CSAT) ─────────────────────────────────────────────────────
+
+model TicketRating {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+
+  ticketId    String   @unique
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userRating    Int?
+  userComment   String?
+  aiRating      Int?
+  aiReasoning   String?
+  aiEffortScore Int?
+  aiSummary     String?
+  ratingToken   String   @unique @default(cuid())
+  requestedAt   DateTime @default(now())
+  ratedAt       DateTime?
+}
+
+// ─── CUSTOMER SIGNALS ────────────────────────────────────────────────────────
+
+model CustomerSignal {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+
+  type      SignalType
+  quote     String
+  reason    String?
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  ticketId  String
+  ticket    Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+
+  reviewed  Boolean  @default(false)
+
+  @@index([type, createdAt])
+  @@index([userId])
+  @@index([ticketId])
+}
+
+enum SignalType {
+  CHURN_RISK
+  ADVOCACY
+}
+
+// ─── AI USAGE (cost tracking) ────────────────────────────────────────────────
+
+enum AiOperation {
+  SENTIMENT
+  TOPIC
+  CSAT
+}
+
+enum AiCallStatus {
+  OK
+  ERROR
+}
+
+model AiUsage {
+  id               String       @id @default(cuid())
+  createdAt        DateTime     @default(now())
+  model            String
+  operation        AiOperation
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  estimatedCostUsd Decimal      @db.Decimal(12, 6)
+  durationMs       Int
+  status           AiCallStatus
+  errorMessage     String?
+  ticketId         String?
+  ticket           Ticket?      @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  messageId        String?
+  message          Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([operation, createdAt])
+}
+

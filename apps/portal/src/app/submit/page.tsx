@@ -245,7 +245,7 @@ export default function SubmitPage() {
 
             {/* Category */}
             <div style={{ marginBottom: 28 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+              <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                 Issue category
               </label>
               <Controller
@@ -264,7 +264,7 @@ export default function SubmitPage() {
             {/* Title */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--p-text)' }}>Title</label>
+                <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--p-text)' }}>Title</label>
                 {titleValue.length > 0 && (
                   <span style={{ fontSize: 12, color: 'var(--p-text-4)', fontVariantNumeric: 'tabular-nums' }}>
                     {titleValue.length} / 120
@@ -295,7 +295,7 @@ export default function SubmitPage() {
             {/* Destination + Connector */}
             <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                   Which destination?
                 </label>
                 <div style={{ position: 'relative' }}>
@@ -315,7 +315,7 @@ export default function SubmitPage() {
                 </div>
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                   Connector{' '}
                   <span style={{ color: 'var(--p-text-4)', fontWeight: 400 }}>(optional)</span>
                 </label>
@@ -331,7 +331,7 @@ export default function SubmitPage() {
 
             {/* Description */}
             <div style={{ marginBottom: 28 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+              <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                 Description{' '}
                 <span style={{ color: 'var(--p-text-4)', fontWeight: 400 }}>(optional)</span>
               </label>
@@ -402,7 +402,7 @@ export default function SubmitPage() {
             {/* Guest email (only if not logged in) */}
             {!user && (
               <div style={{ marginBottom: 28 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                   Your email address
                 </label>
                 <input
@@ -433,7 +433,7 @@ export default function SubmitPage() {
 
             {/* Attachments */}
             <div style={{ marginBottom: 28 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
+              <label style={{ display: 'block', fontSize: 14, fontWeight: 500, color: 'var(--p-text)', marginBottom: 8 }}>
                 Attachments{' '}
                 <span style={{ color: 'var(--p-text-4)', fontWeight: 400 }}>(optional)</span>
               </label>

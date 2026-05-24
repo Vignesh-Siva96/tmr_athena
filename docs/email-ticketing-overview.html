@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Athena · Email + Ticketing Overview</title>
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --surface: #121317;
+    --raised: #1a1c22;
+    --border: #24262d;
+    --text: #e8eaee;
+    --text-2: #c2c5cc;
+    --text-3: #8b8f99;
+    --text-4: #5a5e68;
+    --accent: #3b82f6;
+    --accent-soft: rgba(59,130,246,0.14);
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --code-bg: #0d0f13;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 72px 32px 120px;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    color: var(--text-4);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 44px;
+    line-height: 1.1;
+    font-weight: 700;
+    margin: 0 0 18px;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+  .lead {
+    font-size: 18px;
+    color: var(--text-2);
+    max-width: 720px;
+    margin: 0 0 56px;
+  }
+  h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 64px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  p { margin: 0 0 14px; color: var(--text-2); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .grid {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 720px) {
+    .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 22px;
+  }
+  .card .label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-4);
+    margin-bottom: 8px;
+  }
+  .card p:last-child { margin-bottom: 0; }
+
+  .pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid rgba(59,130,246,0.35);
+    margin-right: 6px;
+  }
+  .pill.green { background: rgba(34,197,94,0.12); color: var(--success); border-color: rgba(34,197,94,0.35); }
+  .pill.amber { background: rgba(245,158,11,0.12); color: var(--warning); border-color: rgba(245,158,11,0.4); }
+
+  .ascii {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 22px;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-2);
+    white-space: pre;
+    overflow-x: auto;
+    margin: 18px 0 8px;
+  }
+
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--text-4);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  .check { color: var(--success); font-weight: 700; }
+  .x { color: var(--danger); font-weight: 700; }
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    padding: 0;
+    margin: 18px 0;
+  }
+  ol.steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 14px 18px 14px 60px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: 10px;
+    color: var(--text-2);
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 18px;
+    top: 14px;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    text-align: center;
+    font-weight: 700;
+    font-size: 13px;
+    border: 1px solid rgba(59,130,246,0.4);
+  }
+  ol.steps li strong { color: var(--text); }
+
+  .hero {
+    border: 1px solid var(--border);
+    background:
+      radial-gradient(ellipse at top right, rgba(59,130,246,0.12), transparent 60%),
+      var(--surface);
+    border-radius: var(--r-lg);
+    padding: 36px 36px 32px;
+    margin-bottom: 8px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-3);
+    margin: 6px 0 0 4px;
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .legend .b::before { background: var(--accent); }
+  .legend .g::before { background: var(--success); }
+  .legend .a::before { background: var(--warning); }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 64px 0 0;
+  }
+
+  .footnote {
+    color: var(--text-4);
+    font-size: 13px;
+    margin-top: 56px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <div class="eyebrow">Internal · Engineering walkthrough</div>
+    <h1>A self-hosted support platform that thinks <span>email is a first-class citizen</span></h1>
+    <p class="lead">
+      Athena is a ticketing system where every customer interaction — portal submissions, agent replies,
+      and direct emails to your support inbox — ends up as a single, threaded conversation. No third-party
+      mail providers, no MX changes, no infrastructure. Just paste your support address and an app password.
+    </p>
+    <div>
+      <span class="pill green">Self-hostable</span>
+      <span class="pill">Multi-channel</span>
+      <span class="pill">Real-time inbound</span>
+      <span class="pill amber">Single binary deploy</span>
+    </div>
+  </div>
+
+  <h2>What problem it solves</h2>
+  <p>
+    Most teams start with a shared <code>support@</code> inbox in Gmail. It works — until it doesn't.
+    You can't tell who's working on what, customers get duplicate replies, threads get lost in
+    long quoted chains, and there's no history for new agents to learn from. Existing
+    tools (Zendesk, Intercom, Help Scout) solve this but are expensive, opaque, and lock your data away.
+  </p>
+  <p>
+    Athena gives a team their own ticketing layer that sits on top of the inbox they already have. The
+    customer never knows it's there — they email <code>support@yourco.com</code> and get a reply from the
+    same address. The agents see a Linear-style UI with statuses, assignments, internal notes, and a full
+    audit trail.
+  </p>
+
+  <h2>The two surfaces</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <div class="label">For customers</div>
+      <h3>Portal (light theme)</h3>
+      <p>Submit a ticket via a form, sign in to see history, reply from the browser or directly from email.
+      Guest flow works without an account — they just enter their email.</p>
+    </div>
+    <div class="card">
+      <div class="label">For agents</div>
+      <h3>Bridge (dark theme)</h3>
+      <p>Inbox, ticket detail, internal notes, GitHub issue linking, analytics, customer profiles.
+      Categories, priorities, statuses, assignments, bulk actions, search.</p>
+    </div>
+  </div>
+
+  <h2>How a ticket can be created</h2>
+  <div class="grid cols-3">
+    <div class="card">
+      <div class="label">Channel 1</div>
+      <h3>Portal form</h3>
+      <p>Customer fills the Submit page. Category, destination, connector, description, attachments.
+      Gets confirmation email with a link to the thread.</p>
+    </div>
+    <div class="card">
+      <div class="label">Channel 2</div>
+      <h3>Direct email</h3>
+      <p>Customer emails <code>support@yourco.com</code> with no prior account. Athena ingests it,
+      auto-creates the customer, opens a ticket, sends a confirmation back.</p>
+    </div>
+    <div class="card">
+      <div class="label">Channel 3</div>
+      <h3>API <span class="pill amber" style="margin-left:6px">Future</span></h3>
+      <p>Programmatic creation from internal tools, monitoring alerts, or third-party webhooks.
+      Endpoint already exists for portal — exposing externally is one config flip.</p>
+    </div>
+  </div>
+
+  <h2>The email loop — outbound</h2>
+  <p>
+    When an agent replies in Bridge, the customer receives a real email — not a notification stub.
+    Threading headers (<code>Message-ID</code>, <code>In-Reply-To</code>, <code>References</code>)
+    are populated from the actual prior messages stored in the database, so Gmail / Outlook treat the
+    full ticket as one conversation.
+  </p>
+
+  <div class="ascii">Agent types reply in Bridge
+              │
+              ▼
+   ┌────────────────────────────┐
+   │   POST /tickets/:id/msgs   │
+   └─────────────┬──────────────┘
+                 │
+        Persist Message in DB  (messageId stored)
+                 │
+                 ▼
+   ┌────────────────────────────┐
+   │   EmailService.sendReply   │   builds:
+   │   (nodemailer → Gmail SMTP)│     From:      support@yourco.com
+   │                            │     Reply-To:  support+&lt;HMAC&gt;@yourco.com
+   │                            │     In-Reply-To: &lt;prior real Message-ID&gt;
+   │                            │     References:  &lt;full thread chain&gt;
+   └─────────────┬──────────────┘
+                 │
+                 ▼
+            Customer's inbox</div>
+
+  <h2>The email loop — inbound</h2>
+  <p>
+    Customer replies (or sends a fresh email). Athena keeps a persistent <strong>IMAP IDLE</strong>
+    connection to the support inbox — so when a new message lands, Gmail pushes us a notification
+    in 1–2 seconds. The message is queued, parsed, routed, and persisted as a new <code>Message</code>
+    (or new <code>Ticket</code>) row.
+  </p>
+
+  <div class="ascii">Customer hits Reply in Gmail
+              │
+              ▼
+     ┌───────────────────────────┐
+     │  Gmail (support inbox)    │
+     └─────────────┬─────────────┘
+                   │ IMAP IDLE push  (≤ 2 s)
+                   ▼
+     ┌───────────────────────────┐
+     │  ImapClientService        │   single-supervisor, auto-reconnect
+     │  • fetch new UID          │
+     │  • enqueue raw MIME       │
+     └─────────────┬─────────────┘
+                   │
+                   ▼
+     ┌───────────────────────────┐
+     │  BullMQ: email.inbound    │   Redis-backed, retries 5×, DLQ on fail
+     └─────────────┬─────────────┘
+                   │
+                   ▼
+     ┌───────────────────────────┐
+     │  InboundEmailProcessor    │
+     │  1. parse MIME            │
+     │  2. idempotency check     │  (Message.messageId @unique)
+     │  3. loop / autoreply guard│
+     │  4. routing decision      │  ←  see next section
+     │  5. identity resolution   │  ←  auto-create unknown senders
+     │  6. strip quoted text     │
+     │  7. persist Message       │
+     │  8. ack IMAP (mark Seen)  │
+     └───────────────────────────┘</div>
+
+  <h2>How we know which ticket a reply belongs to</h2>
+  <p>
+    The routing decision uses four strategies, evaluated in order. The first hit wins; the last one
+    always succeeds. <strong>No message is ever silently dropped.</strong>
+  </p>
+  <table>
+    <thead><tr><th style="width:140px">Strategy</th><th>What it looks at</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>VERP</strong></td>
+        <td><code>support+&lt;id&gt;.&lt;hmac&gt;@yourco.com</code> in the To/Cc fields</td>
+        <td>HMAC-signed so attackers can't inject into arbitrary tickets. Gmail plus-addressing delivers it to the same mailbox.</td>
+      </tr>
+      <tr>
+        <td><strong>Header</strong></td>
+        <td><code>In-Reply-To</code> and <code>References</code> headers</td>
+        <td>Looks up against <code>Message.messageId</code> we previously stored. Catches forwards and clients that strip the VERP token.</td>
+      </tr>
+      <tr>
+        <td><strong>Subject tag</strong></td>
+        <td><code>[TMR-1234]</code> pattern in the subject line</td>
+        <td>Last-resort fallback. Useful when customers change subjects or paste fragments.</td>
+      </tr>
+      <tr>
+        <td><strong>New ticket</strong></td>
+        <td>None of the above matched</td>
+        <td>Creates a brand-new ticket. Sender becomes a <code>source: EMAIL</code> User row. Sends a confirmation email back.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Why this design is robust</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>Idempotent end-to-end</h3>
+      <p><code>Message.messageId</code> is a <code>@unique</code> index. Re-processing the same email (worker retry, IMAP redelivery) results in zero duplicates.</p>
+    </div>
+    <div class="card">
+      <h3>Crash-safe queue</h3>
+      <p>BullMQ persists every job in Redis. If the worker dies mid-process, the job re-enters on restart. IMAP UID is only marked <code>\Seen</code> after a successful job.</p>
+    </div>
+    <div class="card">
+      <h3>Self-healing IMAP</h3>
+      <p>Connection supervisor with token-based fencing. Errors trigger <code>handleDisconnect</code> exactly once → exponential-backoff reconnect (1 s → 60 s cap). No hot loops on bad credentials.</p>
+    </div>
+    <div class="card">
+      <h3>Encrypted credentials at rest</h3>
+      <p>App password is AES-256-GCM encrypted in the database with a key from <code>EMAIL_CREDS_KEY</code>. Never returned via the API. Cleared on Disconnect.</p>
+    </div>
+    <div class="card">
+      <h3>Loop guards</h3>
+      <p>Drops <code>Auto-Submitted</code>, <code>Precedence: bulk</code>, <code>X-Autoreply</code>, and senders like <code>noreply@</code> / <code>mailer-daemon@</code> before they reach ticket creation. No ping-pong with auto-responders.</p>
+    </div>
+    <div class="card">
+      <h3>Bootstrap-safe</h3>
+      <p>On first connect, the worker parks at the inbox's current UID tip. It will <em>never</em> vacuum the existing backlog — a pitfall we hit on day one and now have a regression guard for.</p>
+    </div>
+  </div>
+
+  <h2>Setup, from clone to receiving mail</h2>
+  <ol class="steps">
+    <li><strong>Clone the repo.</strong> <code>git clone &amp;&amp; pnpm install</code>.</li>
+    <li><strong>Run the stack.</strong> Docker Compose brings up Postgres, Redis, MinIO. <code>pnpm dev</code> starts API + Portal + Bridge.</li>
+    <li><strong>Open Bridge → Settings → Email.</strong> Paste your support email address and a Gmail <a href="https://myaccount.google.com/apppasswords">app password</a>.</li>
+    <li><strong>Click Test connection.</strong> Green checkmarks for IMAP and SMTP within 5 seconds.</li>
+    <li><strong>Click Save.</strong> The IMAP IDLE connection comes up. Send a test email to that address — within 2 s a new ticket appears in the Inbox.</li>
+  </ol>
+  <p>That's it. No DNS changes. No reverse proxy. No MX records. No SES, no Mailgun. Any mail provider that speaks IMAP works (Gmail, Workspace, Outlook 365, Zoho, FastMail).</p>
+
+  <h2>What's possible from here</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>Near-term (already designed)</h3>
+      <ul style="padding-left:18px; color:var(--text-2); margin:0;">
+        <li>Google / Microsoft OAuth (no more app passwords)</li>
+        <li>Attachment extraction from email → MinIO → ticket</li>
+        <li>Bounce / DSN handling with sender suppression</li>
+        <li>Multi-address routing (<code>billing@</code>, <code>sales@</code> → categories)</li>
+        <li>Real-time push via SSE (replaces 10–15 s polling)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Long-term (Phase 2)</h3>
+      <ul style="padding-left:18px; color:var(--text-2); margin:0;">
+        <li>AI-assisted triage and reply drafting</li>
+        <li>Customer health / churn signals from ticket patterns</li>
+        <li>SLA tracking + breach alerts</li>
+        <li>Public API for programmatic ticket ops</li>
+        <li>Knowledge base linked into the reply composer</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>The stack at a glance</h2>
+  <table>
+    <thead><tr><th style="width:200px">Layer</th><th>Technology</th></tr></thead>
+    <tbody>
+      <tr><td>API</td><td>NestJS · TypeScript · Prisma · Zod</td></tr>
+      <tr><td>Database</td><td>PostgreSQL 16</td></tr>
+      <tr><td>Queue</td><td>BullMQ on Redis</td></tr>
+      <tr><td>Inbound mail</td><td><code>imapflow</code> IDLE client</td></tr>
+      <tr><td>Outbound mail</td><td><code>nodemailer</code> over SMTP</td></tr>
+      <tr><td>File storage</td><td>MinIO (S3-compatible)</td></tr>
+      <tr><td>Portal &amp; Bridge</td><td>Next.js 15 · React · Recharts</td></tr>
+      <tr><td>Auth</td><td>JWT (HMAC-SHA256)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What &ldquo;robust&rdquo; means in numbers</h2>
+  <div class="grid cols-3">
+    <div class="card" style="text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:var(--accent)">≤ 2 s</div>
+      <p style="margin-top:6px;color:var(--text-3);font-size:13px">Inbound mail to ticket via IMAP IDLE</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:var(--accent)">5×</div>
+      <p style="margin-top:6px;color:var(--text-3);font-size:13px">Retry attempts with exponential backoff before DLQ</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div style="font-size:32px;font-weight:700;color:var(--accent)">0</div>
+      <p style="margin-top:6px;color:var(--text-3);font-size:13px">Mail provider lock-in · works with any IMAP host</p>
+    </div>
+  </div>
+
+  <hr/>
+  <div class="footnote">
+    Athena · Internal walkthrough · See <code>STATE.md</code> for live feature status and <code>CLAUDE.md</code> for architecture details.
+  </div>
+
+</div>
+</body>
+</html>

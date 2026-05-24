@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LifeBuoy, Inbox, LayoutList, Settings, LogOut, Search, BarChart2, ArrowUpRight, Check, ExternalLink } from 'lucide-react'
+import { LifeBuoy, Inbox, LayoutList, Settings, LogOut, Search, BarChart2, ArrowUpRight, Check, ExternalLink, Activity, Users } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { NotificationsPanel } from './NotificationsPanel'
@@ -76,12 +76,19 @@ export function DashboardSidebar() {
 
   useEffect(() => {
     if (!token) return
-    api.get<Stats>('/tickets/stats', token).then(setStats).catch(() => {})
+    const loadStats = () => api.get<Stats>('/tickets/stats', token).then(setStats).catch(() => {})
+    loadStats()
     api.get<{ connected: boolean }>('/github/status', token)
       .then((r) => setGithubConnected(r.connected)).catch(() => {})
     api.get<{ appName: string; logoUrl: string | null }>('/config', token)
       .then((r) => { setAppName(r.appName || 'TMR Support'); setAppLogo(r.logoUrl) })
       .catch(() => {})
+
+    // Poll ticket counts so the sidebar reflects new inbound mail without a reload
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') void loadStats()
+    }, 15000)
+    return () => clearInterval(interval)
   }, [token])
 
   // Live-update when settings are saved without a page reload
@@ -252,7 +259,7 @@ export function DashboardSidebar() {
                     <Link key={href} href={href} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'rgba(59,130,246,0.1)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ color: active ? 'var(--d-accent)' : 'var(--d-text-3)', display: 'flex' }}>{icon}</span>
-                        <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
+                        <span style={{ fontSize: 14, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
                       </div>
                       {count !== undefined && <span style={{ fontSize: 11, color: 'var(--d-text-4)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>}
                     </Link>
@@ -323,16 +330,21 @@ export function DashboardSidebar() {
 
           {/* ANALYTICS PANEL */}
           {activeSection === 'analytics' && (
-            <div style={{ padding: '8px 12px 10px' }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', margin: '0 0 10px' }}>Analytics</p>
-              <Link href="/analytics"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', textDecoration: 'none', background: pathname.startsWith('/analytics') ? 'rgba(59,130,246,0.1)' : 'var(--d-raised)', border: '1px solid var(--d-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <BarChart2 size={13} style={{ color: 'var(--d-accent)' }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--d-text)' }}>Dashboard</span>
-                </div>
-                <ArrowUpRight size={11} style={{ color: 'var(--d-text-4)' }} />
-              </Link>
+            <div style={{ padding: '8px 8px' }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', padding: '4px 4px 8px', margin: 0 }}>Analytics</p>
+              {[
+                { href: '/analytics/operations', label: 'Operations', icon: <Activity size={13} /> },
+                { href: '/analytics/customers', label: 'Customer insights', icon: <Users size={13} /> },
+              ].map(({ href, label, icon }) => {
+                const active = pathname === href
+                return (
+                  <Link key={href} href={href}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'rgba(59,130,246,0.1)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2 }}>
+                    <span style={{ color: active ? 'var(--d-accent)' : 'var(--d-text-3)', display: 'flex' }}>{icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
+                  </Link>
+                )
+              })}
             </div>
           )}
         </div>

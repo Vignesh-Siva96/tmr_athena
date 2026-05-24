@@ -82,6 +82,16 @@ function AllTicketsInner() {
 
   useEffect(() => { loadTickets() }, [token, statusFilter, categoryFilter, searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll for new tickets — only when the tab is in the foreground
+  useEffect(() => {
+    if (!token) return
+    const tick = () => {
+      if (document.visibilityState === 'visible') loadTickets()
+    }
+    const interval = setInterval(tick, 15000)
+    return () => clearInterval(interval)
+  }, [token, statusFilter, categoryFilter, searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const selected = tickets.find((t) => t.id === selectedId) ?? null
 
   return (
@@ -145,7 +155,7 @@ function AllTicketsInner() {
                       <span className="mono" style={{ width: 80, fontSize: 11, fontWeight: 500, color: 'var(--d-text-3)' }}>{t.displayId}</span>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
                         {t.hasUnreadReply && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--d-accent)', flexShrink: 0 }} />}
-                        <span style={{ fontSize: 13, fontWeight: t.hasUnreadReply ? 600 : 500, color: t.hasUnreadReply ? 'var(--d-text)' : 'var(--d-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                        <span style={{ fontSize: 14, fontWeight: t.hasUnreadReply ? 600 : 500, color: t.hasUnreadReply ? 'var(--d-text)' : 'var(--d-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                         <CategoryPill category={t.category} size="xs" />
                         <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0 }}>· {t.user.name ?? t.user.email}</span>
                       </div>

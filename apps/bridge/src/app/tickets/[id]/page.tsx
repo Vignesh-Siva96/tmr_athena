@@ -17,11 +17,12 @@ interface Author { id: string; name: string | null; email: string; avatarUrl: st
 interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean }
 interface Message { id: string; type: MessageType; body: string; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; attachments: Attachment[]; createdAt: string }
 interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; reviewers: number; daysOpen: number }
+interface AiRating { aiRating: number | null; aiEffortScore: number | null; aiSummary: string | null }
 interface TicketDetail {
   id: string; number: number; displayId: string; title: string; status: TicketStatus; priority: TicketPriority; category: TicketCategory
   product?: string | null; connector?: string | null; source: string
   user: Author; assignee?: Author | null; messages: Message[]; attachments: Attachment[]
-  githubIssue?: GithubIssue | null; createdAt: string; updatedAt: string
+  githubIssue?: GithubIssue | null; rating?: AiRating | null; createdAt: string; updatedAt: string
 }
 
 const STATUS_OPTS: TicketStatus[] = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']
@@ -245,9 +246,20 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     if (!token || !id) return
-    api.get<{ ticket: TicketDetail }>(`/tickets/${id}`, token)
-      .then((res) => setTicket(res.ticket))
-      .catch(console.error).finally(() => setIsLoading(false))
+    const load = (showSpinner = false) => {
+      if (showSpinner) setIsLoading(true)
+      return api.get<{ ticket: TicketDetail }>(`/tickets/${id}`, token)
+        .then((res) => setTicket(res.ticket))
+        .catch(console.error)
+        .finally(() => { if (showSpinner) setIsLoading(false) })
+    }
+    load(true)
+
+    // Poll so inbound customer replies (via email) show up without a reload
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') void load(false)
+    }, 10000)
+    return () => clearInterval(interval)
   }, [token, id])
 
   // Check for fix-deployed notification for this ticket
@@ -328,7 +340,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             <span style={{ color: 'var(--d-text-4)' }}>/</span>
             <span className="mono" style={{ fontSize: 13, color: 'var(--d-text-3)' }}>{ticket.displayId}</span>
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 12px', lineHeight: 1.3, fontFamily: 'var(--font-display)' }}>{ticket.title}</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--d-text)', margin: '0 0 12px', lineHeight: 1.2, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>{ticket.title}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {/* Status dropdown */}
             <div style={{ position: 'relative' }}>
@@ -424,7 +436,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   </div>
                   <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{fmtDate(msg.createdAt)}</span>
                 </div>
-                <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--d-note-text)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
+                <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--d-note-text)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
               </div>
             )
 
@@ -434,7 +446,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   <div style={{ width: 28, height: 28, borderRadius: '50%', background: isFromAgent ? 'var(--d-accent)' : 'var(--d-raised-2)', color: isFromAgent ? '#fff' : 'var(--d-text-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, border: '1px solid var(--d-border)', flexShrink: 0 }}>
                     {initials(author.name, author.email)}
                   </div>
-                  <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>{isFromAgent ? (author.name ?? 'Agent') : (author.name ?? author.email)}</span>
+                  <span style={{ fontSize: 13, color: 'var(--d-text-3)' }}>{isFromAgent ? (author.name ?? 'Agent') : (author.name ?? author.email)}</span>
                   <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{fmtDate(msg.createdAt)}</span>
                   {isFromAgent && <span style={{ fontSize: 10, color: 'var(--d-success)', display: 'flex', alignItems: 'center', gap: 3 }}>✓ Sent</span>}
                 </div>
@@ -445,7 +457,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   borderBottomRightRadius: isFromAgent ? 4 : 'var(--r-md)',
                   borderBottomLeftRadius: isFromAgent ? 'var(--r-md)' : 4,
                 }}>
-                  <p style={{ fontSize: 13, lineHeight: 1.6, color: isFromAgent ? 'var(--d-text)' : 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
+                  <p style={{ fontSize: 15, lineHeight: 1.6, color: isFromAgent ? 'var(--d-text)' : 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
                   {msg.attachments.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                       {msg.attachments.map((att) => (
@@ -459,6 +471,37 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
               </div>
             )
           })}
+
+          {/* AI scoring summary — agent-only, shown once ticket is resolved/closed */}
+          {(ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') && ticket.rating?.aiSummary && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--d-border)' }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>AI Analysis</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--d-border)' }} />
+              </div>
+              <div style={{ padding: '12px 16px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 8, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+                  {ticket.rating.aiRating !== null && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: ticket.rating.aiRating >= 4 ? '#22C55E' : ticket.rating.aiRating <= 2 ? '#EF4444' : '#F59E0B', lineHeight: 1 }}>{ticket.rating.aiRating}/5</div>
+                      <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>CSAT</div>
+                    </div>
+                  )}
+                  {ticket.rating.aiEffortScore !== null && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: ticket.rating.aiEffortScore >= 4 ? '#EF4444' : ticket.rating.aiEffortScore <= 2 ? '#22C55E' : '#F59E0B', lineHeight: 1 }}>{ticket.rating.aiEffortScore}/5</div>
+                      <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>Effort</div>
+                    </div>
+                  )}
+                </div>
+                {(ticket.rating.aiRating !== null || ticket.rating.aiEffortScore !== null) && (
+                  <div style={{ width: 1, height: '100%', background: 'var(--d-border)', flexShrink: 0, alignSelf: 'stretch' }} />
+                )}
+                <p style={{ fontSize: 12, color: 'var(--d-text-3)', margin: 0, lineHeight: 1.6 }}>{ticket.rating.aiSummary}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Composer */}
@@ -519,7 +562,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
               {initials(ticket.user.name, ticket.user.email)}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)', margin: 0 }}>{ticket.user.name ?? 'Guest'}</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--d-text)', margin: 0 }}>{ticket.user.name ?? 'Guest'}</p>
               <p style={{ fontSize: 11, color: 'var(--d-text-3)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ticket.user.email}</p>
             </div>
           </div>
@@ -537,7 +580,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
           ].map(([label, value]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--d-text-4)' }}>{label}</span>
-              <span style={{ fontSize: 12, color: 'var(--d-text-2)', fontWeight: 500, textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>{value}</span>
+              <span style={{ fontSize: 13, color: 'var(--d-text-2)', fontWeight: 500, textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>{value}</span>
             </div>
           ))}
         </div>

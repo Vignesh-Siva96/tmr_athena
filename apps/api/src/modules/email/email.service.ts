@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as nodemailer from 'nodemailer'
-import { SMTPServer } from 'smtp-server'
-import { simpleParser, ParsedMail, AddressObject } from 'mailparser'
+import * as crypto from 'crypto'
+import { AppConfigService } from '../config/config.service'
 import { PrismaService } from '../database/prisma.service'
+import { decrypt } from '../../common/crypto/credentials-cipher'
+import { signVerpToken } from './verp.util'
 import type { Ticket, Agent, Message, AppConfig } from '@tmr/db'
 
 type TicketWithUser = Ticket & {
@@ -15,154 +17,135 @@ type MessageWithAgent = Message & {
 }
 
 @Injectable()
-export class EmailService implements OnModuleInit, OnModuleDestroy {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name)
   private transporter!: nodemailer.Transporter
-  private smtpServer!: SMTPServer
 
   constructor(
     private readonly config: ConfigService,
+    private readonly appConfigService: AppConfigService,
     private readonly db: PrismaService,
   ) {}
 
+  /**
+   * Build RFC 5322 threading headers anchored to messages the customer's mail
+   * client has actually seen.
+   *
+   * - Portal-originated ticket: the confirmation email used `<ticket-<id>@domain>`
+   *   as its Message-ID, so referencing that ID threads correctly in the
+   *   customer's inbox.
+   * - Email-originated ticket: no confirmation email was sent. The customer's
+   *   first email carried their own Message-ID (e.g. `<abc@gmail.com>`), which
+   *   we persisted to `Message.messageId`. Referencing that anchors the thread
+   *   in their mail client.
+   *
+   * We build `References` as the full ordered chain of prior real Message-IDs,
+   * and `In-Reply-To` as the most recent one.
+   */
+  private async buildThreadHeaders(
+    ticket: Ticket,
+    domain: string,
+  ): Promise<{ inReplyTo: string; references: string }> {
+    const syntheticRoot = `<ticket-${ticket.emailThreadId}@${domain}>`
+
+    const priorIds = await this.db.message
+      .findMany({
+        where: {
+          ticketId: ticket.id,
+          deletedAt: null,
+          type: 'REPLY',
+          isInternal: false,
+          messageId: { not: null },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { messageId: true },
+      })
+      .then((rows) => rows.map((r) => r.messageId).filter((x): x is string => !!x))
+
+    if (priorIds.length === 0) {
+      // No real Message-IDs stored — fall back to synthetic root (portal flow without inbound replies yet)
+      return { inReplyTo: syntheticRoot, references: syntheticRoot }
+    }
+
+    const inReplyTo = priorIds[priorIds.length - 1]
+    const references = priorIds.join(' ')
+    return { inReplyTo, references }
+  }
+
   onModuleInit(): void {
-    this.initTransporter()
-    this.startInboundServer()
+    void this.initTransporter()
   }
 
-  onModuleDestroy(): Promise<void> {
-    return new Promise((resolve) => {
-      if (this.smtpServer) {
-        this.smtpServer.close(() => resolve())
-      } else {
-        resolve()
+  async initTransporter(appConfig?: AppConfig): Promise<void> {
+    const cfg = appConfig ?? (await this.appConfigService.get())
+
+    // Host/port from env (with Gmail defaults). User/password come from the
+    // admin's saved settings (email + app password); falls back to env so the
+    // dev seed flow still works before anyone configures via Settings.
+    const host = this.config.get<string>('SMTP_HOST') ?? 'smtp.gmail.com'
+    const port = parseInt(this.config.get<string>('SMTP_PORT') ?? '587', 10)
+    const user = cfg.smtpUser ?? this.config.get<string>('SMTP_USER') ?? ''
+    let pass = ''
+    if (cfg.smtpPasswordEnc) {
+      try {
+        pass = decrypt(cfg.smtpPasswordEnc)
+      } catch {
+        this.logger.warn('Failed to decrypt SMTP password — falling back to env')
+        pass = this.config.get<string>('SMTP_PASS') ?? ''
       }
-    })
-  }
-
-  private initTransporter(): void {
-    this.transporter = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST') ?? 'smtp.gmail.com',
-      port: parseInt(this.config.get<string>('SMTP_PORT') ?? '587', 10),
-      secure: false,
-      auth: {
-        user: this.config.get<string>('SMTP_USER') ?? '',
-        pass: this.config.get<string>('SMTP_PASS') ?? '',
-      },
-    })
-    this.logger.log('Email transporter initialized')
-  }
-
-  private startInboundServer(): void {
-    const port = parseInt(this.config.get<string>('INBOUND_SMTP_PORT') ?? '2525', 10)
-
-    this.smtpServer = new SMTPServer({
-      authOptional: true,
-      onData: (stream, _session, callback) => {
-        simpleParser(stream)
-          .then((parsed) => {
-            this.processInboundEmail(parsed).catch((err: unknown) => {
-              this.logger.error('Error processing inbound email', String(err))
-            })
-            callback()
-          })
-          .catch((err: unknown) => {
-            this.logger.error('Error parsing email', String(err))
-            callback()
-          })
-      },
-    })
-
-    this.smtpServer.listen(port, () => {
-      this.logger.log(`Inbound SMTP server listening on port ${port}`)
-    })
-
-    this.smtpServer.on('error', (err) => {
-      this.logger.error('SMTP server error', err.message)
-    })
-  }
-
-  private extractAddresses(to: ParsedMail['to']): string[] {
-    if (!to) return []
-    const objs: AddressObject[] = Array.isArray(to) ? to : [to]
-    return objs.flatMap((obj) => obj.value.map((addr) => addr.address ?? '').filter(Boolean))
-  }
-
-  private async processInboundEmail(parsed: ParsedMail): Promise<void> {
-    const toAddresses = this.extractAddresses(parsed.to)
-
-    let emailThreadId: string | null = null
-    for (const addr of toAddresses) {
-      const match = /reply\+([^@]+)@/.exec(addr)
-      if (match?.[1]) {
-        emailThreadId = match[1]
-        break
-      }
+    } else {
+      pass = this.config.get<string>('SMTP_PASS') ?? ''
     }
 
-    if (!emailThreadId) {
-      this.logger.warn('Inbound email: no emailThreadId found in To addresses')
-      return
-    }
-
-    const ticket = await this.db.ticket.findUnique({
-      where: { emailThreadId },
-      include: { user: true },
-    })
-
-    if (!ticket) {
-      this.logger.warn(`Inbound email: no ticket found for emailThreadId ${emailThreadId}`)
-      return
-    }
-
-    const body = parsed.text ?? (typeof parsed.html === 'string' ? parsed.html : '') ?? ''
-    const strippedBody = this.stripQuotedText(body)
-
-    await this.db.message.create({
-      data: {
-        ticketId: ticket.id,
-        body: strippedBody,
-        type: 'REPLY',
-        authorUserId: ticket.userId,
-        sentVia: 'EMAIL',
-      },
-    })
-
-    this.logger.log(`Inbound email created message on ticket ${ticket.id}`)
-  }
-
-  private stripQuotedText(body: string): string {
-    const lines = body.split('\n')
-    const cutoff = lines.findIndex((line) => /^On .+ wrote:/.test(line) || /^>/.test(line.trim()))
-    return (cutoff > 0 ? lines.slice(0, cutoff) : lines).join('\n').trim()
+    this.transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } })
+    this.logger.log(`Email transporter initialized (${host}:${port} as ${user})`)
   }
 
   private getFromAddress(appConfig: AppConfig): string {
-    const fromName = appConfig.emailDisplayName
-    return `"${fromName} Support" <${this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'}>`
+    const name = appConfig.emailDisplayName
+    const addr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+    return `"${name} Support" <${addr}>`
   }
 
-  private getReplyToAddress(ticket: Ticket): string {
-    const domain = this.config.get<string>('SMTP_FROM')?.split('@')[1] ?? 'support.tmr.com'
-    return `reply+${ticket.emailThreadId}@${domain}`
+  private getReplyToAddress(ticket: Ticket, appConfig: AppConfig): string {
+    const fromAddr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+    const [localPart, domain] = fromAddr.split('@')
+    const secret = appConfig.verpSecret ?? 'default-verp-secret'
+    const token = signVerpToken(ticket.emailThreadId, secret)
+    // Use plus-addressing on the local part so replies route back to the same mailbox
+    // (e.g., support+<token>@gmail.com delivers to support@gmail.com via Gmail's + handling)
+    return `${localPart}+${token}@${domain ?? 'support.tmr.com'}`
   }
 
-  private getThreadMessageId(ticket: Ticket): string {
-    const domain = this.config.get<string>('SMTP_FROM')?.split('@')[1] ?? 'support.tmr.com'
+  /** Generates a unique RFC 5322 Message-ID for an outbound message */
+  private generateMessageId(domain: string): string {
+    return `<${crypto.randomUUID()}@${domain}>`
+  }
+
+  private getDomain(appConfig: AppConfig): string {
+    const fromAddr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+    return fromAddr.split('@')[1] ?? 'support.tmr.com'
+  }
+
+  /** Returns the thread root Message-ID for In-Reply-To / References headers */
+  private getThreadRootMessageId(ticket: Ticket, domain: string): string {
     return `<ticket-${ticket.emailThreadId}@${domain}>`
   }
 
   async sendTicketConfirmation(ticket: TicketWithUser, appConfig: AppConfig): Promise<void> {
     const displayId = `TMR-${ticket.number}`
     const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
+    const domain = this.getDomain(appConfig)
+    const messageId = this.generateMessageId(domain)
+    const threadRoot = this.getThreadRootMessageId(ticket, domain)
 
     try {
       await this.transporter.sendMail({
         from: this.getFromAddress(appConfig),
         to: ticket.user.email,
         subject: `[${displayId}] ${ticket.title}`,
-        replyTo: this.getReplyToAddress(ticket),
-        messageId: this.getThreadMessageId(ticket),
+        replyTo: this.getReplyToAddress(ticket, appConfig),
+        messageId: threadRoot,
         text: [
           `Hi ${ticket.user.name ?? 'there'},`,
           '',
@@ -176,25 +159,34 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
           `— ${appConfig.appName} Support Team`,
         ].join('\n'),
       })
-      this.logger.log(`Sent confirmation for ticket ${ticket.id}`)
+
+      // Store Message-ID on a system event message if one exists, or just log
+      this.logger.log(`Sent confirmation for ticket ${ticket.id} (${messageId})`)
     } catch (err) {
       this.logger.error(`Failed to send confirmation for ticket ${ticket.id}: ${String(err)}`)
     }
   }
 
-  async sendAgentReply(ticket: TicketWithUser, message: MessageWithAgent, appConfig: AppConfig): Promise<void> {
+  async sendAgentReply(
+    ticket: TicketWithUser,
+    message: MessageWithAgent,
+    appConfig: AppConfig,
+  ): Promise<string | null> {
     const displayId = `TMR-${ticket.number}`
     const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
-    const threadMessageId = this.getThreadMessageId(ticket)
+    const domain = this.getDomain(appConfig)
+    const { inReplyTo, references } = await this.buildThreadHeaders(ticket, domain)
+    const msgId = this.generateMessageId(domain)
 
     try {
       await this.transporter.sendMail({
         from: this.getFromAddress(appConfig),
         to: ticket.user.email,
         subject: `Re: [${displayId}] ${ticket.title}`,
-        replyTo: this.getReplyToAddress(ticket),
-        inReplyTo: threadMessageId,
-        references: threadMessageId,
+        replyTo: this.getReplyToAddress(ticket, appConfig),
+        messageId: msgId,
+        inReplyTo,
+        references,
         text: [
           message.body,
           '',
@@ -203,9 +195,12 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
           `— ${appConfig.appName} Support Team`,
         ].join('\n'),
       })
-      this.logger.log(`Sent agent reply email for ticket ${ticket.id}`)
+
+      this.logger.log(`Sent agent reply email for ticket ${ticket.id} msgId=${msgId}`)
+      return msgId
     } catch (err) {
       this.logger.error(`Failed to send reply email for ticket ${ticket.id}: ${String(err)}`)
+      return null
     }
   }
 
@@ -228,6 +223,16 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Sent invite to agent ${agent.email}`)
     } catch (err) {
       this.logger.error(`Failed to send invite to ${agent.email}: ${String(err)}`)
+    }
+  }
+
+  async sendRaw(opts: { to: string; subject: string; text: string; html?: string }): Promise<void> {
+    const appConfig = await this.appConfigService.get()
+    const from = this.getFromAddress(appConfig)
+    try {
+      await this.transporter.sendMail({ from, ...opts })
+    } catch (err) {
+      this.logger.error(`Failed to send raw email to ${opts.to}: ${String(err)}`)
     }
   }
 }

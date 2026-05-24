@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
+import { QueueService } from '../queue/queue.service'
 import type { ListTicketsQuery, CreateTicketDto, UpdateTicketDto } from './tickets.dto'
 import type { Prisma, TicketStatus, TicketPriority, TicketCategory } from '@tmr/db'
 
@@ -19,6 +20,7 @@ export class TicketsService {
   constructor(
     private readonly db: PrismaService,
     private readonly emailService: EmailService,
+    private readonly queueService: QueueService,
   ) {}
 
   async stats(): Promise<unknown> {
@@ -85,7 +87,7 @@ export class TicketsService {
   }
 
   async create(dto: CreateTicketDto, caller: CallerContext): Promise<{ ticket: unknown; displayId: string }> {
-    const ticket = await this.db.$transaction(async (tx) => {
+    const ticketResult = await this.db.$transaction(async (tx) => {
       const t = await tx.ticket.create({
         data: {
           title: dto.title,
@@ -101,8 +103,10 @@ export class TicketsService {
           tags: true,
         },
       })
+      let descriptionMessageId: string | null = null
       if (dto.description) {
-        await tx.message.create({ data: { ticketId: t.id, body: dto.description, authorUserId: caller.id, type: 'REPLY' } })
+        const msg = await tx.message.create({ data: { ticketId: t.id, body: dto.description, authorUserId: caller.id, type: 'REPLY' } })
+        descriptionMessageId = msg.id
       }
       if (dto.attachmentIds?.length) {
         await tx.attachment.updateMany({
@@ -110,8 +114,9 @@ export class TicketsService {
           data: { ticketId: t.id },
         })
       }
-      return t
+      return { ticket: t, descriptionMessageId }
     })
+    const { ticket, descriptionMessageId } = ticketResult
 
     // Send confirmation email to customer (fire-and-forget)
     const appConfig = await this.db.appConfig.findFirst()
@@ -130,6 +135,11 @@ export class TicketsService {
       }
     }
 
+    // Enqueue AI sentiment analysis for the initial description message
+    if (descriptionMessageId) {
+      this.queueService.enqueueAnalyzeMessage({ messageId: descriptionMessageId, ticketId: ticket.id }).catch(() => {})
+    }
+
     return { ticket, displayId: `TMR-${ticket.number}` }
   }
 
@@ -141,6 +151,7 @@ export class TicketsService {
         assignee: { select: { id: true, name: true, avatarUrl: true } },
         tags: true,
         githubIssue: true,
+        rating: { select: { aiRating: true, aiEffortScore: true, aiSummary: true } },
         messages: {
           where: { deletedAt: null, ...(caller.role === 'user' && { isInternal: false }) },
           orderBy: { createdAt: 'asc' },
@@ -185,12 +196,23 @@ export class TicketsService {
       })
       if (dto.status && dto.status !== ticket.status) {
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `status_changed:${ticket.status}:${dto.status}` } })
+
+        // Track first resolution time (immutable — only set once)
+        if (dto.status === 'RESOLVED' && !ticket.firstResolvedAt) {
+          await tx.ticket.update({ where: { id: ticketId }, data: { firstResolvedAt: new Date() } })
+        }
       }
       if (dto.assigneeId !== undefined && dto.assigneeId !== ticket.assigneeId) {
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `assigned:${dto.assigneeId ?? 'unassigned'}` } })
       }
       return result
     })
+
+    // Enqueue AI classify + CSAT request when ticket reaches RESOLVED
+    if (dto.status === 'RESOLVED' && ticket.status !== 'RESOLVED') {
+      this.queueService.enqueueClassifyTicket({ ticketId }).catch(() => {})
+      this.queueService.enqueueRequestCsat({ ticketId }).catch(() => {})
+    }
 
     return { ticket: { ...updated, displayId: `TMR-${updated.number}` } }
   }

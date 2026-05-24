@@ -282,9 +282,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                           {isFromUser ? 'You' : (author.name ?? author.email)}
                         </span>
                         {!isFromUser && (
-                          <span style={{ fontSize: 12, color: 'var(--p-text-4)' }}>from TMR Support</span>
+                          <span style={{ fontSize: 13, color: 'var(--p-text-4)' }}>from TMR Support</span>
                         )}
-                        <span style={{ fontSize: 12, color: 'var(--p-text-4)' }}>{formatDate(msg.createdAt)}</span>
+                        <span style={{ fontSize: 13, color: 'var(--p-text-4)' }}>{formatDate(msg.createdAt)}</span>
                       </div>
                     </div>
 
@@ -296,7 +296,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                       border: `1px solid ${isFromUser ? 'rgba(37,99,235,0.15)' : 'var(--p-border)'}`,
                       boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
                     }}>
-                      <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--p-text)', margin: 0, whiteSpace: 'pre-wrap' }}>
+                      <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--p-text)', margin: 0, whiteSpace: 'pre-wrap' }}>
                         {msg.body}
                       </p>
                       {msg.attachments.length > 0 && (
@@ -432,7 +432,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                 ].map(({ label, value }) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <span style={{ fontSize: 12, color: 'var(--p-text-4)', fontWeight: 500 }}>{label}</span>
-                    <span style={{ fontSize: 13, color: 'var(--p-text)', fontWeight: 500 }}>{value}</span>
+                    <span style={{ fontSize: 14, color: 'var(--p-text)', fontWeight: 500 }}>{value}</span>
                   </div>
                 ))}
               </div>

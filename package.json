@@ -6,11 +6,14 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "atlas:gen": "tsx scripts/atlas-gen.ts"
   },
   "devDependencies": {
-    "turbo": "latest",
     "prettier": "latest",
+    "ts-morph": "^28.0.0",
+    "tsx": "^4.22.1",
+    "turbo": "latest",
     "typescript": "^5.0.0"
   },
   "engines": {

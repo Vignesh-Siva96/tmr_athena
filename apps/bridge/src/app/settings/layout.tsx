@@ -22,6 +22,10 @@ const STATIC_NAV_ITEMS: { section: string; items: NavItem[] }[] = [
   ]},
   { section: 'Integrations', items: [
     { href: '/settings/github', label: 'GitHub', badge: null, badgeColor: 'var(--d-success)' },
+    { href: '/settings/email', label: 'Email', badge: null, badgeColor: 'var(--d-success)' },
+  ]},
+  { section: 'AI', items: [
+    { href: '/settings/ai-usage', label: 'AI Usage & Cost' },
   ]},
 ]
 
@@ -29,24 +33,27 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const pathname = usePathname()
   const { token } = useAuth()
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null)
+  const [emailConnected, setEmailConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (!token) return
     api.get<{ connected: boolean }>('/github/status', token)
       .then((res) => setGithubConnected(res.connected))
       .catch(() => setGithubConnected(false))
+    api.get<{ imapUser: string | null; imapPasswordSet: boolean; inboundEnabled: boolean }>('/config', token)
+      .then((res) => setEmailConnected(!!(res.imapUser && res.imapPasswordSet && res.inboundEnabled)))
+      .catch(() => setEmailConnected(false))
   }, [token])
 
-  // Build nav items with live GitHub status
+  // Build nav items with live integration status
   const navItems = STATIC_NAV_ITEMS.map((section) => ({
     ...section,
     items: section.items.map((item) => {
       if (item.href === '/settings/github' && githubConnected !== null) {
-        return {
-          ...item,
-          badge: githubConnected ? 'Connected' : null,
-          badgeColor: 'var(--d-success)',
-        }
+        return { ...item, badge: githubConnected ? 'Connected' : null, badgeColor: 'var(--d-success)' }
+      }
+      if (item.href === '/settings/email' && emailConnected !== null) {
+        return { ...item, badge: emailConnected ? 'Connected' : null, badgeColor: 'var(--d-success)' }
       }
       return item
     }),

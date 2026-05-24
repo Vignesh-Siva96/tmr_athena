@@ -65,6 +65,16 @@ export default function InboxPage() {
   useEffect(() => { loadTickets() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadTickets(sortOrder) }, [sortOrder]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll for new tickets — pauses when the tab is in the background to save resources
+  useEffect(() => {
+    if (!token) return
+    const tick = () => {
+      if (document.visibilityState === 'visible') loadTickets()
+    }
+    const interval = setInterval(tick, 15000)
+    return () => clearInterval(interval)
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleBulkResolve = async () => {
     if (!token || checkedIds.size === 0) return
     setIsBulkActing(true)
