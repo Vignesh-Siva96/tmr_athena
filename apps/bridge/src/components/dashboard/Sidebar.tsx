@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LifeBuoy, Inbox, LayoutList, Settings, LogOut, Search, BarChart2, ArrowUpRight, Check, ExternalLink, Activity, Users } from 'lucide-react'
+import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { useBackfillStatus } from '@/lib/useBackfillStatus'
 import { NotificationsPanel } from './NotificationsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -20,21 +21,6 @@ interface GithubNotif {
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG = [
-  { key: 'OPEN',        label: 'Open',        color: '#3B82F6' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: '#F59E0B' },
-  { key: 'WAITING',     label: 'Waiting',     color: '#A78BFA' },
-  { key: 'RESOLVED',    label: 'Resolved',    color: '#22C55E' },
-  { key: 'CLOSED',      label: 'Closed',      color: '#71717A' },
-]
-const CATEGORY_CONFIG = [
-  { key: 'BUG_REPORT',      label: 'Bug Report',      color: '#EF4444' },
-  { key: 'FEATURE_REQUEST', label: 'Feature Request', color: '#3B82F6' },
-  { key: 'QUESTION',        label: 'Question',        color: '#22C55E' },
-  { key: 'BILLING',         label: 'Billing',         color: '#F59E0B' },
-  { key: 'OTHER',           label: 'Other',           color: '#71717A' },
-]
 
 const OCTOCAT = 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'
 
@@ -59,13 +45,12 @@ export function DashboardSidebar() {
   const [notifications, setNotifications] = useState<GithubNotif[]>([])
   const [notifsLoaded, setNotifsLoaded] = useState(false)
   const [githubConnected, setGithubConnected] = useState(false)
-  const [searchVal, setSearchVal] = useState('')
   const [activeSection, setActiveSection] = useState<Section>('tickets')
   const [showFullNotifs, setShowFullNotifs] = useState(false)
   const [appName, setAppName] = useState('TMR Support')
   const [appLogo, setAppLogo] = useState<string | null>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const { backfill } = useBackfillStatus(token)
 
   // Auto-detect section from pathname
   useEffect(() => {
@@ -121,19 +106,6 @@ export function DashboardSidebar() {
       .catch(() => {})
   }, [activeSection, notifsLoaded, token])
 
-  // Search debounce
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      if (searchVal.trim()) {
-        router.push(`/tickets?search=${encodeURIComponent(searchVal.trim())}`)
-      } else if (searchVal === '' && typeof window !== 'undefined' && window.location.search.includes('search=')) {
-        router.push('/tickets')
-      }
-    }, 350)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchVal]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const totalOpen = stats ? (stats.byStatus['OPEN'] ?? 0) + (stats.byStatus['IN_PROGRESS'] ?? 0) + (stats.byStatus['WAITING'] ?? 0) : undefined
   const totalAll = stats ? Object.values(stats.byStatus).reduce((a, b) => a + b, 0) : undefined
 
@@ -183,7 +155,8 @@ export function DashboardSidebar() {
 
   return (
     <>
-      <aside style={{ width: 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
+      <style>{`@keyframes bfPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }`}</style>
+      <aside style={{ width: activeSection === 'tickets' ? 48 : 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
 
         {/* ── Rail ── */}
         <div style={{ width: 48, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: '1px solid var(--d-border-2)', paddingTop: 8 }}>
@@ -196,7 +169,20 @@ export function DashboardSidebar() {
           </div>
 
           {/* Section buttons */}
-          <RailBtn section="tickets" icon={<Inbox size={17} />} navigateTo="/inbox" />
+          <div style={{ position: 'relative' }}>
+            <RailBtn section="tickets" icon={<Inbox size={17} />} navigateTo="/inbox" />
+            {backfill?.archiveStatus === 'RUNNING' && (
+              <span
+                title={`Importing email history: ${backfill.archiveTotalSeen?.toLocaleString() ?? 0} emails`}
+                style={{
+                  position: 'absolute', bottom: 4, right: 4,
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: 'var(--d-accent)', border: '1.5px solid var(--d-bg)',
+                  animation: 'bfPulse 1.5s ease-in-out infinite',
+                }}
+              />
+            )}
+          </div>
           <RailBtn section="github" icon={<svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor"><path d={OCTOCAT} /></svg>} badge={unreadCount} navigateTo="/github" />
           <RailBtn section="analytics" icon={<BarChart2 size={17} />} navigateTo="/analytics" />
 
@@ -218,80 +204,15 @@ export function DashboardSidebar() {
           </button>
         </div>
 
-        {/* ── Panel ── */}
+        {/* ── Panel — hidden when tickets section active (rail-only mode) ── */}
+        {activeSection !== 'tickets' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
-          {/* App name — always visible */}
+          {/* App name */}
           <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid var(--d-border-2)', flexShrink: 0 }}>
             <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--d-text)', margin: '0 0 1px', lineHeight: 1.2 }}>{appName}</p>
             <p style={{ fontSize: 11, color: 'var(--d-text-4)', margin: 0 }}>{agent?.name ?? 'Agent'} · {agent?.role === 'ADMIN' ? 'Admin' : 'Agent'}</p>
           </div>
-
-          {/* TICKETS PANEL */}
-          {activeSection === 'tickets' && (
-            <>
-              {/* Search */}
-              <div style={{ padding: '8px 12px 4px' }}>
-                {/* Search */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, padding: '0 8px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)' }}>
-                  <Search size={12} style={{ color: 'var(--d-text-4)', flexShrink: 0 }} />
-                  <input ref={searchRef} type="text" value={searchVal} onChange={(e) => setSearchVal(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Escape') { setSearchVal(''); searchRef.current?.blur() } }}
-                    placeholder="Search…"
-                    style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12, color: 'var(--d-text)', fontFamily: 'inherit' }}
-                  />
-                  {searchVal
-                    ? <button type="button" onClick={() => setSearchVal('')} style={{ fontSize: 10, color: 'var(--d-text-4)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>✕</button>
-                    : <span style={{ fontSize: 10, color: 'var(--d-text-4)', background: 'var(--d-raised-2)', padding: '1px 4px', borderRadius: 3 }}>⌘K</span>
-                  }
-                </div>
-              </div>
-
-              <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
-                {/* Views */}
-                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', padding: '8px 4px 4px', margin: 0 }}>Views</p>
-                {[
-                  { href: '/inbox', icon: <Inbox size={13} />, label: 'Inbox', count: totalOpen },
-                  { href: '/tickets', icon: <LayoutList size={13} />, label: 'All tickets', count: totalAll },
-                ].map(({ href, icon, label, count }) => {
-                  const active = pathname === href
-                  return (
-                    <Link key={href} href={href} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'rgba(59,130,246,0.1)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: active ? 'var(--d-accent)' : 'var(--d-text-3)', display: 'flex' }}>{icon}</span>
-                        <span style={{ fontSize: 14, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
-                      </div>
-                      {count !== undefined && <span style={{ fontSize: 11, color: 'var(--d-text-4)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>}
-                    </Link>
-                  )
-                })}
-
-                {/* Status */}
-                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', padding: '10px 4px 4px', margin: 0 }}>Status</p>
-                {STATUS_CONFIG.map(({ key, label, color }) => (
-                  <Link key={key} href={`/tickets?status=${key}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 28, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, color: 'var(--d-text-2)' }}>{label}</span>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--d-text-4)', fontVariantNumeric: 'tabular-nums' }}>{stats?.byStatus[key] ?? 0}</span>
-                  </Link>
-                ))}
-
-                {/* Labels */}
-                <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', padding: '10px 4px 4px', margin: 0 }}>Labels</p>
-                {CATEGORY_CONFIG.map(({ key, label, color }) => (
-                  <Link key={key} href={`/tickets?category=${key}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 28, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, color: 'var(--d-text-2)' }}>{label}</span>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--d-text-4)', fontVariantNumeric: 'tabular-nums' }}>{stats?.byCategory[key] ?? 0}</span>
-                  </Link>
-                ))}
-              </div>
-            </>
-          )}
 
           {/* GITHUB PANEL */}
           {activeSection === 'github' && (
@@ -348,6 +269,7 @@ export function DashboardSidebar() {
             </div>
           )}
         </div>
+        )}
       </aside>
 
       {showFullNotifs && <NotificationsPanel onClose={() => setShowFullNotifs(false)} />}

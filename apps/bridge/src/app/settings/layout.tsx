@@ -40,8 +40,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     api.get<{ connected: boolean }>('/github/status', token)
       .then((res) => setGithubConnected(res.connected))
       .catch(() => setGithubConnected(false))
-    api.get<{ imapUser: string | null; imapPasswordSet: boolean; inboundEnabled: boolean }>('/config', token)
-      .then((res) => setEmailConnected(!!(res.imapUser && res.imapPasswordSet && res.inboundEnabled)))
+    api.get<{ oauthConnected: boolean }>('/config', token)
+      .then((res) => setEmailConnected(!!(res.oauthConnected)))
       .catch(() => setEmailConnected(false))
   }, [token])
 

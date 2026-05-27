@@ -5,6 +5,21 @@ for Two Minute Reports (TMR). Read this file fully before doing anything else.
 
 ---
 
+## 🔴 Debugging rule — watch logs before guessing
+
+When the user reports a runtime issue (email not arriving, poll not firing, API error, anything behavioural that isn't a compile error):
+
+1. **Open the live log first** before reading code or forming a hypothesis:
+   ```bash
+   tail -f apps/api/logs/app-$(date +%Y-%m-%d).log | jq -r '"\(.ts) [\(.level)] \(.context): \(.msg)"'
+   ```
+2. Ask the user to reproduce the issue **while the log is tailing**.
+3. Read what actually happened — then fix the real cause, not the assumed one.
+
+Logs rotate daily: `apps/api/logs/app-YYYY-MM-DD.log`. Each line is a JSON record `{ts, level, context, msg}`.
+
+---
+
 ## 🔴 Documentation rule — do this without being told
 
 Two docs travel with the code. Keep both current as part of shipping a change.

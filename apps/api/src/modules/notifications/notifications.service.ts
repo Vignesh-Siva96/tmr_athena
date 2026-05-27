@@ -1,9 +1,21 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
+import { SseService } from '../events/sse.service'
+import type { Prisma } from '@tmr/db'
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly sse: SseService,
+  ) {}
+
+  /** Create a notification and broadcast an SSE event to connected agents. */
+  async createAndBroadcast(data: Prisma.NotificationCreateInput): Promise<string> {
+    const notification = await this.db.notification.create({ data, select: { id: true } })
+    this.sse.broadcast({ type: 'notification-created', notificationId: notification.id })
+    return notification.id
+  }
 
   async list(agentId: string): Promise<unknown> {
     const notifications = await this.db.notification.findMany({

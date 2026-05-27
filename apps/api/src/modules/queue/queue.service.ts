@@ -2,17 +2,10 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config'
 import PgBoss from 'pg-boss'
 import {
-  INBOUND_EMAIL_QUEUE,
   AI_ANALYZE_MESSAGE_QUEUE,
   AI_CLASSIFY_TICKET_QUEUE,
   AI_REQUEST_CSAT_QUEUE,
 } from './queue.module'
-
-export interface InboundEmailJobData {
-  uid: number
-  rawMime: string
-  receivedAt: string
-}
 
 export interface AnalyzeMessageJobData {
   messageId: string
@@ -70,17 +63,6 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
   getBoss(): PgBoss {
     return this.boss
-  }
-
-  async enqueueInbound(data: InboundEmailJobData): Promise<void> {
-    await this.readyPromise
-    await this.boss.send(INBOUND_EMAIL_QUEUE, data, {
-      retryLimit: 5,
-      retryDelay: 5,
-      retryBackoff: true,
-      expireInHours: 24,
-    })
-    this.logger.debug(`Enqueued inbound email uid=${data.uid}`)
   }
 
   async enqueueAnalyzeMessage(data: AnalyzeMessageJobData): Promise<void> {

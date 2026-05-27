@@ -1,14 +1,14 @@
 import 'reflect-metadata'
 import { NestFactory } from '@nestjs/core'
-import { Logger } from '@nestjs/common'
 import { AppModule } from './app.module'
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter'
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor'
 import { ZodValidationPipe } from './common/pipes/zod-validation.pipe'
+import { FileLogger } from './common/logger/file-logger'
 
 async function bootstrap(): Promise<void> {
-  const logger = new Logger('Bootstrap')
-  const app = await NestFactory.create(AppModule, { rawBody: true })
+  const fileLogger = new FileLogger()
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: fileLogger })
 
   app.setGlobalPrefix('api/v1')
   app.enableCors({
@@ -25,7 +25,7 @@ async function bootstrap(): Promise<void> {
 
   const port = process.env['PORT'] ?? 3001
   await app.listen(port)
-  logger.log(`API running on port ${port}`)
+  fileLogger.log(`API running on port ${port}`, 'Bootstrap')
 }
 
 bootstrap()

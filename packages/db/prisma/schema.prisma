@@ -29,27 +29,42 @@ model AppConfig {
   fixDeployedLabel           String  @default("fix-deployed")
   pendingConfirmationLabel   String  @default("pending-customer-confirmation")
 
-  // IMAP inbound config
-  imapHost        String?
-  imapPort        Int?     @default(993)
-  imapUser        String?
-  imapPasswordEnc String?
-  imapUseTls      Boolean  @default(true)
-  imapFolder      String   @default("INBOX")
+  // Email OAuth (Google / Microsoft)
+  oauthProvider           OAuthProvider?
+  oauthEmail              String?
+  oauthAccessTokenEnc     String?
+  oauthRefreshTokenEnc    String?
+  oauthTokenExpiresAt     DateTime?
+  oauthScopes             String?
+  oauthAliases            String[]         @default([])
 
-  // SMTP outbound config (per-org, overrides env)
-  smtpHost        String?
-  smtpPort        Int?     @default(587)
-  smtpUser        String?
-  smtpPasswordEnc String?
-  smtpFrom        String?
-
-  // Inbound state
-  inboundEnabled  Boolean  @default(false)
-  inboundLastUid  Int?
-  verpSecret      String?
+  // REST sync checkpoints
+  gmailHistoryId          String?
+  graphDeltaLink          String?
+  archivePageToken        String?
+  archiveStatus           ArchiveStatus    @default(IDLE)
+  archiveTotalSeen        Int?
+  archiveTotalEstimate    Int?
 
   notifications  Notification[]
+}
+
+enum OAuthProvider {
+  GOOGLE
+  MICROSOFT
+}
+
+enum ArchiveStatus {
+  IDLE
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum ExternalProvider {
+  GMAIL
+  GRAPH
 }
 
 // ─── USERS (customers) ────────────────────────────────────────────────────────
@@ -163,6 +178,10 @@ model Ticket {
 
   emailThreadId String  @unique @default(cuid())
 
+  // REST email sync (Gmail / Graph)
+  externalThreadId   String?          @unique
+  externalProvider   ExternalProvider?
+
   // AI / customer intelligence
   topicId         String?
   topic           Topic?   @relation(fields: [topicId], references: [id])
@@ -237,7 +256,8 @@ model Message {
   sentVia    MessageSentVia?
   isInternal Boolean @default(false)
 
-  messageId  String?  @unique
+  messageId         String?  @unique
+  externalMessageId String?  @unique
   inReplyTo  String?
   bodyRaw    String?  @db.Text
 

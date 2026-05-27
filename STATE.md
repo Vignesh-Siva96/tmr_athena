@@ -1,7 +1,7 @@
 # STATE.md — TMR Support Platform
 
 Living document. Updated every session. Reflects current reality, not the original spec.
-Last updated: 2026-05-24
+Last updated: 2026-05-27 (session 3)
 
 ---
 
@@ -82,6 +82,37 @@ ngrok http 3001
 | **AI analytics observe-only (no budget caps)**                          | Per user decision: visibility first, controls later once real spend numbers are known                                               |
 | **`firstResolvedAt` is immutable — set once, never overwritten**        | Preserves original resolution time even if ticket is reopened and resolved again                                                    |
 | **`/analytics` → redirect to `/analytics/operations`**                  | Preserves existing bookmarks/links while adding the new `/analytics/customers` sub-route                                           |
+| **Email-card format is Bridge-only; portal keeps chat bubbles**          | Portal is customer-facing — chat bubbles feel friendlier and match the portal's light-theme aesthetic. The new email-card format suits the agent tool. `MessageCard` is in `apps/bridge/` only, not `packages/ui`. |
+| **OAuth callback handled by NestJS API, not Bridge**                     | Avoids the auth code appearing in Bridge request logs; API exchanges it server-side then redirects browser to Bridge with `?connected=1`. Cleaner security boundary. |
+| **180-day default backfill, triggered automatically on OAuth connect**   | Gives agents a populated inbox immediately; long enough to capture most active threads. "Pull full archive" (sinceDays: 'all') available manually post-connect. |
+| **Backfill jobs at `priority: 0`, live mail at `priority: 10`**          | pg-boss pops higher-priority first — a live customer reply mid-backfill jumps the entire backfill queue, keeping Bridge responsive. |
+| **No AI pipeline on backfill messages**                                  | Prevents surprise cost spikes on potentially thousands of historical messages. "Run AI on imported emails" endpoint gives explicit control back to the admin. |
+| **Dedicated IMAP client for backfill (separate from IDLE supervisor)**   | Prevents race on `mailboxOpen` between IDLE's lock and the backfill range fetch. Backfill client closes after the import finishes. |
+| **`OAUTH_CALLBACK_BASE` vs `BRIDGE_URL` separation**                    | `OAUTH_CALLBACK_BASE` = API external URL (must match registered OAuth redirect URI); `BRIDGE_URL` = Bridge URL for post-OAuth browser redirect. Two separate concerns, two separate env vars. |
+| **Single Inbox at `/inbox`; `/tickets` list page removed**              | Merged flat inbox + domain-grouped view into one page. `/inbox` is the domain-grouped view. `/tickets/[id]` and `/tickets/domain/[domain]` remain. The old flat list (`/inbox`) is gone. |
+| **`useEmailConfig` uses module-level promise cache**                     | Multiple pages mount simultaneously and each would otherwise fire `GET /config` independently. One cached promise ensures a single in-flight request. Cache is invalidated on `refresh()` so the settings page can clear the gate immediately after save. |
+| **`useEmailConfig.isConnected` is `oauthConnected` only**               | After IMAP removal there is only one auth method (OAuth). The old `emailAuthMethod === 'PASSWORD'` branch is gone. |
+| **`useBackfillStatus` poll uses `Math.max` for seen count**             | Poll response can race with SSE — if DB write hasn't committed when the poll fires, `archiveTotalSeen` would be stale-low. Hook takes `Math.max(polled, current)` so SSE-updated counts are never overwritten by a stale poll. |
+| **`archiveTotalEstimate` persisted to DB before processing starts**     | Persisting upfront (before the first chunk) means even the very first poll returns the denominator for the `X / Y` display. Only the foreground phase has a known total (it collects all thread IDs before processing); background archive uses an indeterminate bar. |
+| **`processBatch` callback is `async`; DB write is awaited before SSE**  | Fire-and-forget `void db.update()` inside the chunk callback meant SSE could broadcast a count before the DB committed it. The next poll would then return 0, overwriting the UI. Making the callback async and `await`ing the DB write fixes the race. |
+| **IMAP fully removed; Gmail REST + Microsoft Graph replace it**         | `imapflow`, `inbound.processor.ts`, `routing.service.ts`, `verp.util.ts`, `backfill.service.ts` (IMAP era), all IMAP/SMTP schema fields deleted. Gmail `history.list` + Graph `messages/delta` give near-identical functionality with zero IDLE connection management overhead. |
+| **Single `IMailProvider` interface**                                     | One ingestion pipeline (`ThreadIngestionService`); provider-specific logic isolated in `GmailProvider` / `GraphProvider`. Adding a third provider (e.g. IMAP generic) only requires a new adapter. |
+| **At-least-once semantics; checkpoint after batch**                     | Checkpoint (historyId / deltaLink / archivePageToken) persisted to DB **after** the batch is processed. `externalThreadId @unique` + `externalMessageId @unique` make replays safe and idempotent. |
+| **AppEventsService bridges OAuth → backfill trigger**                   | `EmailOAuthService.exchangeCode()` emits `OAUTH_CONNECTED`; `EmailSyncBackfillService` listens in constructor. Avoids circular module dependency (EmailSyncModule imports EmailOAuthModule; adding EmailSyncModule as dep of EmailOAuthModule would close the cycle). |
+| **`EmailSyncLivePoller` gated by `EMAIL_SYNC_LIVE_POLL=1`**            | Dev environments don't need live polling. Explicit opt-in prevents runaway API calls during local testing. |
+| **Unlimited archive; `threadsTotal` from Gmail profile as estimate**   | Removed the 300-thread foreground cap. `GET /users/me/profile` returns `threadsTotal` which is persisted to `archiveTotalEstimate` before processing starts — gives accurate `X / Y` from the first poll. |
+| **`gmailHistoryId` set at archive START (not just end)**               | Setting checkpoint only at end meant emails arriving during a long archive were never picked up by the live poller. Setting it before processing starts ensures the poller catches everything from that point forward once the archive finishes. |
+| **Per-thread error isolation in live poller**                          | A single bad thread (`messageId` unique violation, network error, etc.) was throwing out of `pollOne`, preventing the checkpoint from updating — causing infinite re-processing of the same threads on every 30s poll. Each thread now has its own try/catch; checkpoint always advances. |
+| **`messagesAdded` checked first in Gmail History API response**        | `entry.messages` (summary field) is not always populated by Gmail. `entry.messagesAdded[].message` is the reliable field for new inbound messages. Both are now checked (messagesAdded first) for full coverage. |
+| **In-Reply-To matching for portal ticket replies (3-level lookup)**    | Portal tickets have no `externalThreadId`. When a customer replies, the live poller would create a duplicate ticket instead of threading to the original. Fix: (1) match by stored agent-reply `messageId`, (2) parse `<ticket-{emailThreadId}@domain>` synthetic IDs from the confirmation email. Both paths stamp `externalThreadId` for future fast-path hits. |
+| **RFC `messageId` dedup before `message.create()`**                   | Gmail includes the same email twice in a thread (Inbox copy + Sent copy) with different Gmail message IDs but identical RFC `Message-ID`. Added pre-create check `findUnique({ where: { messageId } })` to skip the duplicate before hitting the `@unique` constraint. |
+| **File logger (`ConsoleLogger` + daily rotating file)**                | `FileLogger` in `apps/api/src/common/logger/` extends `ConsoleLogger`, writes JSON lines to `apps/api/logs/app-YYYY-MM-DD.log` with daily rotation. Wired as NestJS app logger in `main.ts`. Allows post-hoc debugging without attaching to the terminal. |
+| **Cancel/Resume preserves `archivePageToken`**                         | The "Resume" button previously called `startForeground()` which reset `archivePageToken: null` → restarted from beginning. New `POST /sync/archive/resume` endpoint sets status back to `RUNNING` without touching pageToken or totalSeen — archive continues from where it left off. |
+| **Ticket `createdAt`/`updatedAt` from actual email dates**             | Archive was stamping all tickets with the DB insertion time (today). Imported tickets now get `createdAt = firstMessage.sentAt`, `updatedAt = lastMessage.sentAt`. Existing-ticket updates set `updatedAt` to the latest new message's `sentAt`. Fixes both the ticket detail timestamp display and inbox sort order (new portal tickets always float to the top). |
+| **SSE over WebSockets**                                                  | One-directional push is all we need. SSE is simpler, HTTP/1.1 compatible, works through most corporate proxies without configuration. |
+| **JWT in SSE query param**                                               | `EventSource` API doesn't support custom headers. Token verified inline in `SseController`, not logged. |
+| **`@Global()` EventsModule; `setSseService()` for circular avoidance**  | `ThreadIngestionService` (in EmailSyncModule) and `EmailSyncBackfillService` need to broadcast SSE but can't import EventsModule directly without creating a cycle. `setSseService(sse)` method called in `onModuleInit` by EventsModule sidesteps this. |
+| **sseEventBus is in-process only**                                      | No Redis pub/sub. Sufficient for single-process; a multi-process deployment would need an external broker or sticky sessions. |
 
 ---
 
@@ -103,10 +134,11 @@ read the atlas. If you want to know how it got that way, read this.
 | Google OAuth not wired (portal + dashboard) | Low                | Needs Google Cloud project + App credentials                           |
 | Inbound email needs real MX record          | Medium             | Works locally if you point MX to your server                           |
 | No real-time updates (polling/websockets)   | Medium             | Notifications poll every 30s; no instant push                          |
-| Markdown toolbar is cosmetic                | Low                | Buttons render but don't insert markdown at cursor                     |
+| File attach in reply (bridge compose)       | Low                | Paperclip button present but disabled; no file upload flow in compose  |
 | File attach in reply not implemented        | Low                | Portal ticket reply composer                                           |
 | Export as CSV (portal)                      | Low                | Button renders; no handler                                             |
-| `EMAIL_CREDS_KEY` env var must be set       | Medium             | 64-char hex key required for IMAP/SMTP password encryption; app starts without it but IMAP won't connect |
+| `EMAIL_CREDS_KEY` env var must be set       | Medium             | 64-char hex key required for IMAP/SMTP password + OAuth token encryption; app starts without it but IMAP won't connect |
+| OAuth env vars not yet set                  | Medium             | `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `MICROSOFT_OAUTH_CLIENT_ID/SECRET`, `OAUTH_CALLBACK_BASE`, `BRIDGE_URL` must be configured before OAuth login works |
 | `orgs` module still exists on disk          | Cleanup            | Gutted stub; never imported — safe to delete                           |
 | Auth token stored in localStorage           | Medium             | Acceptable for internal tool; consider httpOnly cookies for production |
 | GitHub Issues analytics dashboard           | Deferred — Phase 2 | Charts: issue volume by destination/connector, resolution time trends  |
@@ -452,3 +484,221 @@ the small-text scaffolding still does its job.
 Untouched on purpose: 10–11px eyebrow labels, 11px table column headers,
 11–12px pill text, 12px timestamps in list rows. They're labels, not
 content.
+
+### 2026-05-25 — Bridge ticket module UI overhaul (email gate + domain grouping + email-card thread)
+
+**Workstream 1 — Email-connected gate**
+- `useEmailConfig(token)` hook (`apps/bridge/src/lib/useEmailConfig.ts`): wraps `GET /config`, returns `{ isConnected, isLoading, refresh }`. Module-level promise cache — single in-flight request shared across pages. `refresh()` busts the cache and re-fetches so the gate clears immediately after save.
+- `EmailNotConfiguredGate` component (`apps/bridge/src/components/dashboard/EmailNotConfiguredGate.tsx`): full-page centered card. ADMIN variant has "Connect email" CTA → `/settings/email` plus 3-bullet feature list. Non-ADMIN variant shows "ask your admin" message.
+- Gated pages: `/inbox`, `/tickets`, `/tickets/[id]` — render the gate when `!isConnected && !isLoading`. Sidebar not gated (Settings remains reachable).
+- `settings/email/page.tsx` calls `refresh()` after successful save and after disconnect, so the gate clears in the same render cycle.
+
+**Workstream 2 — Domain grouping on `/tickets`**
+- `buildDomainGroups()` pure helper (`apps/bridge/src/lib/groupTicketsByDomain.ts`): groups `TicketListItem[]` by `user.email` domain, sorts groups by `lastActivity` desc, sorts tickets within groups by `updatedAt` desc.
+- `tickets/page.tsx`: collapsed/expanded state per domain persisted to `localStorage` under `bridge.tickets.collapsedDomains`. Group header row: domain name (mono) · ticket count chip · open count chip (blue, only shown if > 0) · last activity · chevron. Ticket rows indented 40px under each group header, reusing the same row JSX.
+- Inbox unchanged — flat list with bulk-select stays as-is.
+
+**Workstream 3 — Email-card conversation thread**
+- `MessageCard` component (`apps/bridge/src/components/dashboard/MessageCard.tsx`): single component handles all 4 message types via `type`/`isInternal` discriminator. Full-width cards with 4px colored left border: blue (`--d-accent`) for customer REPLY, green (`--d-success`) for agent REPLY, amber (`--d-note-line`) for INTERNAL_NOTE, centered pill for SYSTEM_EVENT. Card header: avatar + name + `<email>` + "to …" + timestamp.
+- Old chat-bubble inline JSX in `tickets/[id]/page.tsx` fully deleted and replaced with `<MessageCard>` calls. Deleted helpers: `parseEvent()` (moved into `MessageCard`). Removed `Lock`, `Plus` from lucide-react imports.
+- Composer restyled: faux `From: / To:` readonly header above the formatting toolbar on the Reply tab (reads the support address from `GET /config`). All keyboard shortcuts, tabs, and send behavior unchanged.
+- `supportEmail` state fetched from `GET /config` on mount; used in `MessageCard` "to …" metadata and the composer hint.
+
+**Portal untouched** — `git diff apps/portal/` returns empty. Customer view keeps chat bubbles.
+
+**Docs**: `docs/atlas/tickets.md` and `docs/atlas/email.md` updated with new UI sections and component table.
+
+### 2026-05-26 — Bridge ticket UI polish (continued)
+
+- **`/tickets` page relabelled "Inbox"** — page heading changed from "All Tickets" to "Inbox". Route and URL unchanged.
+- **Sidebar collapses to rail-only on tickets section** — `DashboardSidebar` now renders only the 48 px icon rail when `activeSection === 'tickets'` (aside `width: 48px`, content panel not rendered). Search, status filter, and category filter all live in the page header. The sidebar search input + debounce logic was removed from `Sidebar.tsx` and added to `tickets/page.tsx` (300 ms debounce, Esc clears, `?search=` URL param). GitHub and Analytics sections still show the full 220 px sidebar with their panel content.
+- **Code button removed from compose toolbar** — the inline-code format button was removed from the reply/note compose box. Remaining toolbar: Bold (⌘B), Italic (⌘I), Link, List, Paperclip (disabled).
+
+### 2026-05-26 — Bridge ticket UI polish (5 fixes)
+
+- **Sidebar — views/labels removed**: Status and Labels filter sections removed from the sidebar tickets panel. Only a single "All Tickets" view remains (Inbox is accessible from the rail icon; domain navigation is via the group cards). Status + category filter dropdowns moved to the tickets page header.
+- **Tickets page header filters**: now shows "All Tickets" title (static) + two dropdowns (All statuses / All categories) + a "Clear" button when any filter is active. All filters are preserved across each other so combining status + category works correctly.
+- **Resolved/Closed ticket action**: the "Resolve ticket" button in the right sidebar Actions section is replaced by a static "✓ Resolved" indicator (dimmed, not clickable) when ticket status is RESOLVED or CLOSED.
+- **Format toolbar wired up (WYSIWYG)**: Replaced the `<textarea>` with a `contentEditable` div. Bold/Italic use `document.execCommand`; Code wraps selection in a `<code>` node; Link prompts for URL and uses `createLink`; List uses `insertUnorderedList`. ⌘B/⌘I keyboard shortcuts wired to the editor's `onKeyDown`. Body state holds `innerHTML` sent as HTML to the API. `MessageCard` renders HTML bodies via `dangerouslySetInnerHTML` with a simple sanitizer that strips `<script>`, event attributes, and unsafe elements. CollapsedRow snippet strips HTML tags before displaying. Resolved the "Known gap: Markdown toolbar is cosmetic" issue.
+- **Category pill in ticket detail header**: replaced plain `{CAT_LABEL[ticket.category]}` text with `<CategoryPill>` — now shows the Lucide icon (Bug / Lightbulb / HelpCircle / CreditCard / Circle) and the colour-coded background that was already used on list rows.
+- **Priority colors adapted for light theme**: `PRIORITY_COLOR` and `PRIORITY_BG` in `[id]/page.tsx` changed from hardcoded dark-mode hex values (`#60A5FA`, `#FB923C`, `#F43F5E`) to CSS variables (`var(--d-accent)`, `var(--d-warning)`, `var(--d-danger)` / `*-bg`). These variables already carry correct high-contrast values for light mode (`#2563EB`, `#B45309`, `#B91C1C`). Border changed from `${color}50` (hex alpha — invalid with CSS vars) to `var(--d-border)`. Box-shadow glow changed from `${color}80` to plain `${color}` (CSS var in box-shadow is valid).
+
+### 2026-05-27 — Backfill threading + performance fix
+
+- **Root cause of "emails not grouped"**: `teamSize: 5` caused 5 backfill jobs to run in parallel. A reply email processed concurrently with its parent would fail the `In-Reply-To` DB lookup (parent message not committed yet) and create a new ticket instead of threading — so one email thread produced many separate tickets, breaking domain grouping.
+- **Root cause of slow backfill**: each pg-boss job did a fresh `appConfigService.get()` DB call per message, plus the backfill service was double-tracking `backfillProcessed` (once per batch in BackfillService, once per message in InboundEmailProcessor), and MIME blobs were serialised into pg-boss for every message.
+- **Fix**: `BackfillService.runBackfill()` now calls `InboundEmailProcessor.processMessage()` directly and inline (no queue), processing each message in strict sequential order. `freshCfg` is fetched once per backfill run and reused for all messages. Progress is tracked per batch. The pg-boss worker remains for live mail only (teamSize: 5, concurrent).
+- `InboundEmailProcessor.handle()` renamed to public `processMessage(data, preloadedCfg?)` — accepts an optional pre-fetched AppConfig to skip the per-message DB query when called from BackfillService.
+- Both apps pass `tsc --noEmit` clean.
+
+### 2026-05-27 — OAuth/backfill bug fixes
+
+- **`useEmailConfig` OAuth blindspot fixed**: `isConnected` now checks `emailAuthMethod === 'OAUTH' && oauthConnected` in addition to the password check. Previously, OAuth-connected users always saw the "Email not connected" gate on `/inbox`, `/tickets`, and `/tickets/[id]`.
+- **Auto-trigger backfill on OAuth connect**: Settings → Email now fires `POST /config/email/backfill/run` (180 days) when landing with `?connected=1` from the OAuth callback. Previously the backfill was only auto-triggered via the password save path.
+- **`useBackfillStatus` slow-poll added**: Hook now polls every 30s when IDLE/DONE/FAILED (was stopping entirely). This ensures the Sidebar's backfill dot lights up if a backfill starts while the hook is already mounted (e.g. after clicking "Sign in with Google" on the settings page).
+- Both apps pass `tsc --noEmit` clean.
+
+### 2026-05-26 — Email OAuth + historical backfill
+
+- **Schema additions**: `emailAuthMethod` (PASSWORD/OAUTH), `oauthProvider` (GOOGLE/MICROSOFT), `oauthEmail`, `oauthAccessTokenEnc`, `oauthRefreshTokenEnc`, `oauthTokenExpiresAt`, `oauthScopes`, `backfillStatus` (IDLE/RUNNING/DONE/FAILED), `backfillTotal`, `backfillProcessed`, `backfillStartedAt`, `backfillFinishedAt`, `backfillSinceUid` added to `AppConfig`. Three new enums. Applied via `prisma db push`.
+- **`EmailOAuthModule`** (`apps/api/src/modules/email-oauth/`): `EmailOAuthService` (getAuthUrl, exchangeCode, disconnectOAuth — Google + Microsoft), `EmailOAuthController` (`GET /config/email/oauth/:provider/start`, `GET /config/email/oauth/:provider/callback` with `@Redirect`, `DELETE /config/email/oauth/disconnect`), `TokenRefresher` (auto-refreshes OAuth access tokens 5 min before expiry, persists to DB).
+- **XOAUTH2 in `ImapClientService`**: branches on `emailAuthMethod`: OAUTH → `TokenRefresher.getValidAccessToken()` → `auth: { user, accessToken }`; PASSWORD → existing `auth: { user, pass }`.
+- **XOAUTH2 in `EmailService`**: `getTransporter()` is now lazy — for OAuth connections fetches a fresh access token per send via `TokenRefresher`; for PASSWORD returns the static `this.transporter`. All `sendMail` calls updated to use `getTransporter()`.
+- **`BackfillService`** (`apps/api/src/modules/email/backfill.service.ts`): opens a dedicated IMAP client (separate from IDLE supervisor), searches by date range, batches 50 UIDs at a time, enqueues at `priority: 0` via new `QueueService.enqueueBackfillInbound()`.
+- **`BackfillController`** (`apps/api/src/modules/email/backfill.controller.ts`): `POST /config/email/backfill/run`, `GET /config/email/backfill-status`, `POST /config/email/backfill/run-ai`.
+- **`InboundEmailProcessor` updated**: registers worker with `teamSize: 5, teamConcurrency: 1`; detects `source: 'backfill'` and skips `markSeen`, AI enqueue, notifications; increments `backfillProcessed` counter in DB.
+- **`QueueService`**: `enqueueInbound` now sets `priority: 10`; new `enqueueBackfillInbound` sets `priority: 0`.
+- **`AppConfigService.getSafe()`**: now omits `oauthAccessTokenEnc` + `oauthRefreshTokenEnc`, adds `oauthConnected: boolean`. `disconnectEmail()` also clears all OAuth fields + resets backfill state.
+- **Bridge Settings → Email** redesigned: method picker (Google/Microsoft/app password cards) when not connected; connected state shows provider + email + disconnect; password mode has test + save; `BackfillStatusCard` shows progress bar (RUNNING), done state with "Pull full archive" + "Run AI" buttons, and failed state.
+- **`MethodPicker`** component: three styled cards with brand logos (Google SVG, Microsoft squares, lock icon for password).
+- **`BackfillStatusCard`** component: RUNNING = progress bar + live pct; DONE = success + action buttons; FAILED = retry.
+- **`useBackfillStatus`** hook: polls every 5s while RUNNING, stops automatically when done.
+- **Sidebar backfill chip**: pulsing blue dot on the Inbox rail icon when `backfillStatus === 'RUNNING'`.
+- **OAuth callback**: NestJS API handles the redirect from Google/Microsoft, exchanges code, stores tokens, redirects browser to `{BRIDGE_URL}/settings/email?connected=1`.
+- Both `@tmr/api` and `@tmr/bridge` pass `tsc --noEmit` clean.
+
+### 2026-05-27 — IMAP → REST migration (Gmail + Graph) + SSE real-time push
+
+**Full replacement of IMAP-based email with Gmail REST + Microsoft Graph REST.**
+
+**Deleted files:**
+- `apps/api/src/modules/email/imap-client.service.ts`
+- `apps/api/src/modules/email/inbound.processor.ts`
+- `apps/api/src/modules/email/routing.service.ts`
+- `apps/api/src/modules/email/verp.util.ts`
+- `apps/api/src/modules/email/backfill.service.ts` (IMAP era)
+- `apps/api/src/modules/email/backfill.controller.ts` (IMAP era)
+
+**New modules / files added:**
+- `apps/api/src/modules/email-sync/` — full REST sync module:
+  - `providers/mail-provider.interface.ts` — `IMailProvider` interface
+  - `providers/gmail.provider.ts` — Gmail REST adapter (`history.list`, `threads.get`, `settings/sendAs`)
+  - `providers/graph.provider.ts` — Microsoft Graph adapter (`messages/delta`, `conversationId` grouping)
+  - `providers/provider-factory.ts` — `for(cfg)` factory
+  - `thread-ingestion.service.ts` — provider-agnostic ingestion pipeline (upsert User/Ticket/Messages, SSE broadcast)
+  - `customer-resolver.service.ts` — picks non-alias sender; agent address never becomes User
+  - `email-sync-backfill.service.ts` — foreground 180d + unbounded background archive; resumes on bootstrap
+  - `live-poller.service.ts` — `@Cron('*/30 * * * * *')`, gated by `EMAIL_SYNC_LIVE_POLL=1`
+  - `email-sync.controller.ts` — `/sync/backfill/run`, `/sync/status`, `/sync/archive/cancel`, `/sync/resync`
+  - `util/with-retry.ts` — exponential backoff for 429 errors
+  - `util/strip-subject.ts` — strips Re:/Fwd: prefixes
+- `apps/api/src/modules/events/` — SSE module:
+  - `sse.service.ts` — RxJS Subject broadcast service
+  - `sse.controller.ts` — `GET /api/v1/events?token=...` (@Sse, JWT via query param)
+  - `events.module.ts` — `@Global()`, exports SseService
+  - `event.types.ts` — `SseEvent` discriminated union
+
+**Modified files:**
+- `apps/api/src/modules/email/email.service.ts` — removed SMTP-password path; OAuth-only; `getFromAddress/getDomain` now use `oauthEmail`; added `sendViaGraph()` for Microsoft
+- `apps/api/src/modules/email-oauth/email-oauth.service.ts` — removed `emailAuthMethod` field (dropped from schema); emits `OAUTH_CONNECTED` via AppEventsService after token storage
+- `apps/api/src/modules/email-oauth/token-refresher.ts` — added `refreshLocks` Map to dedupe concurrent refreshes; Microsoft scope updated to `Mail.ReadWrite Mail.Send`
+- `apps/api/src/modules/config/config.service.ts` — removed IMAP/SMTP fields from `getSafe()`; added `findActiveOauth()`, `resumingArchive()`, `setCheckpoint()`
+- `apps/api/src/modules/queue/queue.service.ts` — removed `enqueueInbound()` + `enqueueBackfillInbound()`
+- `apps/api/src/common/events/app-events.service.ts` — added `OAUTH_CONNECTED` event + `emitOAuthConnected()` / `onOAuthConnected()`
+- `apps/api/src/app.module.ts` — added `EmailSyncModule`, `EventsModule`
+- `packages/db/prisma/schema.prisma` — removed all IMAP/SMTP/backfill fields and `EmailAuthMethod`/`BackfillStatus` enums; added `oauthAliases`, `gmailHistoryId`, `graphDeltaLink`, `archivePageToken`, `archiveStatus` (ArchiveStatus enum), `archiveTotalSeen`, `externalThreadId @unique`, `externalProvider`, `externalMessageId @unique`
+
+**Bridge:**
+- `apps/bridge/src/lib/sseEventBus.ts` — new in-process pub/sub bus
+- `apps/bridge/src/lib/useSseEvents.ts` — opens single EventSource; exponential backoff reconnect
+- `apps/bridge/src/components/SseProvider.tsx` — client component; mounts hook once per session
+- `apps/bridge/src/app/layout.tsx` — `<SseProvider>` added inside `<AuthProvider>`
+- `apps/bridge/src/app/inbox/page.tsx` — subscribes to `ticket-created` + `ticket-updated`
+- `apps/bridge/src/app/tickets/[id]/page.tsx` — subscribes to `message-created` (for current ticket)
+- `apps/bridge/src/lib/useBackfillStatus.ts` — now hits `/api/v1/sync/status`; subscribes to `archive-progress` SSE
+- `apps/bridge/src/lib/useEmailConfig.ts` — simplified; `isConnected = oauthConnected`
+- `apps/bridge/src/app/settings/email/page.tsx` — removed IMAP/SMTP config forms; OAuth-only method picker
+- `apps/bridge/src/components/settings/email/MethodPicker.tsx` — removed password option
+- `apps/bridge/src/components/settings/email/BackfillStatusCard.tsx` — uses `archiveStatus` + `archiveTotalSeen`
+
+**Schema migration:** `npx prisma db push --accept-data-loss` (dropped IMAP/SMTP/backfill columns + enums).
+
+Both `@tmr/api` and `@tmr/bridge` pass `tsc --noEmit` clean.
+
+**Docs:** `docs/atlas/email.md` rewritten; `docs/atlas/realtime.md` created; `STATE.md` decisions table updated.
+
+### 2026-05-25 — Bridge ticket UI — domain group cards, per-domain page, Gmail thread, inline compose
+
+**Workstream 1 — Domain group card redesign (`/tickets`)**
+- Default state changed to **all collapsed**. Tracking logic inverted: `expandedDomains: Set<string>` (empty = all collapsed) stored in `localStorage` under `bridge.tickets.expandedDomains`. Previous key `bridge.tickets.collapsedDomains` is superseded.
+- Added `flexShrink: 0` to every domain card `<div>` — this was the root cause of cards "shrinking in half" when neighbouring groups were expanded. Flex column containers don't overflow until every child has `flexShrink: 0`.
+- **Two-zone group header**: left zone (Google favicon + domain name + ticket/open count chips) navigates to `/tickets/domain/[domain]`; right zone is a standalone `<button>` (border + hover background) that toggles expand/collapse. No `e.stopPropagation()` needed — no shared parent click handler.
+- `DomainFavicon` component: tries Google favicon service, falls back to 2-letter abbr on `onError`.
+
+**Workstream 2 — Per-domain page (`/tickets/domain/[domain]`)**
+- New Next.js dynamic route. Requires dev server restart on first creation (Next.js App Router does not hot-add new `[param]` segments).
+- Data: `GET /tickets?limit=100&search=@{domain}` (server pre-filter by email substring) + client-side exact-domain check `email.split('@')[1].toLowerCase() === domain` for precision.
+- Hero header: 48 px `DomainFavicon`, 22 px/700 domain name, ticket count + open count, "← All Tickets" back button, status filter `<select>` with chevron overlay.
+- Flat ticket list with column headers and 52 px rows. No preview panel — row click → `/tickets/[id]`.
+
+**Workstream 3 — TicketPreviewPanel removal**
+- Panel component deleted from `TicketPreviewPanel.tsx`; utility exports (`CategoryPill`, `STATUS_CLS`, `STATUS_LABEL`, etc.) retained in the same file — still imported by Inbox, All Tickets, domain page, GitHub page.
+- All ticket-row `onClick` handlers updated from `setSelectedId(id)` → `router.push('/tickets/${id}')` across Inbox, All Tickets, domain page.
+- TypeScript errors fixed post-removal: two stray `}` left after removing the `{sel && <span>}` JSX fragments, and one `useMemo` declared before its `domainFilter` dependency.
+
+**Workstream 4 — Gmail-style conversation thread**
+- `MessageCard` redesigned: avatar (36 px circle) sits **outside** the card in a flex row; card uses full border-radius + `boxShadow` instead of a left color bar. `collapsed` state managed internally — clicking the card header collapses to a slim single-row (avatar + name + snippet + timestamp); clicking the row expands. `CollapsedRow` sub-component handles the slim state with hover background.
+- `splitQuoted()` helper: detects `On … wrote:` quoted headers, `>`-prefixed line blocks, and `--` signature delimiters. Quoted content hidden by default behind a `···` expand button (`QuoteToggle` component).
+- `ReplyActions` sub-component: "↩ Reply" and "🔒 Note" buttons rendered as a footer row inside the last message card (passed via `isLast`, `onReply`, `onNote` props). Hidden while compose is open (`isLast={i === lastIdx && !showCompose}`).
+- **Inline compose** replaces the persistent bottom composer: renders as a message-card-shaped `<div>` directly below the last message in the scroll container. Agent avatar on left (green); header shows `↩ AgentName <support@…> to customer@…` for replies, amber lock icon for notes; "Switch to reply/note" link + × close. `autoFocus` on textarea; `useLayoutEffect` + `scrollIntoView` ensures the compose area is visible when opened. Escape closes; ⌘↵/Ctrl↵ sends (via `useCallback` on `sendMessage`).
+- **Send CTA simplified**: formatting toolbar on left; "Send & Resolve" ghost button (conditional on body content) + plain blue "Send" button (always rendered, `opacity: 0.35` when empty). Removed the split-button chevron — reduces visual noise.
+- **AI Analysis moved to right sidebar**: removed from the message scroll area; added as a new sidebar section between "Ticket" metadata and "GitHub". Shows CSAT + Effort score tiles side by side, then summary text.
+
+**Docs**: `docs/atlas/tickets.md` updated — new sections for domain group cards, per-domain page, Gmail thread design, TicketPreviewPanel removal, inline compose, and five new Notable Decisions entries.
+
+### 2026-05-27 — Inbox routing consolidation + backfill counter fixes
+
+**Routing: single Inbox page**
+- Old flat `/inbox` page (bulk-select flat list) deleted.
+- Domain-grouped `/tickets` page moved to `/inbox` — this is now the one and only Inbox.
+- `/tickets/[id]` (ticket detail) and `/tickets/domain/[domain]` (per-domain drill-down) remain at their URLs.
+- All navigation updated: sidebar rail → `/inbox`; domain page back button → "← Inbox"; root redirect, auth redirect, ticket detail "back" link all already pointed at `/inbox`.
+- Sidebar: the wrongly-added "Inbox / All Tickets" panel (added in a prior session) was reverted; tickets section remains rail-only (48 px, no panel).
+
+**Bug: P2002 concurrent upsert (`ThreadIngestionService`)**
+- `user.upsert()` outside the transaction still races when `processBatch` runs 5 concurrent threads inserting the same customer email.
+- Fix: catch `P2002` (`PrismaClientKnownRequestError`) and fall back to `findUnique` — the winning thread already inserted the row.
+
+**Bug: archiveTotalSeen stuck at 0**
+- Root cause 1: foreground `processBatch` used fire-and-forget `void db.update()` in the chunk callback — SSE broadcast could fire before the DB write committed. Next 5s poll hit `/sync/status` and returned `archiveTotalSeen: 0` from the DB, overwriting the SSE count.
+- Root cause 2: `useBackfillStatus.setStatus(s)` replaced the whole state including a higher SSE-updated count with a lower stale poll value.
+- Fix 1: callback changed to `async`; `await db.update()` before broadcasting SSE so DB is always ahead of the client.
+- Fix 2: poll `setStatus` now uses `Math.max(polled.archiveTotalSeen, prev.archiveTotalSeen)` — stale polls can never roll the counter back.
+
+**Feature: `X / Y emails retrieved` progress display**
+- `archiveTotalEstimate Int?` added to `AppConfig` schema (`prisma db push`).
+- Persisted immediately before the foreground `processBatch` starts — first poll already returns the denominator.
+- SSE `archive-progress` event extended with optional `total` field; `sseEventBus` type updated.
+- `useBackfillStatus` carries `archiveTotalEstimate`; SSE keeps it in sync via `ev.total ?? prev`.
+- `ArchiveProgressCard` refactored to use `useBackfillStatus` (SSE-reactive, no separate polling).
+- Shows "**5 / 247 emails retrieved**" during foreground (proportional fill bar). Background archive shows "**1,234 emails retrieved**" with indeterminate animated bar (total unknown).
+- `GET /sync/status` now returns `archiveTotalEstimate`.
+
+### 2026-05-27 — Email sync hardening + file logging (session 3)
+
+**Unlimited archive**
+- Removed the 300-thread foreground cap. Archive is now a single phase: fetch `threadsTotal` from Gmail profile → set `archiveTotalEstimate` → run full `listAllThreadIds` loop. `fetchTotalThreadCount()` and `fetchCurrentHistoryId()` added to `GmailProvider`. `setInitialCheckpoint` moved to archive start AND kept at archive end.
+
+**Ticket timestamps from email dates**
+- New tickets get `createdAt = firstMessage.sentAt`, `updatedAt = lastMessage.sentAt`. Updates to existing tickets bump `updatedAt` to the latest new message's sentAt. Fixes inbox sort order — portal tickets always float above old archived emails.
+
+**Cancel / Resume archive**
+- New `POST /sync/archive/resume` + `EmailSyncBackfillService.resumeArchive()` — sets status `RUNNING` without resetting `archivePageToken` or `archiveTotalSeen`. At most 100 threads re-processed on resume. Old "Resume" button was calling `startForeground()` which reset everything.
+
+**Disconnect / Reconnect**
+- Both disconnect and OAuth connect callback now clear `archiveTotalEstimate`. No data loss — existing tickets/messages preserved. Re-connect triggers full archive; dedup guards prevent duplicates.
+
+**Portal ticket reply matching (3-level lookup)**
+- Portal tickets have `externalThreadId = null`. Fixed with fallback lookup chain: (1) `externalThreadId` fast path, (2) `inReplyTo` → stored agent `messageId` on Message records, (3) `<ticket-{emailThreadId}@domain>` synthetic ID → `ticket.emailThreadId` lookup. All match paths stamp `externalThreadId` for future fast-path hits.
+
+**Live poller fixes**
+- `messagesAdded[].message` checked before `messages[]` in Gmail History API — more reliable for new inbound detection.
+- Per-thread try/catch: a failing thread no longer aborts the poll or blocks checkpoint advancement.
+- RFC `messageId` dedup: pre-create `findUnique({ where: { messageId } })` skips Sent-copy duplicates before hitting the `@unique` constraint.
+
+**File logging**
+- `FileLogger` (`apps/api/src/common/logger/file-logger.ts`) extends `ConsoleLogger`. JSON lines → `apps/api/logs/app-YYYY-MM-DD.log` (daily rotation). Wired as NestJS app logger in `main.ts`. `apps/api/logs/` gitignored.
+- Tail: `tail -f apps/api/logs/app-$(date +%Y-%m-%d).log | jq -r '"\(.ts) [\(.level)] \(.context): \(.msg)"'`
+
+**Manual poll endpoint**
+- `POST /api/v1/sync/poll/now` — triggers immediate poll cycle without waiting for 30s cron. Used for debugging.

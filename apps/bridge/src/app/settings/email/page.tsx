@@ -1,19 +1,16 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth'
+import { useEmailConfig } from '@/lib/useEmailConfig'
 import { api } from '@/lib/api'
+import { MethodPicker } from '@/components/settings/email/MethodPicker'
+import { ArchiveProgressCard } from '@/components/dashboard/ArchiveProgressCard'
 
 interface EmailConfig {
-  imapUser: string | null
-  imapPasswordSet: boolean
-  smtpPasswordSet: boolean
-  inboundEnabled: boolean
-}
-
-interface TestResult {
-  imap: 'ok' | 'fail' | null
-  smtp: 'ok' | 'fail' | null
-  errors: string[]
+  oauthProvider: 'GOOGLE' | 'MICROSOFT' | null
+  oauthEmail: string | null
+  oauthConnected: boolean
 }
 
 const card: React.CSSProperties = {
@@ -24,26 +21,7 @@ const card: React.CSSProperties = {
   marginBottom: 20,
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 12,
-  fontWeight: 600,
-  color: 'var(--d-text-3)',
-  marginBottom: 6,
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--d-raised)',
-  border: '1px solid var(--d-border)',
-  borderRadius: 'var(--r-sm)',
-  padding: '10px 12px',
-  fontSize: 13,
-  color: 'var(--d-text)',
-  boxSizing: 'border-box',
-}
-
-const btn = (variant: 'primary' | 'secondary' | 'ghost' = 'primary'): React.CSSProperties => ({
+const btn = (variant: 'primary' | 'secondary' | 'ghost' | 'danger' = 'primary'): React.CSSProperties => ({
   height: 36,
   padding: '0 16px',
   borderRadius: 'var(--r-sm)',
@@ -51,8 +29,9 @@ const btn = (variant: 'primary' | 'secondary' | 'ghost' = 'primary'): React.CSSP
   fontWeight: 500,
   cursor: 'pointer',
   border: variant === 'ghost' ? '1px solid var(--d-border)' : 'none',
-  background: variant === 'primary' ? 'var(--d-accent)' : variant === 'secondary' ? 'var(--d-raised)' : 'transparent',
-  color: variant === 'primary' ? '#fff' : 'var(--d-text)',
+  background: variant === 'primary' ? 'var(--d-accent)' : variant === 'danger' ? 'var(--d-danger)' : variant === 'secondary' ? 'var(--d-raised)' : 'transparent',
+  color: variant === 'primary' || variant === 'danger' ? '#fff' : 'var(--d-text)',
+  fontFamily: 'inherit',
 })
 
 const StatusDot = ({ ok }: { ok: boolean | null }) => (
@@ -62,76 +41,59 @@ const StatusDot = ({ ok }: { ok: boolean | null }) => (
   }} />
 )
 
+type Mode = 'picker' | 'oauth-connected'
+
 export default function EmailSettingsPage() {
-  const { token } = useAuth()
+  const { token, agent } = useAuth()
+  const searchParams = useSearchParams()
+  const { refresh: refreshEmailConfig } = useEmailConfig(token)
+
   const [cfg, setCfg] = useState<EmailConfig | null>(null)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [mode, setMode] = useState<Mode>('picker')
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
+  // Check for OAuth callback params
   useEffect(() => {
-    if (!token) return
-    api.get<EmailConfig>('/config', token)
-      .then((res) => {
-        setCfg(res)
-        setEmail(res.imapUser ?? '')
-      })
-      .catch(console.error)
-  }, [token])
+    const connected = searchParams.get('connected')
+    const error = searchParams.get('oauth_error')
+    if (connected === '1') {
+      refreshEmailConfig()
+      void loadConfig()
+    }
+    if (error) {
+      setOauthError(decodeURIComponent(error))
+    }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSave = async () => {
-    if (!token || !email) return
-    setSaving(true)
+  const loadConfig = async () => {
+    if (!token) return
     try {
-      await api.patch('/config', {
-        imapUser: email,
-        smtpUser: email,
-        smtpFrom: email,
-        ...(password ? { imapPassword: password, smtpPassword: password } : {}),
-        inboundEnabled: true,
-      }, token)
-      setSaved(true)
-      setPassword('')
-      // Refresh config to update `(set)` indicators
-      const fresh = await api.get<EmailConfig>('/config', token)
-      setCfg(fresh)
+      const res = await api.get<EmailConfig>('/config', token)
+      setCfg(res)
+      if (res.oauthConnected) {
+        setMode('oauth-connected')
+      } else {
+        setMode('picker')
+      }
     } catch (err) {
       console.error(err)
-    } finally {
-      setSaving(false)
     }
   }
 
-  const handleTest = async () => {
-    if (!token || !email || !password) return
-    setTesting(true)
-    setTestResult(null)
+  useEffect(() => {
+    if (!token) return
+    void loadConfig()
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startOAuth = async (provider: 'google' | 'microsoft') => {
+    if (!token) return
     try {
-      const res = await api.post<{ imap: 'ok' | 'fail'; smtp: 'ok' | 'fail'; errors: string[] }>(
-        '/config/email/test',
-        {
-          imapHost: 'imap.gmail.com',
-          imapPort: 993,
-          imapUser: email,
-          imapPassword: password,
-          imapUseTls: true,
-          smtpHost: 'smtp.gmail.com',
-          smtpPort: 587,
-          smtpUser: email,
-          smtpPassword: password,
-        },
-        token,
-      )
-      setTestResult(res)
-    } catch {
-      setTestResult({ imap: 'fail', smtp: 'fail', errors: ['Request failed'] })
-    } finally {
-      setTesting(false)
+      const res = await api.get<{ url: string }>(`/config/email/oauth/${provider}/start`, token)
+      window.location.href = res.url
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Failed to start OAuth flow')
     }
   }
 
@@ -139,14 +101,11 @@ export default function EmailSettingsPage() {
     if (!token) return
     setDisconnecting(true)
     try {
-      await api.delete('/config/email', token)
+      await api.delete('/config/email/oauth/disconnect', token)
       setShowDisconnectConfirm(false)
-      setEmail('')
-      setPassword('')
-      setTestResult(null)
-      setSaved(false)
-      const fresh = await api.get<EmailConfig>('/config', token)
-      setCfg(fresh)
+      setMode('picker')
+      refreshEmailConfig()
+      await loadConfig()
     } catch (err) {
       console.error(err)
     } finally {
@@ -156,139 +115,86 @@ export default function EmailSettingsPage() {
 
   if (!cfg) return <div style={{ color: 'var(--d-text-3)', padding: 32 }}>Loading…</div>
 
-  const isConfigured = cfg.imapUser && cfg.imapPasswordSet && cfg.inboundEnabled
+  const isAdmin = agent?.role === 'ADMIN'
 
   return (
     <div style={{ maxWidth: 580 }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--d-text)', margin: '0 0 4px' }}>Support inbox</h1>
         <p style={{ fontSize: 13, color: 'var(--d-text-3)', margin: 0 }}>
-          Connect the email address your customers write to. We&apos;ll send and receive support mail from this inbox.
+          Connect your Google or Microsoft mailbox. We&apos;ll import your email history and sync new messages in real time.
         </p>
       </div>
 
-      <div style={card}>
-        <div style={{ marginBottom: 16 }}>
-          <span style={labelStyle}>Support email address</span>
-          <input
-            style={inputStyle}
-            type="email"
-            placeholder="support@yourcompany.com"
-            value={email}
-            onChange={(e) => { setEmail(e.target.value); setSaved(false) }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <span style={labelStyle}>
-            App password {cfg.imapPasswordSet && <span style={{ fontWeight: 400, color: 'var(--d-text-4)' }}>(set — leave blank to keep)</span>}
-          </span>
-          <input
-            style={inputStyle}
-            type="password"
-            placeholder={cfg.imapPasswordSet ? '••••••••••••••••' : 'xxxx xxxx xxxx xxxx'}
-            value={password}
-            onChange={(e) => { setPassword(e.target.value); setSaved(false) }}
-          />
-        </div>
-
-        <div style={{
-          fontSize: 12,
-          color: 'var(--d-text-3)',
-          background: 'var(--d-raised)',
-          borderRadius: 'var(--r-sm)',
-          padding: '10px 12px',
-          lineHeight: 1.5,
-        }}>
-          <strong style={{ color: 'var(--d-text-2)' }}>Tip:</strong> Gmail requires an{' '}
-          <a
-            href="https://myaccount.google.com/apppasswords"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: 'var(--d-accent)', textDecoration: 'underline' }}
+      {oauthError && (
+        <div style={{ ...card, borderColor: 'var(--d-danger)', background: 'var(--d-danger-bg, rgba(239,68,68,0.08))', marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-danger)' }}>OAuth connection failed</div>
+          <div style={{ fontSize: 12, color: 'var(--d-text-3)', marginTop: 4 }}>{oauthError}</div>
+          <button
+            type="button"
+            onClick={() => setOauthError(null)}
+            style={{ marginTop: 10, fontSize: 12, color: 'var(--d-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}
           >
-            app password
-          </a>
-          {' '}— your normal password won&apos;t work. This same email and password are used to both
-          send replies and receive customer mail.
+            Dismiss
+          </button>
         </div>
+      )}
 
-        {isConfigured && (
-          <div style={{ fontSize: 12, color: 'var(--d-text-3)', marginTop: 12 }}>
+      {/* OAuth connected state */}
+      {mode === 'oauth-connected' && cfg.oauthConnected && (
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
             <StatusDot ok={true} />
-            Inbox connected — listening for new mail
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--d-text)' }}>
+              Connected via {cfg.oauthProvider === 'GOOGLE' ? 'Google' : 'Microsoft'}
+            </span>
           </div>
-        )}
-      </div>
-
-      {/* Test result */}
-      {testResult && (
-        <div style={{ ...card, background: 'var(--d-raised)' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)', marginBottom: 8 }}>Connection test</div>
-          <div style={{ display: 'flex', gap: 24, marginBottom: testResult.errors.length ? 12 : 0 }}>
-            <div style={{ fontSize: 13 }}>
-              <StatusDot ok={testResult.imap === 'ok'} />
-              Receiving: <strong>{testResult.imap === 'ok' ? 'Connected' : 'Failed'}</strong>
-            </div>
-            <div style={{ fontSize: 13 }}>
-              <StatusDot ok={testResult.smtp === 'ok'} />
-              Sending: <strong>{testResult.smtp === 'ok' ? 'Connected' : 'Failed'}</strong>
-            </div>
+          <div style={{ fontSize: 13, color: 'var(--d-text-3)', marginBottom: 16 }}>
+            Mailbox: <strong style={{ color: 'var(--d-text)' }}>{cfg.oauthEmail}</strong>
           </div>
-          {testResult.errors.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--d-danger)', fontFamily: 'monospace' }}>
-              {testResult.errors.map((e, i) => <div key={i}>{e}</div>)}
-            </div>
+          {token && (
+            <ArchiveProgressCard token={token} />
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowDisconnectConfirm(true)}
+              style={{ marginTop: 16, fontSize: 13, color: 'var(--d-danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}
+            >
+              Disconnect
+            </button>
           )}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <button style={btn('primary')} onClick={handleSave} disabled={saving || !email}>
-          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
-        </button>
-        <button style={btn('ghost')} onClick={handleTest} disabled={testing || !email || !password}>
-          {testing ? 'Testing…' : 'Test connection'}
-        </button>
-        {isConfigured && (
-          <button
-            type="button"
-            onClick={() => setShowDisconnectConfirm(true)}
-            style={{
-              marginLeft: 'auto',
-              fontSize: 13,
-              color: 'var(--d-danger)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              padding: '8px 12px',
-            }}
-          >
-            Disconnect
-          </button>
-        )}
-      </div>
+      {/* Not connected: show method picker */}
+      {mode === 'picker' && isAdmin && (
+        <div style={card}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--d-text)', marginBottom: 16 }}>Connect your mailbox</div>
+          <MethodPicker
+            onSelectGoogle={() => { void startOAuth('google') }}
+            onSelectMicrosoft={() => { void startOAuth('microsoft') }}
+          />
+        </div>
+      )}
 
+      {mode === 'picker' && !isAdmin && (
+        <div style={{ ...card, textAlign: 'center' }}>
+          <div style={{ fontSize: 14, color: 'var(--d-text-3)' }}>
+            No email account connected yet. Ask your admin to connect one.
+          </div>
+        </div>
+      )}
+
+      {/* Disconnect confirm modal */}
       {showDisconnectConfirm && (
         <div
           onClick={() => !disconnecting && setShowDisconnectConfirm(false)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 100,
-            background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
+          style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 440,
-              background: 'var(--d-surface)',
-              border: '1px solid var(--d-border)',
-              borderRadius: 'var(--r-md)',
-              padding: 24,
-              boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
-            }}
+            style={{ width: 440, background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-md)', padding: 24, boxShadow: '0 12px 40px rgba(0,0,0,0.45)' }}
           >
             <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 10px' }}>
               Disconnect support inbox?
@@ -298,31 +204,16 @@ export default function EmailSettingsPage() {
               Existing tickets and messages stay intact.
             </p>
             <p style={{ fontSize: 13, color: 'var(--d-text-3)', lineHeight: 1.6, margin: '0 0 20px' }}>
-              The stored email and app password will be cleared. You&apos;ll need to re-enter them to reconnect.
+              OAuth tokens will be revoked.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                style={btn('ghost')}
-                onClick={() => setShowDisconnectConfirm(false)}
-                disabled={disconnecting}
-              >
+              <button style={btn('ghost')} onClick={() => setShowDisconnectConfirm(false)} disabled={disconnecting}>
                 Cancel
               </button>
               <button
                 onClick={() => { void handleDisconnect() }}
                 disabled={disconnecting}
-                style={{
-                  height: 36,
-                  padding: '0 16px',
-                  borderRadius: 'var(--r-sm)',
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: disconnecting ? 'not-allowed' : 'pointer',
-                  border: 'none',
-                  background: 'var(--d-danger)',
-                  color: '#fff',
-                  opacity: disconnecting ? 0.7 : 1,
-                }}
+                style={{ ...btn('danger'), opacity: disconnecting ? 0.7 : 1, cursor: disconnecting ? 'not-allowed' : 'pointer' }}
               >
                 {disconnecting ? 'Disconnecting…' : 'Disconnect'}
               </button>

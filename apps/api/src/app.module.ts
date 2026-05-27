@@ -11,11 +11,14 @@ import { AgentsModule } from './modules/agents/agents.module'
 import { UsersModule } from './modules/users/users.module'
 import { FilesModule } from './modules/files/files.module'
 import { EmailModule } from './modules/email/email.module'
+import { EmailOAuthModule } from './modules/email-oauth/email-oauth.module'
 import { GithubModule } from './modules/github/github.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
 import { AnalyticsModule } from './modules/analytics/analytics.module'
 import { AppEventsModule } from './common/events/app-events.module'
 import { AiModule } from './modules/ai/ai.module'
+import { EmailSyncModule } from './modules/email-sync/email-sync.module'
+import { EventsModule } from './modules/events/events.module'
 
 @Module({
   imports: [
@@ -35,10 +38,13 @@ import { AiModule } from './modules/ai/ai.module'
     UsersModule,
     FilesModule,
     EmailModule,
+    EmailOAuthModule,
     GithubModule,
     NotificationsModule,
     AnalyticsModule,
     AiModule,
+    EmailSyncModule,
+    EventsModule,
   ],
 })
 export class AppModule {}

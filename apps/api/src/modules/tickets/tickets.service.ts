@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
 import { QueueService } from '../queue/queue.service'
+import { SseService } from '../events/sse.service'
 import type { ListTicketsQuery, CreateTicketDto, UpdateTicketDto } from './tickets.dto'
 import type { Prisma, TicketStatus, TicketPriority, TicketCategory } from '@tmr/db'
 
@@ -21,6 +22,7 @@ export class TicketsService {
     private readonly db: PrismaService,
     private readonly emailService: EmailService,
     private readonly queueService: QueueService,
+    private readonly sse: SseService,
   ) {}
 
   async stats(): Promise<unknown> {
@@ -135,6 +137,9 @@ export class TicketsService {
       }
     }
 
+    // Broadcast SSE event so the agent dashboard updates in real time
+    this.sse.broadcast({ type: 'ticket-created', ticketId: ticket.id })
+
     // Enqueue AI sentiment analysis for the initial description message
     if (descriptionMessageId) {
       this.queueService.enqueueAnalyzeMessage({ messageId: descriptionMessageId, ticketId: ticket.id }).catch(() => {})
@@ -207,6 +212,9 @@ export class TicketsService {
       }
       return result
     })
+
+    // Broadcast SSE event so the agent dashboard updates in real time
+    this.sse.broadcast({ type: 'ticket-updated', ticketId })
 
     // Enqueue AI classify + CSAT request when ticket reaches RESOLVED
     if (dto.status === 'RESOLVED' && ticket.status !== 'RESOLVED') {

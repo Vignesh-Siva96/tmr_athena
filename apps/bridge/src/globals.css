@@ -167,3 +167,32 @@ html[data-theme="light"] .shimmer {
   background: linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 100%);
   background-size: 200% 100%;
 }
+
+/* ─── RICH TEXT COMPOSE ──────────────────────────────────────────────────── */
+/* Placeholder text on empty contenteditable */
+.rt-editor:empty:before {
+  content: attr(data-placeholder);
+  color: var(--d-text-4);
+  pointer-events: none;
+  display: block;
+}
+/* Formatted text inside the compose editor */
+.rt-editor b, .rt-editor strong { font-weight: 700; }
+.rt-editor i, .rt-editor em { font-style: italic; }
+.rt-editor code { font-family: var(--font-mono); font-size: 0.88em; background: var(--d-raised); padding: 1px 5px; border-radius: 3px; }
+.rt-editor ul { margin: 4px 0 4px 20px; padding: 0; list-style-type: disc; }
+.rt-editor ol { margin: 4px 0 4px 20px; padding: 0; list-style-type: decimal; }
+.rt-editor a { color: var(--d-accent); text-decoration: underline; }
+.rt-editor div { min-height: 1.4em; }
+
+/* Rendered HTML in message cards */
+.msg-html { white-space: normal; }
+.msg-html p { margin: 0 0 6px; }
+.msg-html p:last-child { margin-bottom: 0; }
+.msg-html b, .msg-html strong { font-weight: 700; }
+.msg-html i, .msg-html em { font-style: italic; }
+.msg-html code { font-family: var(--font-mono); font-size: 0.88em; background: var(--d-raised); padding: 1px 5px; border-radius: 3px; }
+.msg-html ul { margin: 4px 0 4px 20px; padding: 0; list-style-type: disc; }
+.msg-html ol { margin: 4px 0 4px 20px; padding: 0; list-style-type: decimal; }
+.msg-html a { color: var(--d-accent); text-decoration: underline; }
+.msg-html div + div { margin-top: 2px; }

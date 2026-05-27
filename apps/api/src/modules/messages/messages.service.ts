@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
 import { QueueService } from '../queue/queue.service'
+import { SseService } from '../events/sse.service'
 import type { CreateMessageDto, UpdateMessageDto } from './messages.dto'
 import type { MessageType, MessageSentVia, TicketStatus } from '@tmr/db'
 
@@ -25,6 +26,7 @@ export class MessagesService {
     private readonly db: PrismaService,
     private readonly emailService: EmailService,
     private readonly queueService: QueueService,
+    private readonly sse: SseService,
   ) {}
 
   async create(
@@ -114,6 +116,9 @@ export class MessagesService {
           .catch((err: unknown) => console.error('Email send failed:', err))
       }
     }
+
+    // Broadcast SSE event so the agent dashboard updates in real time
+    this.sse.broadcast({ type: 'message-created', ticketId, messageId: message.id })
 
     // Enqueue AI sentiment analysis for customer replies
     if (!isInternal && caller.role === 'user' && dto.type === 'REPLY') {

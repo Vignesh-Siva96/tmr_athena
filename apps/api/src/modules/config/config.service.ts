@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
-import { AppEventsService } from '../../common/events/app-events.service'
-import { encrypt, decrypt } from '../../common/crypto/credentials-cipher'
 import type { AppConfig } from '@tmr/db'
 import { z } from 'zod'
-import * as nodemailer from 'nodemailer'
 
 export const updateAppConfigSchema = z.object({
   appName: z.string().min(1).optional(),
@@ -14,45 +11,13 @@ export const updateAppConfigSchema = z.object({
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   emailDisplayName: z.string().optional(),
   supportEmail: z.string().email().nullable().optional(),
-
-  // IMAP
-  imapHost: z.string().nullable().optional(),
-  imapPort: z.number().int().optional(),
-  imapUser: z.string().nullable().optional(),
-  imapPassword: z.string().optional(), // plain — encrypted before write
-  imapUseTls: z.boolean().optional(),
-  imapFolder: z.string().optional(),
-
-  // SMTP
-  smtpHost: z.string().nullable().optional(),
-  smtpPort: z.number().int().optional(),
-  smtpUser: z.string().nullable().optional(),
-  smtpPassword: z.string().optional(), // plain — encrypted before write
-  smtpFrom: z.string().nullable().optional(),
-
-  // Inbound toggle
-  inboundEnabled: z.boolean().optional(),
 })
 export type UpdateAppConfigDto = z.infer<typeof updateAppConfigSchema>
-
-export const testEmailConnectionSchema = z.object({
-  imapHost: z.string(),
-  imapPort: z.number().int().default(993),
-  imapUser: z.string(),
-  imapPassword: z.string(),
-  imapUseTls: z.boolean().default(true),
-  smtpHost: z.string(),
-  smtpPort: z.number().int().default(587),
-  smtpUser: z.string(),
-  smtpPassword: z.string(),
-})
-export type TestEmailConnectionDto = z.infer<typeof testEmailConnectionSchema>
 
 @Injectable()
 export class AppConfigService {
   constructor(
     private readonly db: PrismaService,
-    private readonly appEvents: AppEventsService,
   ) {}
 
   async get(): Promise<AppConfig> {
@@ -68,36 +33,22 @@ export class AppConfigService {
     })
   }
 
-  /** Returns config with passwords redacted (never exposed via API) */
-  async getSafe(): Promise<Omit<AppConfig, 'imapPasswordEnc' | 'smtpPasswordEnc'> & { imapPasswordSet: boolean; smtpPasswordSet: boolean }> {
+  /** Returns config with OAuth tokens redacted (never exposed via API) */
+  async getSafe(): Promise<
+    Omit<AppConfig, 'oauthAccessTokenEnc' | 'oauthRefreshTokenEnc'> &
+    { oauthConnected: boolean }
+  > {
     const cfg = await this.get()
-    const { imapPasswordEnc, smtpPasswordEnc, ...rest } = cfg
+    const { oauthAccessTokenEnc, oauthRefreshTokenEnc, ...rest } = cfg
     return {
       ...rest,
-      imapPasswordSet: !!imapPasswordEnc,
-      smtpPasswordSet: !!smtpPasswordEnc,
+      oauthConnected: !!(oauthAccessTokenEnc && oauthRefreshTokenEnc),
     }
   }
 
   async update(dto: UpdateAppConfigDto): Promise<AppConfig> {
     const config = await this.get()
-
-    const { imapPassword, smtpPassword, ...fields } = dto
-
-    const data: Record<string, unknown> = { ...fields }
-    if (imapPassword) data.imapPasswordEnc = encrypt(imapPassword)
-    if (smtpPassword) data.smtpPasswordEnc = encrypt(smtpPassword)
-
-    const updated = await this.db.appConfig.update({ where: { id: config.id }, data })
-
-    const hasEmailChanges = !!(
-      dto.imapHost || dto.imapUser || imapPassword || dto.inboundEnabled !== undefined ||
-      dto.smtpHost || dto.smtpUser || smtpPassword
-    )
-    if (hasEmailChanges) {
-      this.appEvents.emitEmailConfigUpdated()
-    }
-
+    const updated = await this.db.appConfig.update({ where: { id: config.id }, data: dto })
     return updated
   }
 
@@ -106,80 +57,23 @@ export class AppConfigService {
     return this.db.appConfig.update({ where: { id: config.id }, data: { logoUrl } })
   }
 
-  async updateInboundLastUid(uid: number): Promise<void> {
-    const config = await this.get()
-    await this.db.appConfig.update({ where: { id: config.id }, data: { inboundLastUid: uid } })
-  }
-
-  /**
-   * Clear the email connection: turns off inbound, removes credentials, resets
-   * the IMAP cursor. The IMAP supervisor will tear down its connection on the
-   * `email-config-updated` event.
-   */
-  async disconnectEmail(): Promise<AppConfig> {
-    const config = await this.get()
-    const updated = await this.db.appConfig.update({
-      where: { id: config.id },
-      data: {
-        inboundEnabled: false,
-        imapUser: null,
-        imapPasswordEnc: null,
-        smtpUser: null,
-        smtpPasswordEnc: null,
-        smtpFrom: null,
-        inboundLastUid: null,
-      },
+  async findActiveOauth(): Promise<AppConfig[]> {
+    return this.db.appConfig.findMany({
+      where: { oauthAccessTokenEnc: { not: null } },
     })
-    this.appEvents.emitEmailConfigUpdated()
-    return updated
   }
 
-  async testEmailConnection(dto: TestEmailConnectionDto): Promise<{
-    imap: 'ok' | 'fail'
-    smtp: 'ok' | 'fail'
-    errors: string[]
-  }> {
-    const errors: string[] = []
-    let imapResult: 'ok' | 'fail' = 'fail'
-    let smtpResult: 'ok' | 'fail' = 'fail'
+  async resumingArchive(): Promise<AppConfig | null> {
+    return this.db.appConfig.findFirst({
+      where: { archiveStatus: 'RUNNING' },
+    })
+  }
 
-    // Test IMAP
-    try {
-      const { ImapFlow } = await import('imapflow')
-      const client = new ImapFlow({
-        host: dto.imapHost,
-        port: dto.imapPort,
-        secure: dto.imapUseTls,
-        auth: { user: dto.imapUser, pass: dto.imapPassword },
-        logger: false,
-      })
-      await Promise.race([
-        client.connect().then(() => client.logout()),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('IMAP timeout')), 10_000)),
-      ])
-      imapResult = 'ok'
-    } catch (err) {
-      errors.push(`IMAP: ${String(err)}`)
-    }
-
-    // Test SMTP
-    try {
-      const transporter = nodemailer.createTransport({
-        host: dto.smtpHost,
-        port: dto.smtpPort,
-        secure: dto.smtpPort === 465,
-        auth: { user: dto.smtpUser, pass: dto.smtpPassword },
-      })
-      await Promise.race([
-        transporter.verify(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('SMTP timeout')), 10_000)),
-      ])
-      smtpResult = 'ok'
-    } catch (err) {
-      errors.push(`SMTP: ${String(err)}`)
-    }
-
-    return { imap: imapResult, smtp: smtpResult, errors }
+  async setCheckpoint(cfgId: string, checkpoint: string, provider: 'GMAIL' | 'GRAPH' = 'GMAIL'): Promise<void> {
+    const data: Record<string, string> = {}
+    if (provider === 'GMAIL') data.gmailHistoryId = checkpoint
+    else data.graphDeltaLink = checkpoint
+    await this.db.appConfig.update({ where: { id: cfgId }, data })
   }
 
   async extractBrand(url: string): Promise<{ colors: { hex: string; source: string; label: string }[] }> {

@@ -1,26 +1,28 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { ChevronDown, Check, ArrowUp, User } from 'lucide-react'
+import { useEffect, useState, useMemo, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 import { DashboardSidebar } from '@/components/dashboard/Sidebar'
-import { TicketPreviewPanel, CategoryPill, STATUS_CLS, STATUS_LABEL, CAT_COLOR, CAT_LABEL } from '@/components/dashboard/TicketPreviewPanel'
+import { CategoryPill, STATUS_CLS, STATUS_LABEL, CAT_LABEL } from '@/components/dashboard/TicketPreviewPanel'
+import { EmailNotConfiguredGate } from '@/components/dashboard/EmailNotConfiguredGate'
 import { useAuth } from '@/lib/auth'
+import { useEmailConfig } from '@/lib/useEmailConfig'
+import { buildDomainGroups } from '@/lib/groupTicketsByDomain'
 import { api } from '@/lib/api'
 
 type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
-type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
+type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 
-interface Assignee { id: string; name: string; avatarUrl: string | null }
 interface TicketUser { id: string; name: string | null; email: string }
+interface Assignee { id: string; name: string; avatarUrl: string | null }
 
 interface TicketListItem {
   id: string; number: number; displayId: string; title: string
   status: TicketStatus; priority: TicketPriority; category: TicketCategory
   connector?: string | null; assignee?: Assignee | null; user: TicketUser
-  tags: { id: string; name: string; color: string }[]
-  lastMessage?: { body: string; createdAt: string } | null
   hasUnreadReply: boolean; updatedAt: string
+  lastMessage?: { body: string; createdAt: string } | null
 }
 
 interface TicketsResponse { data: TicketListItem[]; meta: { total: number } }
@@ -42,30 +44,113 @@ function initials(name: string | null, email: string): string {
   return email.slice(0, 2).toUpperCase()
 }
 
+function DomainFavicon({ domain }: { domain: string }) {
+  const [errored, setErrored] = useState(false)
+  const abbr = domain.slice(0, 2).toUpperCase()
+  return (
+    <div style={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid var(--d-border)', background: 'var(--d-raised)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+      {errored ? (
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--d-text-3)' }}>{abbr}</span>
+      ) : (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          onError={() => setErrored(true)}
+          style={{ width: 20, height: 20 }}
+          alt=""
+        />
+      )}
+    </div>
+  )
+}
+
+const PREVIEW_COUNT = 5
+
 export default function InboxPage() {
+  return (
+    <Suspense fallback={<div style={{ height: '100vh', background: 'var(--d-bg)' }} />}>
+      <InboxInner />
+    </Suspense>
+  )
+}
+
+function InboxInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { agent, token, isLoading: authLoading } = useAuth()
+  const { isConnected, isLoading: emailConfigLoading } = useEmailConfig(token)
   const [tickets, setTickets] = useState<TicketListItem[]>([])
+  const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [isBulkActing, setIsBulkActing] = useState(false)
+  const [expandedDomains, setExpandedDomains] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const stored = localStorage.getItem('bridge.tickets.expandedDomains')
+      return new Set(stored ? (JSON.parse(stored) as string[]) : [])
+    } catch { return new Set() }
+  })
+
+  const [showAllDomains, setShowAllDomains] = useState<Set<string>>(new Set())
+
+  const toggleDomain = (domain: string) => {
+    setExpandedDomains((prev) => {
+      const next = new Set(prev)
+      if (next.has(domain)) { next.delete(domain) } else { next.add(domain) }
+      try { localStorage.setItem('bridge.tickets.expandedDomains', JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
+
+  const toggleShowAll = (domain: string) => {
+    setShowAllDomains((prev) => {
+      const next = new Set(prev)
+      if (next.has(domain)) { next.delete(domain) } else { next.add(domain) }
+      return next
+    })
+  }
+
+  const statusFilter = searchParams.get('status') ?? ''
+  const categoryFilter = searchParams.get('category') ?? ''
+  const searchQuery = searchParams.get('search') ?? ''
+
+  // Local search input state — debounced into URL
+  const [searchInput, setSearchInput] = useState(searchQuery)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const p = new URLSearchParams()
+      if (statusFilter) p.set('status', statusFilter)
+      if (categoryFilter) p.set('category', categoryFilter)
+      if (searchInput.trim()) p.set('search', searchInput.trim())
+      router.push(`/inbox${p.toString() ? '?' + p.toString() : ''}`)
+    }, 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [searchInput]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const groups = useMemo(() => buildDomainGroups(tickets), [tickets])
 
   useEffect(() => { if (!authLoading && !agent) router.push('/auth') }, [authLoading, agent, router])
 
-  const loadTickets = (sort?: 'desc' | 'asc') => {
+  const loadTickets = () => {
     if (!token) return
-    const params = new URLSearchParams({ limit: '50', sortOrder: sort ?? sortOrder })
+    setIsLoading(true)
+    const params = new URLSearchParams({ limit: '100' })
+    if (statusFilter) params.set('status', statusFilter)
+    if (categoryFilter) params.set('category', categoryFilter)
+    if (searchQuery) params.set('search', searchQuery)
     api.get<TicketsResponse>(`/tickets?${params.toString()}`, token)
-      .then((res) => { setTickets(res.data); if (res.data[0] && !selectedId) setSelectedId(res.data[0].id) })
+      .then((res) => {
+        setTickets(res.data)
+        setTotal(res.meta.total)
+      })
       .catch(console.error).finally(() => setIsLoading(false))
   }
 
-  useEffect(() => { loadTickets() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { loadTickets(sortOrder) }, [sortOrder]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadTickets() }, [token, statusFilter, categoryFilter, searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll for new tickets — pauses when the tab is in the background to save resources
+  // Poll for new tickets — only when the tab is in the foreground
   useEffect(() => {
     if (!token) return
     const tick = () => {
@@ -73,156 +158,176 @@ export default function InboxPage() {
     }
     const interval = setInterval(tick, 15000)
     return () => clearInterval(interval)
-  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleBulkResolve = async () => {
-    if (!token || checkedIds.size === 0) return
-    setIsBulkActing(true)
-    try {
-      await Promise.all([...checkedIds].map((id) => api.patch(`/tickets/${id}`, { status: 'RESOLVED' }, token)))
-      setCheckedIds(new Set())
-      loadTickets()
-    } catch (err) { console.error(err) } finally { setIsBulkActing(false) }
-  }
-
-  const handleBulkAssignToMe = async () => {
-    if (!token || checkedIds.size === 0 || !agent) return
-    setIsBulkActing(true)
-    try {
-      await Promise.all([...checkedIds].map((id) => api.patch(`/tickets/${id}`, { assigneeId: agent.id }, token)))
-      setCheckedIds(new Set())
-      loadTickets()
-    } catch (err) { console.error(err) } finally { setIsBulkActing(false) }
-  }
-
-  const toggleCheckAll = () => {
-    if (checkedIds.size === tickets.length) {
-      setCheckedIds(new Set())
-    } else {
-      setCheckedIds(new Set(tickets.map((t) => t.id)))
-    }
-  }
-
-  const toggleCheck = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setCheckedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) { next.delete(id) } else { next.add(id) }
-      return next
-    })
-  }
-
-  const selected = tickets.find((t) => t.id === selectedId) ?? null
-  const allChecked = tickets.length > 0 && checkedIds.size === tickets.length
-  const someChecked = checkedIds.size > 0
+  }, [token, statusFilter, categoryFilter, searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--d-bg)' }}>
       <DashboardSidebar />
-
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-        {/* Topbar */}
+        {/* Header */}
         <header style={{ height: 56, padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--d-border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--d-text)', margin: 0, fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>Inbox</h1>
-            <span style={{ fontSize: 13, color: 'var(--d-text-3)', fontWeight: 400 }}>{isLoading ? '…' : `${tickets.filter(t => t.status !== 'RESOLVED' && t.status !== 'CLOSED').length} open`}</span>
+            <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--d-text)', margin: 0, fontFamily: 'var(--font-display)' }}>Inbox</h1>
+            <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>{isLoading ? '…' : `${total} total`}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setSortOrder((prev) => prev === 'desc' ? 'asc' : 'desc')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 30, padding: '0 10px', fontSize: 12, fontWeight: 500, color: 'var(--d-text-2)', background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', cursor: 'pointer', fontFamily: 'inherit' }}>
-              {sortOrder === 'desc' ? <><ChevronDown size={12} /> Newest</> : <><ArrowUp size={12} /> Oldest</>}
-            </button>
+            {/* Search */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={13} style={{ position: 'absolute', left: 8, color: 'var(--d-text-4)', pointerEvents: 'none' }} />
+              <input
+                ref={searchRef}
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setSearchInput(''); searchRef.current?.blur() } }}
+                placeholder="Search…"
+                style={{ height: 30, padding: '0 28px 0 28px', background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text)', fontFamily: 'inherit', outline: 'none', width: 180 }}
+              />
+              {searchInput && (
+                <button type="button" onClick={() => setSearchInput('')}
+                  style={{ position: 'absolute', right: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--d-text-4)', display: 'flex', padding: 0 }}>
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {/* Status filter */}
+            <div style={{ position: 'relative' }}>
+              <select value={statusFilter} onChange={(e) => {
+                const p = new URLSearchParams()
+                if (e.target.value) p.set('status', e.target.value)
+                if (categoryFilter) p.set('category', categoryFilter)
+                if (searchQuery) p.set('search', searchQuery)
+                router.push(`/inbox${p.toString() ? '?' + p.toString() : ''}`)
+              }}
+                style={{ height: 30, padding: '0 28px 0 10px', background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: statusFilter ? 'var(--d-text)' : 'var(--d-text-3)', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', appearance: 'none' }}>
+                <option value="">All statuses</option>
+                {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <ChevronDown size={11} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--d-text-3)', pointerEvents: 'none' }} />
+            </div>
+            {/* Category filter */}
+            <div style={{ position: 'relative' }}>
+              <select value={categoryFilter} onChange={(e) => {
+                const p = new URLSearchParams()
+                if (statusFilter) p.set('status', statusFilter)
+                if (e.target.value) p.set('category', e.target.value)
+                if (searchQuery) p.set('search', searchQuery)
+                router.push(`/inbox${p.toString() ? '?' + p.toString() : ''}`)
+              }}
+                style={{ height: 30, padding: '0 28px 0 10px', background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: categoryFilter ? 'var(--d-text)' : 'var(--d-text-3)', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', appearance: 'none' }}>
+                <option value="">All categories</option>
+                {Object.entries(CAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <ChevronDown size={11} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--d-text-3)', pointerEvents: 'none' }} />
+            </div>
+            {/* Clear filters */}
+            {(statusFilter || categoryFilter) && (
+              <button type="button" onClick={() => router.push('/inbox')}
+                style={{ height: 30, padding: '0 10px', background: 'transparent', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-4)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                Clear
+              </button>
+            )}
           </div>
         </header>
 
+        {!emailConfigLoading && !isConnected ? (
+          <EmailNotConfiguredGate />
+        ) : (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* List */}
+          {/* Domain card list */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-            {/* Column headers */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 24px', borderBottom: '1px solid var(--d-border)', flexShrink: 0 }}>
-              {[['', 16], ['', 14], ['ID', 80], ['Subject', 'flex'], ['Status', 120], ['Assignee', 80], ['Updated', 56]].map(([label, w], i) => (
-                <span key={i} style={{ width: w === 'flex' ? undefined : w, flex: w === 'flex' ? 1 : undefined, fontSize: 11, fontWeight: 600, color: 'var(--d-text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: i > 3 ? 'right' : 'left' }}>
-                  {i === 0 ? (
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleCheckAll}
-                      style={{ width: 14, height: 14, accentColor: 'var(--d-accent)', cursor: 'pointer' }}
-                    />
-                  ) : label}
-                </span>
-              ))}
-            </div>
-
-            {/* Bulk action bar */}
-            {someChecked && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 24px', background: 'rgba(59,130,246,0.08)', borderBottom: '1px solid var(--d-border)', flexShrink: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-text-2)' }}>{checkedIds.size} selected</span>
-                <button
-                  type="button"
-                  onClick={() => { void handleBulkResolve() }}
-                  disabled={isBulkActing}
-                  style={{ height: 26, padding: '0 10px', background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-xs)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  ✓ Resolve all
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { void handleBulkAssignToMe() }}
-                  disabled={isBulkActing}
-                  style={{ height: 26, padding: '0 10px', background: 'var(--d-raised)', color: 'var(--d-text-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-xs)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><User size={11} /> Assign to me</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCheckedIds(new Set())}
-                  style={{ height: 26, padding: '0 8px', background: 'none', color: 'var(--d-text-3)', border: 'none', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>
-                  Clear
-                </button>
-              </div>
-            )}
-
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {isLoading ? (
-                [...Array(8)].map((_, i) => <div key={i} className="shimmer" style={{ height: 48, borderBottom: '1px solid var(--d-border-2)' }} />)
+                [...Array(5)].map((_, i) => <div key={i} className="shimmer" style={{ height: 64, borderRadius: 12 }} />)
               ) : tickets.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', color: 'var(--d-text-3)' }}>
-                  <Check size={28} style={{ marginBottom: 12, opacity: 0.4 }} />
-                  <p style={{ fontSize: 15, fontWeight: 500 }}>All clear — no open tickets.</p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50%', color: 'var(--d-text-3)', fontSize: 14 }}>
+                  No tickets found.
                 </div>
               ) : (
-                tickets.map((t) => {
-                  const sel = t.id === selectedId
-                  const checked = checkedIds.has(t.id)
+                groups.map((group) => {
+                  const expanded = expandedDomains.has(group.domain)
+                  const showAll = showAllDomains.has(group.domain)
+                  const visibleTickets = expanded ? (showAll ? group.tickets : group.tickets.slice(0, PREVIEW_COUNT)) : []
+                  const hiddenCount = group.tickets.length - PREVIEW_COUNT
+
                   return (
-                    <div key={t.id} onClick={() => setSelectedId(t.id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 12, padding: '0 24px', height: 56, borderBottom: '1px solid var(--d-border-2)', cursor: 'pointer', background: sel ? 'rgba(59,130,246,0.07)' : 'transparent', transition: 'background 80ms' }}>
-                      {sel && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 2, background: 'var(--d-accent)' }} />}
-                      <span style={{ width: 16 }} onClick={(e) => toggleCheck(t.id, e)}>
-                        <input type="checkbox" checked={checked} onChange={() => {}} style={{ width: 14, height: 14, accentColor: 'var(--d-accent)', cursor: 'pointer' }} />
-                      </span>
-                      <span style={{ width: 14 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: PRIO_COLOR[t.priority], display: 'block' }} /></span>
-                      <span className="mono" style={{ width: 80, fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)', letterSpacing: '0.02em' }}>{t.displayId}</span>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                          {t.hasUnreadReply && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--d-accent)', flexShrink: 0 }} />}
-                          <span style={{ fontSize: 14, fontWeight: t.hasUnreadReply ? 600 : 400, color: 'var(--d-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                    <div key={group.domain} style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+                      {/* Domain card header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: expanded ? '1px solid var(--d-border-2)' : 'none' }}>
+                        {/* Left: favicon + text → filter link */}
+                        <div
+                          onClick={() => router.push(`/tickets/domain/${encodeURIComponent(group.domain)}`)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, cursor: 'pointer', userSelect: 'none' }}
+                        >
+                          <DomainFavicon domain={group.domain} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--d-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>
+                              {group.domain}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>{group.tickets.length} {group.tickets.length === 1 ? 'ticket' : 'tickets'}</span>
+                              {group.openCount > 0 && (
+                                <><span>·</span><span style={{ color: 'var(--d-accent)', fontWeight: 500 }}>{group.openCount} open</span></>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <CategoryPill category={t.category} size="xs" />
-                          {t.connector && <span style={{ fontSize: 11, color: 'var(--d-text-3)', flexShrink: 0 }}>{t.connector}</span>}
-                          <span style={{ fontSize: 12, color: 'var(--d-text-3)', flexShrink: 0 }}>{t.user.name ?? t.user.email}</span>
-                        </div>
+                        {/* Right: timestamp + chevron toggle */}
+                        <span style={{ fontSize: 12, color: 'var(--d-text-4)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{timeAgo(group.lastActivity)}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleDomain(group.domain)}
+                          title={expanded ? 'Collapse' : 'Expand'}
+                          style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--d-border)', background: expanded ? 'var(--d-raised)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, color: 'var(--d-text-3)', transition: 'background 100ms, border-color 100ms' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--d-raised)'; e.currentTarget.style.borderColor = 'var(--d-border-2)' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = expanded ? 'var(--d-raised)' : 'transparent'; e.currentTarget.style.borderColor = 'var(--d-border)' }}
+                        >
+                          {expanded
+                            ? <ChevronDown size={14} />
+                            : <ChevronRight size={14} />
+                          }
+                        </button>
                       </div>
-                      <span style={{ width: 120, textAlign: 'right' }}><span className={`pill ${STATUS_CLS[t.status]}`}><span className="dot" />{STATUS_LABEL[t.status]}</span></span>
-                      <span style={{ width: 80, display: 'flex', justifyContent: 'flex-end' }}>
-                        {t.assignee ? (
-                          <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--d-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }} title={t.assignee.name}>{initials(t.assignee.name, '')}</div>
-                        ) : (
-                          <div style={{ width: 26, height: 26, borderRadius: '50%', border: '1px dashed var(--d-border)', color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>–</div>
-                        )}
-                      </span>
-                      <span style={{ width: 56, fontSize: 12, color: 'var(--d-text-3)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{timeAgo(t.updatedAt)}</span>
+
+                      {/* Ticket rows */}
+                      {visibleTickets.map((t, idx) => {
+                        const isLast = idx === visibleTickets.length - 1 && (!showAll || hiddenCount <= 0)
+                        return (
+                          <div key={t.id} onClick={() => router.push(`/tickets/${t.id}`)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', height: 48, borderBottom: isLast ? 'none' : '1px solid var(--d-border-2)', cursor: 'pointer', background: 'transparent', transition: 'background 80ms' }}
+                          >
+                            <span style={{ width: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: PRIO_COLOR[t.priority], display: 'block' }} /></span>
+                            <span className="mono" style={{ width: 76, fontSize: 11, fontWeight: 500, color: 'var(--d-text-3)', flexShrink: 0 }}>{t.displayId}</span>
+                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
+                              {t.hasUnreadReply && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--d-accent)', flexShrink: 0 }} />}
+                              <span style={{ fontSize: 14, fontWeight: t.hasUnreadReply ? 600 : 500, color: t.hasUnreadReply ? 'var(--d-text)' : 'var(--d-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                              <CategoryPill category={t.category} size="xs" />
+                            </div>
+                            <span style={{ width: 100, textAlign: 'right', flexShrink: 0 }}><span className={`pill ${STATUS_CLS[t.status]}`}><span className="dot" />{STATUS_LABEL[t.status]}</span></span>
+                            <span style={{ width: 72, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+                              {t.assignee ? (
+                                <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--d-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700 }} title={t.assignee.name}>
+                                  {initials(t.assignee.name, '')}
+                                </div>
+                              ) : (
+                                <div style={{ width: 22, height: 22, borderRadius: '50%', border: '1px dashed var(--d-border)', color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>–</div>
+                              )}
+                            </span>
+                            <span style={{ width: 44, fontSize: 11, color: 'var(--d-text-4)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{timeAgo(t.updatedAt)}</span>
+                          </div>
+                        )
+                      })}
+
+                      {/* Show more / show less footer */}
+                      {expanded && hiddenCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); toggleShowAll(group.domain) }}
+                          style={{ width: '100%', padding: '9px 16px', fontSize: 12, fontWeight: 500, color: 'var(--d-accent)', background: 'var(--d-raised)', border: 'none', borderTop: '1px solid var(--d-border-2)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                        >
+                          {showAll ? `↑ Show fewer` : `Show ${hiddenCount} more →`}
+                        </button>
+                      )}
                     </div>
                   )
                 })
@@ -230,15 +335,8 @@ export default function InboxPage() {
             </div>
           </div>
 
-          {selected && (
-            <TicketPreviewPanel
-              ticket={selected}
-              token={token}
-              agent={agent}
-              onRefresh={() => loadTickets()}
-            />
-          )}
         </div>
+        )}
       </main>
     </div>
   )

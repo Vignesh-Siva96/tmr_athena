@@ -4,8 +4,7 @@ import * as nodemailer from 'nodemailer'
 import * as crypto from 'crypto'
 import { AppConfigService } from '../config/config.service'
 import { PrismaService } from '../database/prisma.service'
-import { decrypt } from '../../common/crypto/credentials-cipher'
-import { signVerpToken } from './verp.util'
+import { TokenRefresher } from '../email-oauth/token-refresher'
 import type { Ticket, Agent, Message, AppConfig } from '@tmr/db'
 
 type TicketWithUser = Ticket & {
@@ -25,6 +24,7 @@ export class EmailService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly appConfigService: AppConfigService,
     private readonly db: PrismaService,
+    private readonly tokenRefresher: TokenRefresher,
   ) {}
 
   /**
@@ -84,37 +84,58 @@ export class EmailService implements OnModuleInit {
     // dev seed flow still works before anyone configures via Settings.
     const host = this.config.get<string>('SMTP_HOST') ?? 'smtp.gmail.com'
     const port = parseInt(this.config.get<string>('SMTP_PORT') ?? '587', 10)
-    const user = cfg.smtpUser ?? this.config.get<string>('SMTP_USER') ?? ''
-    let pass = ''
-    if (cfg.smtpPasswordEnc) {
-      try {
-        pass = decrypt(cfg.smtpPasswordEnc)
-      } catch {
-        this.logger.warn('Failed to decrypt SMTP password — falling back to env')
-        pass = this.config.get<string>('SMTP_PASS') ?? ''
-      }
-    } else {
-      pass = this.config.get<string>('SMTP_PASS') ?? ''
+    const user = cfg.oauthEmail ?? this.config.get<string>('SMTP_USER') ?? ''
+
+    if (cfg.oauthAccessTokenEnc) {
+      // OAuth account: build a static transporter; getTransporter() refreshes per-send
+      this.transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { type: 'OAuth2', user } })
+      this.logger.log(`Email transporter initialized (OAuth2, ${host}:${port} as ${user})`)
+      return
     }
 
+    // No OAuth configured — fall back to env SMTP credentials (dev/seed flow)
+    const pass = this.config.get<string>('SMTP_PASS') ?? ''
     this.transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } })
     this.logger.log(`Email transporter initialized (${host}:${port} as ${user})`)
   }
 
+  /**
+   * Returns a transporter ready to send. For OAuth connections, injects a fresh
+   * access token per send so we don't use a stale token from `initTransporter`.
+   */
+  private async getTransporter(): Promise<nodemailer.Transporter> {
+    const cfg = await this.appConfigService.get()
+
+    if (cfg.oauthAccessTokenEnc) {
+      const host = this.config.get<string>('SMTP_HOST') ?? 'smtp.gmail.com'
+      const port = parseInt(this.config.get<string>('SMTP_PORT') ?? '587', 10)
+      const user = cfg.oauthEmail ?? this.config.get<string>('SMTP_USER') ?? ''
+      const accessToken = await this.tokenRefresher.getValidAccessToken(cfg)
+      return nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { type: 'OAuth2', user, accessToken },
+      })
+    }
+
+    return this.transporter
+  }
+
   private getFromAddress(appConfig: AppConfig): string {
     const name = appConfig.emailDisplayName
-    const addr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+    const addr = appConfig.oauthEmail ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
     return `"${name} Support" <${addr}>`
   }
 
   private getReplyToAddress(ticket: Ticket, appConfig: AppConfig): string {
-    const fromAddr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
-    const [localPart, domain] = fromAddr.split('@')
-    const secret = appConfig.verpSecret ?? 'default-verp-secret'
-    const token = signVerpToken(ticket.emailThreadId, secret)
-    // Use plus-addressing on the local part so replies route back to the same mailbox
-    // (e.g., support+<token>@gmail.com delivers to support@gmail.com via Gmail's + handling)
-    return `${localPart}+${token}@${domain ?? 'support.tmr.com'}`
+    // With REST-based inbound, replies are detected by polling — no VERP routing needed.
+    // Return the support email directly so customers can reply naturally.
+    const fromAddr = appConfig.oauthEmail
+      ?? this.config.get<string>('SMTP_FROM')
+      ?? 'support@twominutereports.com'
+    void ticket // used for future threading if needed
+    return fromAddr
   }
 
   /** Generates a unique RFC 5322 Message-ID for an outbound message */
@@ -123,7 +144,7 @@ export class EmailService implements OnModuleInit {
   }
 
   private getDomain(appConfig: AppConfig): string {
-    const fromAddr = appConfig.smtpFrom ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+    const fromAddr = appConfig.oauthEmail ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
     return fromAddr.split('@')[1] ?? 'support.tmr.com'
   }
 
@@ -140,7 +161,8 @@ export class EmailService implements OnModuleInit {
     const threadRoot = this.getThreadRootMessageId(ticket, domain)
 
     try {
-      await this.transporter.sendMail({
+      const transport = await this.getTransporter()
+      await transport.sendMail({
         from: this.getFromAddress(appConfig),
         to: ticket.user.email,
         subject: `[${displayId}] ${ticket.title}`,
@@ -179,7 +201,8 @@ export class EmailService implements OnModuleInit {
     const msgId = this.generateMessageId(domain)
 
     try {
-      await this.transporter.sendMail({
+      const transport = await this.getTransporter()
+      await transport.sendMail({
         from: this.getFromAddress(appConfig),
         to: ticket.user.email,
         subject: `Re: [${displayId}] ${ticket.title}`,
@@ -206,7 +229,8 @@ export class EmailService implements OnModuleInit {
 
   async sendAgentInvite(agent: Agent, appConfig: AppConfig, inviteUrl: string): Promise<void> {
     try {
-      await this.transporter.sendMail({
+      const transport = await this.getTransporter()
+      await transport.sendMail({
         from: this.getFromAddress(appConfig),
         to: agent.email,
         subject: `You're invited to join ${appConfig.appName} Support`,
@@ -230,9 +254,40 @@ export class EmailService implements OnModuleInit {
     const appConfig = await this.appConfigService.get()
     const from = this.getFromAddress(appConfig)
     try {
-      await this.transporter.sendMail({ from, ...opts })
+      const transport = await this.getTransporter()
+      await transport.sendMail({ from, ...opts })
     } catch (err) {
       this.logger.error(`Failed to send raw email to ${opts.to}: ${String(err)}`)
     }
+  }
+
+  /**
+   * Send an email via Microsoft Graph REST API (for Microsoft OAuth accounts).
+   * Used instead of SMTP XOAUTH2 for Graph-connected mailboxes.
+   */
+  async sendViaGraph(
+    appConfig: AppConfig,
+    to: string,
+    subject: string,
+    body: string,
+    _replyToMsgId?: string,
+  ): Promise<void> {
+    const token = await this.tokenRefresher.getValidAccessToken(appConfig)
+    const message: Record<string, unknown> = {
+      subject,
+      body: { contentType: 'Text', content: body },
+      toRecipients: [{ emailAddress: { address: to } }],
+    }
+    const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok && res.status !== 202) {
+      const errBody = await res.text().catch(() => '')
+      throw new Error(`Graph sendMail failed (${res.status}): ${errBody}`)
+    }
+    this.logger.log(`Sent email via Graph to ${to}`)
   }
 }

@@ -1,12 +1,17 @@
 'use client'
-import { useEffect, useState, useRef, use } from 'react'
+import { useEffect, useState, useRef, use, useCallback, useLayoutEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bold, Italic, Code, Link as LinkIcon, List, Paperclip, ChevronDown, Github, Lock, Send, Plus, ExternalLink, X } from 'lucide-react'
+import { ArrowLeft, Bold, Italic, Link as LinkIcon, List, Paperclip, ChevronDown, Github, Send, ExternalLink, X, CornerUpLeft, Lock } from 'lucide-react'
 import { DashboardSidebar } from '@/components/dashboard/Sidebar'
 import { CustomerProfilePanel } from '@/components/dashboard/CustomerProfilePanel'
+import { EmailNotConfiguredGate } from '@/components/dashboard/EmailNotConfiguredGate'
+import { MessageCard } from '@/components/dashboard/MessageCard'
+import { CategoryPill } from '@/components/dashboard/TicketPreviewPanel'
 import { useAuth } from '@/lib/auth'
+import { useEmailConfig } from '@/lib/useEmailConfig'
 import { api } from '@/lib/api'
+import { sseEventBus } from '@/lib/sseEventBus'
 
 type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
 type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
@@ -28,11 +33,10 @@ interface TicketDetail {
 const STATUS_OPTS: TicketStatus[] = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']
 const STATUS_LABEL: Record<TicketStatus, string> = { OPEN: 'Open', IN_PROGRESS: 'In Progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CLOSED: 'Closed' }
 const STATUS_CLS: Record<TicketStatus, string> = { OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-res' }
-const CAT_LABEL: Record<TicketCategory, string> = { BUG_REPORT: 'Bug Report', FEATURE_REQUEST: 'Feature Request', QUESTION: 'Question', BILLING: 'Billing', OTHER: 'Other' }
 const PRIORITY_OPTS: TicketPriority[] = ['NORMAL', 'HIGH', 'URGENT']
 const PRIORITY_LABEL: Record<TicketPriority, string> = { NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' }
-const PRIORITY_COLOR: Record<TicketPriority, string> = { NORMAL: '#60A5FA', HIGH: '#FB923C', URGENT: '#F43F5E' }
-const PRIORITY_BG: Record<TicketPriority, string>    = { NORMAL: 'rgba(96,165,250,0.12)', HIGH: 'rgba(251,146,60,0.14)', URGENT: 'rgba(244,63,94,0.14)' }
+const PRIORITY_COLOR: Record<TicketPriority, string> = { NORMAL: 'var(--d-accent)', HIGH: 'var(--d-warning)', URGENT: 'var(--d-danger)' }
+const PRIORITY_BG: Record<TicketPriority, string>    = { NORMAL: 'var(--d-accent-bg)', HIGH: 'var(--d-warning-bg)', URGENT: 'var(--d-danger-bg)' }
 
 function initials(name: string | null, email: string): string {
   if (name) { const p = name.trim().split(' '); return p.length >= 2 ? `${p[0]![0]}${p[1]![0]}`.toUpperCase() : p[0]!.slice(0, 2).toUpperCase() }
@@ -43,12 +47,6 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function parseEvent(body: string): string {
-  if (body.startsWith('status_changed:')) { const [, f, t] = body.split(':'); return `Status changed ${f} → ${t}` }
-  if (body.startsWith('github_linked:')) return `Linked to GitHub issue ${body.slice('github_linked:'.length)}`
-  if (body.startsWith('assigned:')) { const w = body.slice('assigned:'.length); return w === 'unassigned' ? 'Ticket unassigned' : 'Ticket assigned' }
-  return body
-}
 
 function GitHubIssuePanel({
   ticket, token, onLinked,
@@ -187,7 +185,7 @@ function PriorityPicker({ value, onChange }: { value: TicketPriority; onChange: 
         onClick={() => setOpen((o) => !o)}
         style={{
           height: 30, padding: '0 10px', display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: PRIORITY_BG[value], border: `1px solid ${PRIORITY_COLOR[value]}50`,
+          background: PRIORITY_BG[value], border: `1px solid var(--d-border)`,
           borderRadius: 'var(--r-sm)', fontSize: 12, fontWeight: 600,
           color: PRIORITY_COLOR[value], cursor: 'pointer', fontFamily: 'inherit',
         }}
@@ -215,7 +213,7 @@ function PriorityPicker({ value, onChange }: { value: TicketPriority; onChange: 
                 cursor: 'pointer', fontFamily: 'inherit',
               }}
             >
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: PRIORITY_COLOR[p], flexShrink: 0, boxShadow: `0 0 6px ${PRIORITY_COLOR[p]}80` }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: PRIORITY_COLOR[p], flexShrink: 0, boxShadow: `0 0 5px ${PRIORITY_COLOR[p]}` }} />
               <span style={{ fontSize: 13, fontWeight: p === value ? 600 : 400, color: p === value ? PRIORITY_COLOR[p] : 'var(--d-text-2)', flex: 1, textAlign: 'left' }}>
                 {PRIORITY_LABEL[p]}
               </span>
@@ -232,17 +230,29 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params)
   const router = useRouter()
   const { agent, token, isLoading: authLoading } = useAuth()
+  const { isConnected, isLoading: emailConfigLoading } = useEmailConfig(token)
   const [ticket, setTicket] = useState<TicketDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [tab, setTab] = useState<'reply' | 'note'>('reply')
+  const [composeTab, setComposeTab] = useState<'reply' | 'note'>('reply')
   const [body, setBody] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [showCompose, setShowCompose] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const composeRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<HTMLDivElement | null>(null)
   const [fixDeployedNotif, setFixDeployedNotif] = useState<{ id: string } | null>(null)
   const [hasReplied, setHasReplied] = useState(false)
   const [isMarkingPending, setIsMarkingPending] = useState(false)
+  const [supportEmail, setSupportEmail] = useState<string>('')
 
   useEffect(() => { if (!authLoading && !agent) router.push('/auth') }, [authLoading, agent, router])
+
+  useEffect(() => {
+    if (!token) return
+    api.get<{ oauthEmail?: string | null; supportEmail?: string | null }>('/config', token)
+      .then((cfg) => setSupportEmail(cfg.supportEmail ?? cfg.oauthEmail ?? ''))
+      .catch(() => {})
+  }, [token])
 
   useEffect(() => {
     if (!token || !id) return
@@ -261,6 +271,18 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     }, 10000)
     return () => clearInterval(interval)
   }, [token, id])
+
+  // SSE: reload messages when a new message arrives on this ticket
+  useEffect(() => {
+    if (!token || !id) return
+    const unsub = sseEventBus.on('message-created', (ev) => {
+      if (ev.ticketId !== id) return
+      api.get<{ ticket: TicketDetail }>(`/tickets/${id}`, token)
+        .then((res) => setTicket(res.ticket))
+        .catch(() => {})
+    })
+    return unsub
+  }, [token, id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check for fix-deployed notification for this ticket
   useEffect(() => {
@@ -282,18 +304,89 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     setHasReplied(agentReplied)
   }, [ticket, agent])
 
-  const sendMessage = async () => {
-    if (!body.trim() || !token || !ticket) return
+  const sendMessage = useCallback(async () => {
+    const textContent = editorRef.current?.textContent?.trim() ?? ''
+    if (!textContent || !token || !ticket) return
+    const htmlBody = editorRef.current?.innerHTML ?? ''
     setIsSending(true)
     try {
       const res = await api.post<{ message: Message }>(`/tickets/${ticket.id}/messages`, {
-        body, type: tab === 'note' ? 'INTERNAL_NOTE' : 'REPLY', isInternal: tab === 'note',
+        body: htmlBody, type: composeTab === 'note' ? 'INTERNAL_NOTE' : 'REPLY', isInternal: composeTab === 'note',
       }, token)
       setTicket((prev) => prev ? { ...prev, messages: [...prev.messages, res.message] } : prev)
       setBody('')
-      if (tab !== 'note') setHasReplied(true)
+      if (editorRef.current) editorRef.current.innerHTML = ''
+      setShowCompose(false)
+      if (composeTab !== 'note') setHasReplied(true)
     } catch (err) { console.error(err) } finally { setIsSending(false) }
+  }, [token, ticket, composeTab])
+
+  const applyFormat = (type: 'bold' | 'italic' | 'code' | 'link' | 'list') => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.focus()
+
+    if (type === 'bold') {
+      document.execCommand('bold', false)
+    } else if (type === 'italic') {
+      document.execCommand('italic', false)
+    } else if (type === 'code') {
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0)
+        const code = document.createElement('code')
+        const extracted = range.extractContents()
+        // Ensure the code element has some content
+        if (!extracted.textContent) {
+          const textNode = document.createTextNode('code')
+          code.appendChild(textNode)
+        } else {
+          code.appendChild(extracted)
+        }
+        range.insertNode(code)
+        // Move cursor to end of inserted code element
+        range.selectNodeContents(code)
+        range.collapse(false)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+    } else if (type === 'link') {
+      const url = window.prompt('Enter URL:', 'https://')
+      if (url) document.execCommand('createLink', false, url)
+    } else if (type === 'list') {
+      document.execCommand('insertUnorderedList', false)
+    }
+
+    setBody(editor.innerHTML)
   }
+
+  useEffect(() => {
+    if (!showCompose) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCompose(false)
+        setBody('')
+        if (editorRef.current) editorRef.current.innerHTML = ''
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void sendMessage()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [showCompose, sendMessage])
+
+  useLayoutEffect(() => {
+    if (showCompose && composeRef.current) {
+      composeRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [showCompose])
+
+  useEffect(() => {
+    if (showCompose) {
+      // Small delay so the DOM element is mounted before focusing
+      const t = setTimeout(() => editorRef.current?.focus(), 30)
+      return () => clearTimeout(t)
+    }
+  }, [showCompose])
 
   const updateStatus = async (status: TicketStatus) => {
     if (!token || !ticket) return
@@ -313,6 +406,15 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
       setTicket((prev) => prev ? { ...prev, priority } : prev)
     } catch (err) { console.error(err) }
   }
+
+  if (!emailConfigLoading && !isConnected) return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--d-bg)' }}>
+      <DashboardSidebar />
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+        <EmailNotConfiguredGate />
+      </main>
+    </div>
+  )
 
   if (isLoading) return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--d-bg)' }}>
@@ -354,7 +456,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             {/* Priority picker */}
             <PriorityPicker value={ticket.priority} onChange={(p) => { void updatePriority(p) }} />
             <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span>
-            <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>{CAT_LABEL[ticket.category]}</span>
+            <CategoryPill category={ticket.category} size="sm" />
             {ticket.assignee && (<><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>Assigned to {ticket.assignee.name}</span></>)}
           </div>
         </div>
@@ -409,143 +511,122 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
         )}
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {ticket.messages.map((msg) => {
-            if (msg.type === 'SYSTEM_EVENT') return (
-              <div key={msg.id} style={{ textAlign: 'center' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--d-text-4)', padding: '4px 12px', borderRadius: 999, background: 'var(--d-raised)', border: '1px solid var(--d-border-2)' }}>
-                  {msg.body.includes('github') && <Github size={11} />}
-                  {parseEvent(msg.body)}
-                </span>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 32px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {(() => {
+            const lastIdx = ticket.messages.reduce((acc, msg, i) => msg.type !== 'SYSTEM_EVENT' ? i : acc, -1)
+            return ticket.messages.map((msg, i) => (
+              <MessageCard
+                key={msg.id}
+                id={msg.id}
+                type={msg.type}
+                body={msg.body}
+                isInternal={msg.isInternal}
+                authorUser={msg.authorUser}
+                authorAgent={msg.authorAgent}
+                attachments={msg.attachments}
+                createdAt={msg.createdAt}
+                supportEmail={supportEmail}
+                isLast={i === lastIdx && !showCompose}
+                onReply={() => { setComposeTab('reply'); setShowCompose(true) }}
+                onNote={() => { setComposeTab('note'); setShowCompose(true) }}
+              />
+            ))
+          })()}
+
+          {/* Inline compose — Gmail-style card that appears below the last message */}
+          {showCompose && (
+            <div ref={composeRef} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--d-success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>
+                {agent ? initials(agent.name ?? null, agent.email ?? '') : '?'}
               </div>
-            )
-
-            const isFromAgent = !!msg.authorAgent
-            const author = msg.authorAgent ?? msg.authorUser
-            if (!author) return null
-
-            if (msg.isInternal) return (
-              <div key={msg.id} style={{ padding: '12px 16px', background: 'var(--d-note-bg)', borderLeft: '3px solid var(--d-note-line)', borderRadius: '0 var(--r-md) var(--r-md) 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#78350F', color: 'var(--d-note-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>{initials(author.name, author.email)}</div>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-note-text)' }}>{author.name}</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)' }}>
-                      <Lock size={9} /> INTERNAL NOTE
-                    </span>
+              <div style={{ flex: 1, background: composeTab === 'note' ? 'var(--d-note-bg)' : 'var(--d-surface)', border: composeTab === 'note' ? '1px solid rgba(245,158,11,0.3)' : '1px solid var(--d-border)', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: composeTab === 'note' ? '1px solid rgba(245,158,11,0.15)' : '1px solid var(--d-border-2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                    {composeTab === 'reply' ? (
+                      <>
+                        <CornerUpLeft size={13} style={{ color: 'var(--d-text-4)', flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, color: 'var(--d-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <strong style={{ fontWeight: 600, color: 'var(--d-text-2)' }}>{agent?.name ?? 'You'}</strong>
+                          {supportEmail ? ` <${supportEmail}>` : ''} <span style={{ color: 'var(--d-text-4)' }}>to {ticket.user.email}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock size={12} style={{ color: '#F59E0B', flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#F59E0B' }}>Internal note</span>
+                        <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>— not visible to customer</span>
+                      </>
+                    )}
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{fmtDate(msg.createdAt)}</span>
-                </div>
-                <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--d-note-text)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
-              </div>
-            )
-
-            return (
-              <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isFromAgent ? 'flex-end' : 'flex-start' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexDirection: isFromAgent ? 'row-reverse' : 'row' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: isFromAgent ? 'var(--d-accent)' : 'var(--d-raised-2)', color: isFromAgent ? '#fff' : 'var(--d-text-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, border: '1px solid var(--d-border)', flexShrink: 0 }}>
-                    {initials(author.name, author.email)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, marginLeft: 8 }}>
+                    <button type="button" onClick={() => setComposeTab(composeTab === 'reply' ? 'note' : 'reply')}
+                      style={{ fontSize: 11, color: 'var(--d-text-4)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4 }}>
+                      {composeTab === 'reply' ? 'Switch to note' : 'Switch to reply'}
+                    </button>
+                    <button type="button" onClick={() => { setShowCompose(false); setBody('') }}
+                      style={{ width: 22, height: 22, borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                      <X size={14} />
+                    </button>
                   </div>
-                  <span style={{ fontSize: 13, color: 'var(--d-text-3)' }}>{isFromAgent ? (author.name ?? 'Agent') : (author.name ?? author.email)}</span>
-                  <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{fmtDate(msg.createdAt)}</span>
-                  {isFromAgent && <span style={{ fontSize: 10, color: 'var(--d-success)', display: 'flex', alignItems: 'center', gap: 3 }}>✓ Sent</span>}
                 </div>
-                <div style={{
-                  maxWidth: '80%', padding: '12px 16px', borderRadius: 'var(--r-md)',
-                  background: isFromAgent ? 'rgba(59,130,246,0.12)' : 'var(--d-raised)',
-                  border: `1px solid ${isFromAgent ? 'rgba(59,130,246,0.22)' : 'var(--d-border)'}`,
-                  borderBottomRightRadius: isFromAgent ? 4 : 'var(--r-md)',
-                  borderBottomLeftRadius: isFromAgent ? 'var(--r-md)' : 4,
-                }}>
-                  <p style={{ fontSize: 15, lineHeight: 1.6, color: isFromAgent ? 'var(--d-text)' : 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
-                  {msg.attachments.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                      {msg.attachments.map((att) => (
-                        <a key={att.id} href={att.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-3)', textDecoration: 'none', background: 'var(--d-surface)' }}>
-                          📎 {att.filename}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                {/* Rich text editor */}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="rt-editor"
+                  data-placeholder={composeTab === 'note' ? 'Write an internal note…' : 'Write a reply…'}
+                  onInput={(e) => setBody((e.currentTarget as HTMLDivElement).innerHTML)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); applyFormat('bold') }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); applyFormat('italic') }
+                  }}
+                  style={{ width: '100%', minHeight: 130, padding: '12px 14px', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.7, color: 'var(--d-text)', background: 'transparent', display: 'block', boxSizing: 'border-box', overflowY: 'auto', wordBreak: 'break-word' }}
+                />
+                {/* Toolbar + send */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderTop: composeTab === 'note' ? '1px solid rgba(245,158,11,0.15)' : '1px solid var(--d-border-2)' }}>
+                  <div style={{ display: 'flex', gap: 1 }}>
+                    {([
+                      { Icon: Bold,       action: () => applyFormat('bold'),   title: 'Bold (⌘B)' },
+                      { Icon: Italic,     action: () => applyFormat('italic'), title: 'Italic (⌘I)' },
+                      { Icon: LinkIcon,   action: () => applyFormat('link'),   title: 'Insert link' },
+                      { Icon: List,       action: () => applyFormat('list'),   title: 'Bullet list' },
+                      { Icon: Paperclip,  action: undefined,                   title: 'Attach file (coming soon)' },
+                    ] as { Icon: React.ElementType; action?: () => void; title: string }[]).map(({ Icon, action, title }, i) => (
+                      <button key={i} type="button" title={title} onClick={action}
+                        style={{ width: 26, height: 26, borderRadius: 4, color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: action ? 'pointer' : 'not-allowed', opacity: action ? 1 : 0.4 }}
+                        onMouseEnter={(e) => { if (action) e.currentTarget.style.color = 'var(--d-text-2)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--d-text-4)' }}
+                      >
+                        <Icon size={13} />
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {/* Send & Resolve — only shown when there's content */}
+                    {body.replace(/<[^>]*>/g, '').trim() && (
+                      <button type="button"
+                        onClick={async () => { await sendMessage(); void updateStatus('RESOLVED') }}
+                        style={{ height: 32, padding: '0 12px', background: 'transparent', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 'var(--r-sm)', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                        Send & Resolve
+                      </button>
+                    )}
+                    {/* Primary Send button — always visible, disabled when empty */}
+                    {(() => {
+                      const hasText = body.replace(/<[^>]*>/g, '').trim().length > 0
+                      return (
+                        <button type="button" disabled={!hasText || isSending} onClick={() => void sendMessage()}
+                          style={{ height: 32, padding: '0 16px', background: 'var(--d-accent)', color: '#fff', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 'var(--r-sm)', cursor: hasText ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6, opacity: hasText ? (isSending ? 0.7 : 1) : 0.35, fontFamily: 'inherit' }}>
+                          <Send size={13} />{isSending ? 'Sending…' : 'Send'}
+                        </button>
+                      )
+                    })()}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-
-          {/* AI scoring summary — agent-only, shown once ticket is resolved/closed */}
-          {(ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') && ticket.rating?.aiSummary && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--d-border)' }} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>AI Analysis</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--d-border)' }} />
-              </div>
-              <div style={{ padding: '12px 16px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 8, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-                  {ticket.rating.aiRating !== null && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: ticket.rating.aiRating >= 4 ? '#22C55E' : ticket.rating.aiRating <= 2 ? '#EF4444' : '#F59E0B', lineHeight: 1 }}>{ticket.rating.aiRating}/5</div>
-                      <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>CSAT</div>
-                    </div>
-                  )}
-                  {ticket.rating.aiEffortScore !== null && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: ticket.rating.aiEffortScore >= 4 ? '#EF4444' : ticket.rating.aiEffortScore <= 2 ? '#22C55E' : '#F59E0B', lineHeight: 1 }}>{ticket.rating.aiEffortScore}/5</div>
-                      <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>Effort</div>
-                    </div>
-                  )}
-                </div>
-                {(ticket.rating.aiRating !== null || ticket.rating.aiEffortScore !== null) && (
-                  <div style={{ width: 1, height: '100%', background: 'var(--d-border)', flexShrink: 0, alignSelf: 'stretch' }} />
-                )}
-                <p style={{ fontSize: 12, color: 'var(--d-text-3)', margin: 0, lineHeight: 1.6 }}>{ticket.rating.aiSummary}</p>
               </div>
             </div>
           )}
-        </div>
-
-        {/* Composer */}
-        <div style={{ borderTop: '1px solid var(--d-border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', borderBottom: '1px solid var(--d-border-2)' }}>
-            {[{ key: 'reply', label: '✉ Reply to customer' }, { key: 'note', label: '🔒 Internal note' }].map(({ key, label }) => (
-              <button key={key} type="button" onClick={() => setTab(key as 'reply' | 'note')}
-                style={{ padding: '10px 16px', fontSize: 13, fontWeight: tab === key ? 600 : 400, color: tab === key ? 'var(--d-text)' : 'var(--d-text-3)', background: 'none', border: 'none', borderBottom: tab === key ? '2px solid var(--d-accent)' : '2px solid transparent', cursor: 'pointer', fontFamily: 'inherit', marginBottom: -1 }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div style={{ background: tab === 'note' ? 'var(--d-note-bg)' : 'var(--d-surface)' }}>
-            <div style={{ display: 'flex', gap: 2, padding: '6px 12px', borderBottom: '1px solid var(--d-border-2)' }}>
-              {[Bold, Italic, Code, LinkIcon, List, Paperclip].map((Icon, i) => (
-                <button key={i} type="button" style={{ width: 26, height: 26, borderRadius: 'var(--r-xs)', color: 'var(--d-text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer' }}>
-                  <Icon size={13} />
-                </button>
-              ))}
-            </div>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)}
-              placeholder={tab === 'note' ? 'Write an internal note (not visible to customer)…' : 'Write a reply…'}
-              style={{ width: '100%', minHeight: 100, padding: '12px 16px', border: 'none', outline: 'none', resize: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, color: 'var(--d-text)', background: 'transparent', display: 'block' }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderTop: '1px solid var(--d-border-2)' }}>
-              <span style={{ fontSize: 12, color: 'var(--d-text-4)' }}>
-                {tab === 'reply' ? `Customer: ${ticket.user.email}` : 'Internal — not sent to customer'}
-              </span>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button type="button" onClick={async () => { if (body.trim()) await sendMessage(); await updateStatus('RESOLVED') }}
-                  style={{ height: 32, padding: '0 14px', background: 'transparent', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  {body.trim() ? 'Send & Resolve' : 'Resolve'}
-                </button>
-                <div style={{ display: 'inline-flex', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
-                  <button type="button" disabled={!body.trim() || isSending} onClick={sendMessage}
-                    style={{ height: 32, padding: '0 14px', background: body.trim() ? 'var(--d-accent)' : 'var(--d-raised)', color: '#fff', fontSize: 13, fontWeight: 600, border: 'none', cursor: body.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid rgba(0,0,0,0.2)' }}>
-                    <Send size={13} /> {isSending ? 'Sending…' : 'Send & Keep Open'}
-                  </button>
-                  <button type="button" style={{ height: 32, width: 28, background: 'var(--d-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' }}>
-                    <ChevronDown size={12} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </main>
 
@@ -584,6 +665,30 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             </div>
           ))}
         </div>
+
+        {/* AI Analysis — shown in sidebar when ticket is resolved/closed */}
+        {(ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') && ticket.rating?.aiSummary && (
+          <div style={{ paddingBottom: 16, borderBottom: '1px solid var(--d-border-2)', marginBottom: 16 }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, margin: '0 0 10px' }}>AI Analysis</p>
+            {(ticket.rating.aiRating !== null || ticket.rating.aiEffortScore !== null) && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                {ticket.rating.aiRating !== null && (
+                  <div style={{ flex: 1, padding: '8px 10px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 6, textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, color: ticket.rating.aiRating >= 4 ? '#22C55E' : ticket.rating.aiRating <= 2 ? '#EF4444' : '#F59E0B' }}>{ticket.rating.aiRating}/5</div>
+                    <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>CSAT</div>
+                  </div>
+                )}
+                {ticket.rating.aiEffortScore !== null && (
+                  <div style={{ flex: 1, padding: '8px 10px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 6, textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, color: ticket.rating.aiEffortScore >= 4 ? '#EF4444' : ticket.rating.aiEffortScore <= 2 ? '#22C55E' : '#F59E0B' }}>{ticket.rating.aiEffortScore}/5</div>
+                    <div style={{ fontSize: 9, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>Effort</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--d-text-3)', margin: 0, lineHeight: 1.6 }}>{ticket.rating.aiSummary}</p>
+          </div>
+        )}
 
         {/* GitHub */}
         <div id="github" style={{ paddingBottom: 16, borderBottom: '1px solid var(--d-border-2)', marginBottom: 16 }}>
@@ -627,10 +732,16 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
         <div>
           <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Actions</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button type="button" onClick={() => { void updateStatus('RESOLVED') }}
-              style={{ height: 34, background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-              ✓ Resolve ticket
-            </button>
+            {ticket.status === 'RESOLVED' || ticket.status === 'CLOSED' ? (
+              <div style={{ height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--d-success-bg)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, opacity: 0.6 }}>
+                ✓ Resolved
+              </div>
+            ) : (
+              <button type="button" onClick={() => { void updateStatus('RESOLVED') }}
+                style={{ height: 34, background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                ✓ Resolve ticket
+              </button>
+            )}
             <button type="button" style={{ height: 34, background: 'var(--d-raised)', color: 'var(--d-text-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
               ✉ Send to customer
             </button>

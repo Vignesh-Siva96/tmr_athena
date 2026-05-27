@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import '../globals.css'
 import { AuthProvider } from '@/lib/auth'
 import { ThemeProvider } from '@/lib/theme'
+import { SseProvider } from '@/components/SseProvider'
 
 const geistSans = Geist({
   subsets: ['latin'],
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider>
           <AuthProvider>
-            {children}
+            <SseProvider>
+              {children}
+            </SseProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
