@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 
 interface AgentRow { id: string; email: string; name: string; role: 'ADMIN' | 'AGENT'; isActive: boolean; lastActiveAt: string | null; inviteAccepted: boolean }
 interface AgentsResponse { data: AgentRow[] }
+interface AppConfig { botFallbackAgentId: string | null }
 
 function initials(name: string): string {
   const p = name.trim().split(' ')
@@ -21,6 +22,9 @@ export default function AgentsSettingsPage() {
   const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState<'AGENT' | 'ADMIN'>('AGENT')
   const [isInviting, setIsInviting] = useState(false)
+  const [fallbackAgentId, setFallbackAgentId] = useState<string>('')
+  const [savingFallback, setSavingFallback] = useState(false)
+  const [savedFallback, setSavedFallback] = useState(false)
 
   const loadAgents = () => {
     if (!token) return
@@ -35,6 +39,25 @@ export default function AgentsSettingsPage() {
     loadAgents()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    api.get<AppConfig>('/config', token)
+      .then((cfg) => setFallbackAgentId(cfg.botFallbackAgentId ?? ''))
+      .catch(() => {})
+  }, [token])
+
+  const saveFallbackAgent = async () => {
+    if (!token) return
+    setSavingFallback(true)
+    try {
+      await api.patch('/config', { botFallbackAgentId: fallbackAgentId || null }, token)
+      setSavedFallback(true)
+      setTimeout(() => setSavedFallback(false), 2000)
+    } catch { /* ignore */ } finally {
+      setSavingFallback(false)
+    }
+  }
 
   const handleInvite = async () => {
     if (!token || !inviteEmail || !inviteName) return
@@ -188,6 +211,37 @@ export default function AgentsSettingsPage() {
             </div>
           ))
         )}
+      </div>
+
+      {/* AI First-Responder fallback */}
+      <div style={{ marginTop: 32, padding: 20, background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-lg)' }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 4px' }}>AI First-Responder</h2>
+        <p style={{ fontSize: 13, color: 'var(--d-text-3)', margin: '0 0 16px' }}>
+          The fallback agent receives tickets when Athena cannot answer and no shift is active.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: '0 0 280px' }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--d-text-3)', marginBottom: 4 }}>Fallback agent</label>
+            <select
+              value={fallbackAgentId}
+              onChange={(e) => setFallbackAgentId(e.target.value)}
+              style={{ width: '100%', height: 34, padding: '0 10px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, color: 'var(--d-text)', outline: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
+            >
+              <option value="">— none —</option>
+              {agents.filter((a) => a.isActive).map((a) => (
+                <option key={a.id} value={a.id}>{a.name} ({a.email})</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void saveFallbackAgent() }}
+            disabled={savingFallback}
+            style={{ height: 34, padding: '0 16px', background: 'var(--d-accent)', color: '#fff', border: 'none', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: savingFallback ? 'not-allowed' : 'pointer', opacity: savingFallback ? 0.7 : 1, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+          >
+            {savingFallback ? 'Saving…' : savedFallback ? 'Saved ✓' : 'Save'}
+          </button>
+        </div>
       </div>
     </div>
   )

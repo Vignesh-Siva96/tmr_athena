@@ -6,12 +6,12 @@ import { ANALYZE_MESSAGE_PROMPT, CLASSIFY_AND_SCORE_TICKET_PROMPT } from './gemi
 import type { AiOperation } from '@tmr/db'
 import { Decimal } from '@prisma/client/runtime/library'
 
-const MODEL_ID = 'gemini-2.0-flash'
+const MODEL_ID = 'gemini-2.5-flash-lite'
 
-// Prices per 1M tokens in USD (Gemini 2.0 Flash)
+// Prices per 1M tokens in USD (Gemini 2.5 Flash-Lite — verify against current Google pricing)
 const PRICES = {
-  inputPerMillion: 0.075,
-  outputPerMillion: 0.30,
+  inputPerMillion: 0.10,
+  outputPerMillion: 0.40,
 }
 
 export interface AnalyzeMessageResult {

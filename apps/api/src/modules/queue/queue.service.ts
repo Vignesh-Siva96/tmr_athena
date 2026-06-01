@@ -5,6 +5,12 @@ import {
   AI_ANALYZE_MESSAGE_QUEUE,
   AI_CLASSIFY_TICKET_QUEUE,
   AI_REQUEST_CSAT_QUEUE,
+  BOT_RESPOND_QUEUE,
+  KB_CRAWL_QUEUE,
+  KB_INDEX_PAGE_QUEUE,
+  KB_SCAN_QUEUE,
+  KB_EMBED_QUEUE,
+  EMAIL_SEND_REPLY_QUEUE,
 } from './queue.module'
 
 export interface AnalyzeMessageJobData {
@@ -19,6 +25,31 @@ export interface ClassifyTicketJobData {
 export interface RequestCsatJobData {
   ticketId: string
 }
+
+export interface BotRespondJobData {
+  ticketId: string
+}
+
+export interface EmailSendReplyJobData {
+  ticketId: string
+  messageId: string
+}
+
+export interface KbCrawlJobData {
+  rootUrl: string
+  mode?: 'full' | 'incremental'
+}
+
+export interface KbIndexPageJobData {
+  sourceId: string
+}
+
+export interface KbScanJobData {
+  rootUrl: string
+}
+
+// No data needed for embed job — worker reads all SCANNED chunks from DB
+export type KbEmbedJobData = Record<string, never>
 
 /**
  * Postgres-backed job queue via pg-boss.
@@ -88,6 +119,50 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     await this.boss.send(AI_REQUEST_CSAT_QUEUE, data, {
       startAfter: delaySec,
       retryLimit: 2,
+    })
+  }
+
+  async enqueueBotRespond(data: BotRespondJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(BOT_RESPOND_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 30,
+      retryBackoff: true,
+    })
+  }
+
+  async enqueueKbCrawl(data: KbCrawlJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(KB_CRAWL_QUEUE, data, {
+      retryLimit: 1,
+    })
+  }
+
+  async enqueueKbIndexPage(data: KbIndexPageJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(KB_INDEX_PAGE_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
+    })
+  }
+
+  async enqueueKbScan(data: KbScanJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(KB_SCAN_QUEUE, data, { retryLimit: 1 })
+  }
+
+  async enqueueKbEmbed(): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(KB_EMBED_QUEUE, {}, { retryLimit: 1 })
+  }
+
+  async enqueueEmailSendReply(data: EmailSendReplyJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(EMAIL_SEND_REPLY_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 30,
+      retryBackoff: true,
     })
   }
 }

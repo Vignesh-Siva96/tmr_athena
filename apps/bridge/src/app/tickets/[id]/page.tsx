@@ -13,14 +13,14 @@ import { useEmailConfig } from '@/lib/useEmailConfig'
 import { api } from '@/lib/api'
 import { sseEventBus } from '@/lib/sseEventBus'
 
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 type MessageType = 'REPLY' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT'
 
 interface Author { id: string; name: string | null; email: string; avatarUrl: string | null }
 interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean }
-interface Message { id: string; type: MessageType; body: string; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; attachments: Attachment[]; createdAt: string }
+interface Message { id: string; type: MessageType; body: string; bodyHtml?: string | null; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; authorBotName?: string | null; attachments: Attachment[]; createdAt: string }
 interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; reviewers: number; daysOpen: number }
 interface AiRating { aiRating: number | null; aiEffortScore: number | null; aiSummary: string | null }
 interface TicketDetail {
@@ -30,9 +30,10 @@ interface TicketDetail {
   githubIssue?: GithubIssue | null; rating?: AiRating | null; createdAt: string; updatedAt: string
 }
 
+// Only lifecycle statuses are settable via dropdown — NEW/DISMISSED are set via convert/dismiss
 const STATUS_OPTS: TicketStatus[] = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']
-const STATUS_LABEL: Record<TicketStatus, string> = { OPEN: 'Open', IN_PROGRESS: 'In Progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CLOSED: 'Closed' }
-const STATUS_CLS: Record<TicketStatus, string> = { OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-res' }
+const STATUS_LABEL: Record<TicketStatus, string> = { NEW: 'New', OPEN: 'Open', IN_PROGRESS: 'In Progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CLOSED: 'Closed', DISMISSED: 'Dismissed' }
+const STATUS_CLS: Record<TicketStatus, string> = { NEW: 'd-new', OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-res', DISMISSED: 'd-res' }
 const PRIORITY_OPTS: TicketPriority[] = ['NORMAL', 'HIGH', 'URGENT']
 const PRIORITY_LABEL: Record<TicketPriority, string> = { NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' }
 const PRIORITY_COLOR: Record<TicketPriority, string> = { NORMAL: 'var(--d-accent)', HIGH: 'var(--d-warning)', URGENT: 'var(--d-danger)' }
@@ -520,9 +521,11 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                 id={msg.id}
                 type={msg.type}
                 body={msg.body}
+                bodyHtml={msg.bodyHtml}
                 isInternal={msg.isInternal}
                 authorUser={msg.authorUser}
                 authorAgent={msg.authorAgent}
+                authorBotName={msg.authorBotName}
                 attachments={msg.attachments}
                 createdAt={msg.createdAt}
                 supportEmail={supportEmail}

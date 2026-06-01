@@ -36,8 +36,9 @@ Two docs travel with the code. Keep both current as part of shipping a change.
 2. **Added/renamed a controller endpoint, NestJS module, or Prisma model?** → Run `pnpm atlas:gen` to refresh `docs/atlas/_generated/`.
 3. **Made an architecture decision or hit a non-obvious gotcha?** → Add a row to the Decisions table in STATE.md.
 4. **About to say "done" or end the session?** → Append a Session Log entry to STATE.md summarizing what changed.
+5. **Touched any service method, controller route, or schema field?** → Add or update the matching test in `tests/integration/`, `tests/e2e/`, or `tests/unit/`. If you fixed a bug, add a row to `tests/regression-catalogue.md` and a named test that fails on the pre-fix code. Coverage drop > 0.5% blocks merge. See [tests/README.md](tests/README.md) for the framework.
 
-If none of the four apply, say "no docs needed" explicitly so it's clear you checked.
+If none of the five apply, say "no docs/tests needed" explicitly so it's clear you checked.
 
 ### What counts as a "material change" to a feature
 

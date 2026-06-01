@@ -12,8 +12,7 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
 import { FilesService } from './files.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
-import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
-import { uploadLinkSchema, type UploadLinkDto } from './files.dto'
+import { uploadLinkSchema } from './files.dto'
 
 @Controller('files')
 @UseGuards(AuthGuard)
@@ -29,14 +28,16 @@ export class FilesController {
   )
   async upload(
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Body(new ZodValidationPipe(uploadLinkSchema.optional())) dto: UploadLinkDto | undefined,
+    @Body() rawBody: Record<string, unknown>,
     @Query('ticketId') ticketId: string | undefined,
   ) {
     if (file) {
       return this.filesService.uploadFile(file, ticketId)
     }
-    if (dto?.linkUrl) {
-      return this.filesService.uploadLink(dto.linkUrl, ticketId)
+    // Link upload: validate linkUrl only when no file is present
+    const parsed = uploadLinkSchema.safeParse(rawBody)
+    if (parsed.success) {
+      return this.filesService.uploadLink(parsed.data.linkUrl, ticketId)
     }
     throw new BadRequestException('Provide either a file or a linkUrl')
   }

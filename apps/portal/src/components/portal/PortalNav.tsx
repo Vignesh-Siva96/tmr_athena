@@ -1,6 +1,5 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth'
 import { useAppConfig } from '@/lib/brand'
 import { LifeBuoy, LogOut } from 'lucide-react'
@@ -18,7 +17,6 @@ function getInitials(name: string | null, email: string): string {
 export function PortalNav() {
   const { user, signOut } = useAuth()
   const config = useAppConfig()
-  const pathname = usePathname()
 
   return (
     <header
@@ -36,6 +34,20 @@ export function PortalNav() {
         zIndex: 50,
       }}
     >
+      <style>{`
+        .portal-signout-btn {
+          transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+        }
+        .portal-signout-btn:hover {
+          background: var(--p-surface) !important;
+          border-color: var(--p-text-3) !important;
+          color: var(--p-text) !important;
+        }
+        .portal-nav-link:hover {
+          background: var(--p-surface) !important;
+          color: var(--p-text) !important;
+        }
+      `}</style>
       <Link href="/submit" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
         {config.logoUrl ? (
           <img src={config.logoUrl} alt={config.appName} style={{ width: 26, height: 26, borderRadius: 4 }} />
@@ -43,71 +55,74 @@ export function PortalNav() {
           <LifeBuoy size={22} style={{ color: 'var(--p-accent)' }} />
         )}
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--p-text)', letterSpacing: '-0.01em' }}>
-          {config.appName}{' '}
-          <span style={{ color: 'var(--p-text-3)', fontWeight: 500 }}>Support</span>
+          {config.appName}
+        </span>
+        <span style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: 'var(--p-text-4)',
+          background: 'var(--p-surface)',
+          border: '1px solid var(--p-border)',
+          borderRadius: 4,
+          padding: '2px 6px',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+        }}>
+          Support
         </span>
       </Link>
 
-      <nav style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-        <Link
-          href="/tickets"
-          style={{
-            fontSize: 14,
-            fontWeight: 500,
-            color: pathname.startsWith('/tickets') ? 'var(--p-accent)' : 'var(--p-text-2)',
-            textDecoration: 'none',
-          }}
-        >
-          My Tickets
-        </Link>
-        <Link
-          href="/submit"
-          style={{
-            fontSize: 14,
-            fontWeight: 500,
-            color: pathname === '/submit' ? 'var(--p-accent)' : 'var(--p-text-2)',
-            textDecoration: 'none',
-          }}
-        >
-          Submit a Ticket
-        </Link>
-
+      <nav style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Link
+              href="/tickets"
+              style={{ fontSize: 13, fontWeight: 500, color: 'var(--p-text-2)', textDecoration: 'none', padding: '5px 10px', borderRadius: 'var(--r-sm)' }}
+              className="portal-nav-link"
+            >
+              My tickets
+            </Link>
             <div
               style={{
-                width: 32,
-                height: 32,
+                width: 30,
+                height: 30,
                 borderRadius: '50%',
                 background: 'var(--p-accent)',
                 color: '#fff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: 600,
+                flexShrink: 0,
               }}
               title={user.name ?? user.email}
             >
               {getInitials(user.name, user.email)}
             </div>
+            <span style={{ fontSize: 13, color: 'var(--p-text-2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user.name ?? user.email}
+            </span>
             <button
               onClick={signOut}
+              className="portal-signout-btn"
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 5,
                 fontSize: 13,
+                fontWeight: 500,
                 color: 'var(--p-text-3)',
                 background: 'none',
-                border: 'none',
+                border: '1px solid var(--p-border)',
                 cursor: 'pointer',
-                padding: '4px 8px',
+                padding: '5px 10px',
                 borderRadius: 'var(--r-sm)',
+                fontFamily: 'inherit',
               }}
-              title="Sign out"
             >
-              <LogOut size={14} />
+              <LogOut size={13} />
+              Sign out
             </button>
           </div>
         ) : (

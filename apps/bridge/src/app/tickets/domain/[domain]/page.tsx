@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth'
 import { useEmailConfig } from '@/lib/useEmailConfig'
 import { api } from '@/lib/api'
 
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 

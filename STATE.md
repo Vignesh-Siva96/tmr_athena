@@ -1,7 +1,7 @@
 # STATE.md — TMR Support Platform
 
 Living document. Updated every session. Reflects current reality, not the original spec.
-Last updated: 2026-05-27 (session 3)
+Last updated: 2026-06-01 (Triage → NEW/DISMISSED status merge)
 
 ---
 
@@ -64,6 +64,8 @@ ngrok http 3001
 | **`@prisma/client` imported directly** in `PrismaService`               | `@tmr/db` is TypeScript source — NestJS can't load `.ts` at runtime                                                                |
 | **`Attachment.ticketId` is optional**                                   | Files pre-uploaded before ticket creation; linked at ticket create time                                                            |
 | **pg-boss queue** for inbound emails (replaces BullMQ + Redis)          | `email.inbound` queue backed by Postgres (`pgboss` schema); 5x exponential retry; same `DATABASE_URL`; zero extra infra to deploy |
+| **Generated FTS `tsv` column asserted at boot** (`RetrievalService.onModuleInit`) | Generated columns live in raw-SQL migrations, not `schema.prisma`; `migrate reset`/0-step migrations can silently drop them and break bot retrieval. Idempotent boot guard self-heals. (2026-06-01) |
+| **Athena `Learn more:` link rendered in code, not by the LLM** (`BotService.appendSource`) | The bot answer used to rely on the LLM typing the source link into `answer`. Under structured-JSON output `gemini-2.5-flash-lite` fills the `citations` array but drops the inline link; `gemini-2.0-flash` didn't. Link now appended deterministically from `citations[0]` (matched to a retrieved chunk for a heading label), so it's model-independent. (2026-06-01) |
 | **IMAP IDLE client** replaces smtp-server inbound listener              | `ImapClientService` reads from org's existing inbox via IMAP IDLE, no MX changes needed                                           |
 | **VERP signed reply tokens** for threading                              | `reply+<emailThreadId>.<hmac8>@<domain>` — signed with AES-256-GCM key from `EMAIL_CREDS_KEY` env                                 |
 | **IMAP/SMTP creds stored encrypted in AppConfig**                       | AES-256-GCM via `credentials-cipher.ts`; never returned plain on GET; password-set boolean returned instead                        |
@@ -83,6 +85,15 @@ ngrok http 3001
 | **`firstResolvedAt` is immutable — set once, never overwritten**        | Preserves original resolution time even if ticket is reopened and resolved again                                                    |
 | **`/analytics` → redirect to `/analytics/operations`**                  | Preserves existing bookmarks/links while adding the new `/analytics/customers` sub-route                                           |
 | **Email-card format is Bridge-only; portal keeps chat bubbles**          | Portal is customer-facing — chat bubbles feel friendlier and match the portal's light-theme aesthetic. The new email-card format suits the agent tool. `MessageCard` is in `apps/bridge/` only, not `packages/ui`. |
+| **Portal ticket thread redesigned to Zendesk-style (uniform cards)**    | Chat bubbles (blue customer / left-border agent) replaced with fully symmetric left-aligned threaded cards at 1180px width. Motivation: wider monitors had empty margins; asymmetry felt inconsistent on long tickets. Both customers and agents now see the same structure (avatar + name + body + attachments + divider). Accent reserved for customer avatar fill and the Support badge only. |
+| **Attachment fix at the data layer (not the UI layer)**                  | Portal and Bridge renderers already read `msg.attachments` correctly — the data just never arrived. Fixed three root causes: (1) `MessagesService.create()` now links `attachmentIds` via `updateMany` inside the transaction; (2) `GmailProvider.parseGmailMessage()` now extracts `payload.parts` attachments; (3) `ThreadIngestionService` fetches and stores each inbound attachment via `FilesService.storeBuffer()`. |
+| **`attachment.updateMany` guards: `ticketId` + `messageId: null`**      | Prevents cross-ticket attachment hijacking and prevents re-linking an attachment already owned by another message. Both checks run inside the same DB transaction as the message create. |
+| **Email attachment fetch runs outside the DB transaction**               | `GmailProvider.fetchAttachmentBytes()` makes an HTTP call. HTTP calls inside Postgres transactions can hold a DB connection for seconds and cause lock waits. Attachment list collected inside the transaction; HTTP fetch + MinIO upload happen after the transaction commits. |
+| **`attachment.updateMany` guard allows `ticketId: null` OR ticket match** | Freshly-uploaded files have `ticketId: null` (uploaded before being associated to any ticket). The original guard `ticketId: ticketId` (exact match only) blocked all reply-composer uploads because the attachment had never been pre-scoped. Fixed to `OR: [{ ticketId }, { ticketId: null }]`; `ticketId` also written into `data` so it is set correctly when a null-scoped attachment gets linked. |
+| **`ZodValidationPipe` on `@Body` is incompatible with multipart uploads** | NestJS pipes run before the method body. When Multer processes a multipart request, it sets the body to `{}`. Wrapping `@Body` with `ZodValidationPipe(uploadLinkSchema)` causes Zod to validate `{}` against the `linkUrl`-required schema and throw — before the method even inspects the uploaded file. Fix: remove the pipe from `@Body`, parse `rawBody` manually inside the method only on the link-upload path. |
+| **Portal auth page supports two layouts (MINIMAL default / BRANDED opt-in)** | MINIMAL works out-of-the-box with just `logoUrl` + `appName`; BRANDED requires headline + ≥1 feature to save. Server-side validation in `updateAppConfigSchema` mirrors client-side rules. |
+| **Testimonial block deliberately excluded from BRANDED layout**          | Kept the scope minimal. Hardcoded fake testimonial (Mia Chen, Northwind) fully deleted. Can be re-introduced later if operators request it. |
+| **Portal Google OAuth wired against existing `POST /auth/google` backend** | Reuses the same Google OAuth client as agent flow; only adds `/auth/google/callback` as a new redirect URI. State nonce in `sessionStorage` for CSRF protection. Callback mirrors Bridge GitHub OAuth callback pattern. |
 | **OAuth callback handled by NestJS API, not Bridge**                     | Avoids the auth code appearing in Bridge request logs; API exchanges it server-side then redirects browser to Bridge with `?connected=1`. Cleaner security boundary. |
 | **180-day default backfill, triggered automatically on OAuth connect**   | Gives agents a populated inbox immediately; long enough to capture most active threads. "Pull full archive" (sinceDays: 'all') available manually post-connect. |
 | **Backfill jobs at `priority: 0`, live mail at `priority: 10`**          | pg-boss pops higher-priority first — a live customer reply mid-backfill jumps the entire backfill queue, keeping Bridge responsive. |
@@ -113,6 +124,23 @@ ngrok http 3001
 | **JWT in SSE query param**                                               | `EventSource` API doesn't support custom headers. Token verified inline in `SseController`, not logged. |
 | **`@Global()` EventsModule; `setSseService()` for circular avoidance**  | `ThreadIngestionService` (in EmailSyncModule) and `EmailSyncBackfillService` need to broadcast SSE but can't import EventsModule directly without creating a cycle. `setSseService(sse)` method called in `onModuleInit` by EventsModule sidesteps this. |
 | **sseEventBus is in-process only**                                      | No Redis pub/sub. Sufficient for single-process; a multi-process deployment would need an external broker or sticky sessions. |
+| **pgvector in existing Postgres for bot knowledge base**                 | Zero new infra; help-center corpus is small (hundreds–thousands of pages); HNSW index provides sub-millisecond vector search at this scale |
+| **pg-boss queue for bot response (async)**                              | Ticket creation endpoint stays fast; bot runs ~3–8s in background; async also makes retries and idempotency straightforward |
+| **Hybrid dense+sparse retrieval with RRF**                             | Pure pgvector misses exact product names, error codes, version numbers; FTS handles those; RRF fuses both lists |
+| **FTS (not pg_trgm) for sparse arm**                                   | pg_trgm `similarity(text, 'how many accounts can I connect')` matched connector pages (trigram 'connect' ≈ 'connection') ahead of the Pricing page. `websearch_to_tsquery` is topically correct — it matches document terms, not substring trigrams |
+| **Dense cosine gate (0.55) replaces RRF score gate (0.01)**            | RRF scores are bounded by ~0.033 and not interpretable. Dense cosine on L2-normalised gemini-embedding-001 vectors is bounded by [0,1] and directly measures semantic relevance; 0.55 cleanly separates relevant from noise at current corpus scale |
+| **Embedding taskType asymmetry (RETRIEVAL_DOCUMENT / RETRIEVAL_QUERY)** | gemini-embedding-001 produces better aligned representations when the model knows the usage intent at embed time; documents and queries are in different distribution spaces |
+| **Contextual retrieval (Anthropic 2024 pattern)**                      | One Gemini Flash call per page generates a doc-level summary prepended to every chunk; lifts recall 35–50% at trivial cost ($0.06 for 5000-chunk corpus) |
+| **Context header deferred to Phase B (embed), not Phase A (scan)**     | Phase A now makes zero Gemini calls — scan is purely fetch+chunk+persist. Context header generated once per source at embed time. `estimatePendingCost()` includes the summary call cost so the confirm screen shows one honest total |
+| **Chunk MAX_TOKENS 800→350, MIN_TOKENS 200→100**                      | Pricing page's ~850-token chunk buried the pricing table so its dense embedding was diluted. Finer chunks make plan-level facts (e.g. "Pro: 50 accounts per connector") their own discrete vector |
+| **Parallel crawl (CONCURRENCY=6) replaces sequential+1s delay**        | Sitemap path was `pages × (fetch + LLM + 1s)`; now `ceil(pages/6) × fetch`. No quality loss — `onPage` callback still runs per page |
+| **True incremental mode via `<lastmod>` (not just content-hash)**      | Previous incremental mode fetched every page then skipped on content-hash match. Now pages with `lastmod ≤ source.fetchedAt` are skipped before fetching |
+| **robots.txt sitemap discovery**                                        | Help center sitemaps aren't always at `/sitemap.xml`. Reads `Sitemap:` directives from robots.txt first, then falls through to hardcoded candidates |
+| **SSE broadcast from BotService after reply/escalation**               | Bot wrote its message directly to DB but never called SseService. Bridge received Athena's reply on the next 10s poll instead of immediately. Now broadcasts `message-created` (reply) and `ticket-updated` (escalation) events |
+| **Safety overrides: empty citations + foreign-origin citations → escalate** | Belt-and-suspenders against hallucination; Gemini JSON mode enforces schema but explicit guards ensure no answer ships without valid KB citations |
+| **`AgentRole.AGENT` → `PRIMARY_AGENT`**                                | Semantically correct; all existing agents remain assignable as first responders; admins can demote to `SECONDARY_AGENT` later |
+| **`botApiKeyEnc` excluded from getSafe()**                             | Follows same redaction pattern as `oauthAccessTokenEnc`; API returns `botKeySet: boolean` instead |
+| **Bot message uses `authorBotName` not `authorAgentId`**               | No phantom agent row needed; display name is configurable; portal/bridge branch on `authorBotName !== null` |
 
 ---
 
@@ -131,11 +159,10 @@ read the atlas. If you want to know how it got that way, read this.
 
 | Issue                                       | Priority           | Notes                                                                  |
 | ------------------------------------------- | ------------------ | ---------------------------------------------------------------------- |
-| Google OAuth not wired (portal + dashboard) | Low                | Needs Google Cloud project + App credentials                           |
+| Google OAuth (portal) requires env vars set  | Low                | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` must be set in `.env`; same client as `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Also register `{portal-origin}/auth/google/callback` in Google Cloud Console authorized redirect URIs. |
 | Inbound email needs real MX record          | Medium             | Works locally if you point MX to your server                           |
 | No real-time updates (polling/websockets)   | Medium             | Notifications poll every 30s; no instant push                          |
-| File attach in reply (bridge compose)       | Low                | Paperclip button present but disabled; no file upload flow in compose  |
-| File attach in reply not implemented        | Low                | Portal ticket reply composer                                           |
+| File attach in reply (bridge compose)       | Low                | Paperclip button present but `action: undefined`; no upload flow wired |
 | Export as CSV (portal)                      | Low                | Button renders; no handler                                             |
 | `EMAIL_CREDS_KEY` env var must be set       | Medium             | 64-char hex key required for IMAP/SMTP password + OAuth token encryption; app starts without it but IMAP won't connect |
 | OAuth env vars not yet set                  | Medium             | `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `MICROSOFT_OAUTH_CLIENT_ID/SECRET`, `OAUTH_CALLBACK_BASE`, `BRIDGE_URL` must be configured before OAuth login works |
@@ -702,3 +729,552 @@ Both `@tmr/api` and `@tmr/bridge` pass `tsc --noEmit` clean.
 
 **Manual poll endpoint**
 - `POST /api/v1/sync/poll/now` — triggers immediate poll cycle without waiting for 30s cron. Used for debugging.
+
+### 2026-05-28 — Portal auth page: configurable layouts + Google OAuth wiring
+
+**Schema**
+- `AuthLayout` enum (`MINIMAL` | `BRANDED`) + 4 new `AppConfig` fields: `portalAuthLayout`, `portalHeroHeadline`, `portalHeroSubheadline`, `portalFeatures`. Applied via `prisma db push`.
+
+**Portal auth page rewrite** (`apps/portal/src/app/auth/page.tsx`)
+- Deleted hardcoded `CHECKLIST` constant and fake Mia Chen/Northwind testimonial block entirely.
+- Now reads `portalAuthLayout` from `useAppConfig()` and branches:
+  - `MINIMAL` (default): single-column, logo + appName above a centered form card, subtle primary-color radial gradient background.
+  - `BRANDED`: split 55/45 dark-left panel with operator's headline, subheadline, and feature checklist; form on the right.
+- Form JSX extracted into shared `AuthForm` component (`apps/portal/src/components/auth/AuthForm.tsx`) used by both layouts.
+- `useSearchParams` wrapped in `<Suspense>` to avoid Next.js static-rendering error.
+
+**Portal Google OAuth**
+- `apps/portal/src/lib/googleOAuth.ts`: `redirectToGoogle()` builds consent URL with CSRF nonce stored in `sessionStorage`; `verifyAndConsumeState()` verifies and consumes it on callback.
+- `apps/portal/src/app/auth/google/callback/page.tsx`: verifies state, POSTs `{code, redirectUri}` to `POST /auth/google`, calls `signIn`, redirects to `/tickets`. Mirrors Bridge GitHub OAuth callback pattern (15 s timeout, `cancelled` ref for Strict Mode).
+- Error paths: `access_denied` → `/auth?error=google_cancelled`; state mismatch → `/auth?error=invalid_state`; API failure → inline error message.
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` added to root `.env.example`.
+
+**Bridge branding page** (`apps/bridge/src/app/settings/branding/page.tsx`)
+- "Portal auth page" card added in left column (after Email card): layout radio (Minimal/Branded), headline input, subheadline textarea, feature list (add/remove, max 5).
+- Save button disabled with tooltip when BRANDED layout selected without headline + ≥1 feature.
+- BRANDED fields persist across layout toggles (form state is kept, not cleared on switch to MINIMAL).
+- `AuthPagePreview` component added to right column — pure client-side render of both layouts using live unsaved form state. No API call.
+
+**New files**
+- `apps/portal/src/components/auth/AuthForm.tsx`
+- `apps/portal/src/lib/googleOAuth.ts`
+- `apps/portal/src/app/auth/google/callback/page.tsx`
+- `apps/bridge/src/components/settings/branding/AuthPagePreview.tsx`
+
+**Type-checks**: `@tmr/api`, `@tmr/bridge`, `@tmr/portal` all pass `tsc --noEmit` clean.
+
+### 2026-05-28 — Google OAuth bug fixes + Portal nav polish
+
+**Google OAuth fixes**
+
+- **Root cause 1 — missing env vars**: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` were blank in `.env`. API's `googleAuth()` received an error response from Google's token endpoint (e.g. `{"error":"invalid_client"}`), which was silently cast to `GoogleTokenResponse`. `tokenData.access_token` was `undefined`, the userinfo call returned an error object, and Prisma crashed with `findUnique({ where: { googleId: undefined } })`.
+  - Fix: `auth.service.ts` now validates `tokenData.access_token` immediately after parsing the token response and throws `InternalServerErrorException` with Google's error description if absent. Same guard added to `agentGoogleAuth`. `GoogleTokenResponse` type extended with `error?`/`error_description?` fields.
+
+- **Root cause 2 — React Strict Mode double-invoke**: In development, React 18 Strict Mode mounts → unmounts → remounts effects. The callback's first run consumed the `sessionStorage` nonce and set `cancelled = true` (via cleanup). The second run found an empty sessionStorage, `verifyAndConsumeState()` returned false, and the page redirected to `/auth?error=invalid_state`.
+  - Fix: `handledRef = useRef(false)` added to `apps/portal/src/app/auth/google/callback/page.tsx`. Effect returns early on the second mount. Identical to the pattern in Bridge's GitHub OAuth callback.
+
+- **Database baseline**: initial migration `20260517060918_init` was unapplied. Ran `prisma migrate resolve --applied` to baseline it; `prisma db push` confirmed schema is in sync.
+
+**Portal nav polish** (`apps/portal/src/components/portal/PortalNav.tsx`)
+
+- "Support" label restored as a small all-caps badge pill (`SUPPORT`) right of the app name — uses border + muted text so it reads as metadata, not as part of the brand name.
+- "My Tickets" and "Submit a Ticket" nav links removed — redundant alongside the "New ticket" button and the page heading.
+- Sign-out button now shows `<LogOut size={13} /> Sign out` text label with border. Hover: fills with surface background, darkens border, shifts text to full body color (CSS transition 150 ms).
+
+### 2026-05-28 — Portal UI redesign + attachment backend fix (session 5)
+
+**Phase A — Attachment backend (all silent data bugs, no schema changes)**
+
+- `MessagesService.create()` — `dto.attachmentIds` was accepted but discarded. Now runs `tx.attachment.updateMany({ where: { id: { in: dto.attachmentIds }, ticketId, messageId: null } })` inside the existing transaction, then re-fetches the message with `include: { attachments: true }` so the response always contains the populated array. Two safety guards: `ticketId` (cross-ticket prevention) + `messageId: null` (re-link prevention).
+- `mail-provider.interface.ts` — added `ParsedAttachment` interface and optional `attachments?: ParsedAttachment[]` to `ParsedMessage`.
+- `gmail.provider.ts` — `parseGmailMessage()` now walks `payload.parts` recursively via `collectAttachmentParts()`. Each part with a `filename` + `body.attachmentId` becomes a `ParsedAttachment`. New public method `fetchAttachmentBytes(gmailMessageId, gmailAttachmentId)` fetches attachment bytes from the Gmail Attachments API and decodes base64url. Microsoft Graph (`GraphProvider`) does not yet implement attachment extraction.
+- `files.service.ts` — extracted a new public `storeBuffer(buffer, opts)` method (MinIO PUT + presigned URL + `prisma.attachment.create()`). Refactored `uploadFile()` to call it. `storeBuffer` accepts optional `messageId` so the Attachment row can be linked in one step.
+- `thread-ingestion.service.ts` — injected `FilesService`. After each `tx.message.create()`, pushes `{ messageId, ticketId, attachments }` to a `pendingAttachments` array. After the transaction commits, iterates the array, fetches bytes via duck-typed `fetchAttachmentBytes` (only present on `GmailProvider`), calls `storeBuffer`. Skips attachments > 25 MB (warn log); catches per-attachment errors (error log + continue) — a bad attachment never fails the whole ingest.
+- `email-sync.module.ts` — added `FilesModule` import so `FilesService` can be injected.
+
+**Phase B — Portal ticket detail redesign** (`apps/portal/src/app/tickets/[id]/page.tsx`)
+
+- Container: `maxWidth: 960 → 1180`, `padding: '32px 24px 80px' → '32px 32px 96px'`.
+- Page header: title row (H1 30px/700/-0.02em, ellipsis overflow) + right-side "Copy link" ghost button + mono displayId copy button (moved out of sidebar); meta row below (status pill · category pill · Opened date · Last activity); 1px divider anchors the header.
+- Thread: fully replaced asymmetric blue-bubble / left-border-agent system with **Zendesk-style uniform threaded cards** (plan B4). Every message: 36px circle avatar (customer = accent fill, agent = #3F3F46), name row, optional Support badge (agents only), timestamp right-aligned, body at `paddingLeft: 48px`, attachments row. `1px solid var(--p-border-2)` divider between messages; no border on the last.
+- System events: borderless centered text in `11px var(--p-text-4)`, flanked by short rule lines. No pill background.
+- Attachment chips: single uniform chip (white bg, border, Paperclip icon, filename, size) used for all messages. Old divergent translucent-white and bordered variants removed.
+- Reply composer: "Reply" / "Markdown supported" labels moved above the card as a caption row. Card uses `borderRadius: var(--r-lg)` + soft shadow. `minHeight: 120`. Paperclip icon added to toolbar.
+- Sidebar: `width: 240 → 300`, `position: sticky; top: 24; alignSelf: flex-start`. Status card: tinted band removed, single padded card with `STATUS` eyebrow, dot + label in status color, assignee row below divider. Details card: no inner header divider, Ticket row moved to page header. GitHub card: `LINKED ISSUE` eyebrow, hover background via CSS `.linked-issue-card:hover`, title 2-line clamp.
+- Responsive: `<style>` block with `@media (max-width: 1024px)` — sidebar stacks below thread, cards in 2-column grid; below 640px single column.
+- Loading skeleton updated to match new proportions (1180px, 300px sidebar, 36px avatars).
+
+**Phase C — Tickets list polish** (`apps/portal/src/app/tickets/page.tsx`)
+
+- Container: `maxWidth: 860 → 1180`, `padding: '48px 24px 80px' → '48px 32px 80px'`.
+- Row redesign via `.ticket-row` CSS class: `margin: 0 -12px; padding: 16px 12px; border-radius: 6px; transition: background 120ms ease`. Hover: `background: var(--p-surface)`.
+- ChevronRight: `.row-chevron` class, `opacity: 0 → 1` on row hover. Removed always-visible indicator.
+- Unread dot moved to leftmost slot (12px reserved column, always present for alignment).
+- Avatar column: 32px circle with ticket-title initials (no API change required; `lastMessage` has no author).
+- Last message preview: `ticket.lastMessage.body` in `12.5px var(--p-text-3)` single-line ellipsis below the title. Row padding increased to 16px to fit.
+- Status badge column: 130px → 120px.
+
+**Docs updated**: `docs/atlas/messages.md` (attachmentIds now works), `docs/atlas/email.md` (inbound attachment ingestion section), `docs/atlas/portal-ticket-view.md` (new file). `pnpm atlas:gen` run to refresh `_generated/`.
+- `usePathname` import removed (no longer needed after link removal).
+
+**Tickets page hover** (`apps/portal/src/app/tickets/page.tsx`)
+
+- "New ticket" button: hover darkens 15% via `color-mix`, adds soft shadow; active press scales to 0.98. Uses CSS class + scoped `<style>` tag — works with any accent color set in branding.
+
+### 2026-05-29 — Attachment pipeline root-cause audit + portal reply upload + nav polish
+
+**Root-cause audit (all 4 bugs, all confirmed with live API calls)**
+
+After the Phase A–E implementation was complete but attachments were still invisible, a DB check revealed zero `Attachment` rows — no uploads had ever succeeded. Four independent bugs were found and fixed:
+
+1. **`ZodValidationPipe` on `@Body` blocked all file uploads** (`files.controller.ts`). NestJS pipes execute before the method body. Multer parses a multipart request body as `{}`. `ZodValidationPipe(uploadLinkSchema.optional())` validated `{}` against the `linkUrl`-required schema and threw `BadRequestException` — before the method ever checked the `@UploadedFile()`. Fix: removed the pipe from `@Body`; moved validation inline only for the link-upload path. **This was the root cause of zero attachment rows in the DB.**
+
+2. **`MessagesService.create()` ignored `attachmentIds`** — `dto.attachmentIds` was received but the service never called `updateMany` to link them to the message. Fixed in Phase A (previous session); already in place.
+
+3. **`TicketsService.create()` only set `ticketId`, not `messageId`** on attachments linked during ticket creation. Fixed in Phase A (previous session); already in place.
+
+4. **`attachment.updateMany` guard too strict for reply uploads** (`messages.service.ts`). Freshly-uploaded files have `ticketId: null` — they haven't been pre-scoped to a ticket. The guard `where: { ticketId }` (exact match required) meant the `updateMany` matched zero rows and attachments were never linked to reply messages. Fix: changed to `OR: [{ ticketId }, { ticketId: null }]`; also writes `ticketId` into `data` so the attachment gets scoped at link time.
+
+**Verification (end-to-end curl test)**
+- `POST /files/upload` → MinIO object created, `Attachment` row in DB with correct UUID filename.
+- Presigned URL serves the file bytes directly from MinIO.
+- `POST /tickets/:id/messages { attachmentIds: [id] }` → response includes `message.attachments` array with the linked row; DB confirms `ticketId` + `messageId` both set.
+
+**Portal reply composer — file upload wired** (`apps/portal/src/app/tickets/[id]/page.tsx`)
+- Hidden `<input type="file" ref={fileInputRef}>` added above the composer card.
+- Paperclip toolbar button calls `fileInputRef.current.click()` (was a no-op before).
+- `handleFileSelect`: uploads the file to `/api/v1/files/upload?ticketId=…` with `Authorization: Bearer {token}`, appends the returned `Attachment` to `replyAttachments` state.
+- Pending attachments show as removable chips between the textarea and the toolbar (Paperclip icon + filename + × button).
+- `sendReply`: includes `attachmentIds: replyAttachments.map(a => a.id)` in the POST body; clears `replyAttachments` on success.
+- Paperclip button shows accent color while uploading (`isUploading` state), cursor switches to `wait`.
+
+**Portal nav — "My tickets" link** (`apps/portal/src/components/portal/PortalNav.tsx`)
+- Added a `Link href="/tickets"` in the signed-in nav row, left of the user avatar.
+- Uses `.portal-nav-link` CSS class with hover surface background, matching the sign-out button style.
+- Visible only when `user` is defined (signed-in state); not shown to guests.
+
+### 2026-05-29 — Testing framework foundation
+
+**Plan**: `~/.claude/plans/hi-i-am-flickering-whale.md` — four-layer test framework (unit / integration / contract / E2E) plus security, migration, concurrency, parsing, external-service edge cases. Backed by a regression catalogue tying every named STATE decision to a named test.
+
+**Atlas drift fixes** (committed in same PR):
+- `docs/atlas/README.md` — system diagram + Email row updated from IMAP IDLE to Gmail REST + Graph
+- `docs/atlas/email.md` — already accurate, stack confirmed
+- `docs/atlas/queue.md` — rewritten: real queues are AI (`ai:analyze-message`, `ai:classify-ticket`, `ai:request-csat`); the old `email.inbound` queue never existed in current code
+- `docs/atlas/messages.md` — customer-reply flowchart, key files, decisions, gap text all updated to reference `email-sync/thread-ingestion.service.ts` (not the dead `inbound.processor.ts`); portal upload `?ticketId=...` query param removed
+- `docs/atlas/tickets.md` — creation paths flowchart now shows ThreadIngestionService funnel separately from TicketsService.create
+- `docs/atlas/settings.md` — live-update sequence references `OAUTH_CONNECTED` → backfill listener instead of removed `ImapClientService.reconnect()`
+- `docs/atlas/ai.md` — per-queue retry table added (`analyze-message` 3×10s exp, `classify-ticket` 3×30s exp, `request-csat` 2 retries with 30 min `startAfter`)
+
+**Test infrastructure delivered**:
+- `tests/vitest.unit.config.ts` / `.contract.config.ts` / `.security.config.ts` — Vitest configs per layer
+- `tests/jest.integration.config.js` — Jest config for the integration suite (Vitest+Nest ESM/CJS friction made Jest the pragmatic choice for backend tests)
+- `tests/playwright.config.ts` — three projects (portal, bridge, cross-app), webServers boot api/portal/bridge against the test DB
+- `tests/integration/global-setup.ts` — boots Postgres + MinIO Testcontainers once per run, applies schema via `prisma db push`
+- `tests/integration/setup.ts` — per-file Nest boot + TRUNCATE between tests
+- `tests/integration/harness.ts` — typed harness exposing `harness.request()` (supertest), `harness.prisma`, `harness.get<T>(token)` (Nest provider lookup)
+- `tests/integration/factories/index.ts` — typed builders for User / Agent / Ticket / Message + JWT signer matching `AuthService.issueToken()`
+- `tests/integration/msw/` — MSW handlers split by provider (gmail, graph, gemini, github, google-oauth, microsoft-oauth) — lazy-loaded by tests that need them so the smoke suite stays MSW-free
+- `tests/e2e/global-setup.ts` + `tests/e2e/flows/F1.spec.ts` — Playwright scaffold for the headline portal→bridge SSE flow
+- `tests/contract/routes-snapshot.spec.ts` + `tests/contract/sse-coverage.spec.ts` — atlas drift guard
+- `tests/unit/api/strip-subject.spec.ts` — sample unit test
+- `tests/regression-catalogue.md` — 60+ named-bug catalogue tying STATE decisions to named tests
+- `tests/README.md` — author-facing framework guide
+- `.github/workflows/test.yml` — 9 CI jobs (lint, unit, contract, integration, security, e2e, atlas-drift, migration-safety, coverage-gate)
+
+**Status (as of session end)**:
+- Unit suite: 9 tests passing (1 file)
+- Contract suite: 5 tests passing (2 files)
+- Integration suite: **7 tests passing** (2 files) — including R21 `TransformResponseInterceptor` wraps once, R32 soft-delete exclusion, R35 ticket number monotonicity, R37 internal-note visibility filter for users
+- E2E suite: F1 scaffold written; not yet runnable end-to-end (webServers need warm-start)
+
+**Bugs discovered while writing tests** (recorded in `tests/regression-catalogue.md` "Discovered edge cases" section):
+1. `stripSubjectPrefixes("  Re: hello  ")` returns `"Re: hello"` — regex anchors at `^` without trimming leading whitespace first. Test asserts current (buggy) behavior; fix tracked.
+2. `TicketsController.list()` response is double-wrapped: `TicketsService.list` returns `{ data: [...], meta }`, then `TransformResponseInterceptor` wraps again to `{ data: { data, meta } }`. Either rename the service shape to `{ items, meta }` or teach the interceptor to detect already-wrapped responses.
+
+**CLAUDE.md item 5 added**: "Touched any service method, controller route, or schema field? → add or update the matching test." Tests now travel with code the same way docs already do.
+
+**Tooling additions** (root devDependencies): jest, ts-jest, @types/jest, vitest, @vitest/coverage-v8, @playwright/test, testcontainers, @testcontainers/postgresql, msw, supertest, @types/supertest, axe-core, @axe-core/playwright, unplugin-swc, @swc/core, jest-environment-node. Per-app additions: @testing-library/{react,jest-dom,user-event,dom}, jsdom, @vitejs/plugin-react.
+
+**Decision** added below: Jest for integration / Vitest for unit + contract — backend uses Nest's native test runner, frontend uses the modern ESM-friendly one.
+
+---
+
+### 2026-05-30 — Session 31 (Athena AI First Responder)
+
+**Implemented**: Full Athena AI First Responder bot per plan `hi-i-am-flickering-whale.md`.
+
+**Data model** (migration `20260530000000_athena_bot`):
+- `AgentRole` enum: `AGENT` renamed to `PRIMARY_AGENT`, added `SECONDARY_AGENT`
+- New models: `Shift`, `KnowledgeSource`, `KnowledgeChunk` (pgvector 768-d + HNSW + pg_trgm GIN), `BotInteraction`
+- `AppConfig` gains: `botEnabled`, `botProvider`, `botApiKeyEnc`, `botModelChat`, `botModelEmbedding`, `botRetrievalThreshold`, `botConfidenceThreshold`, `botFallbackAgentId`, `botName`, `botAvatarUrl`, `kbRootUrl`, `kbCrawlStatus`, `kbCrawlPagesSeen`, `kbCrawlPagesIndexed`, `kbCrawlError`, `kbLastRecrawledAt`, `timezone`
+- `Message` gains: `authorBotName` (nullable; set when bot generates the reply)
+- `AiUsage` gains: `userId` (nullable; null for crawl/index ops that have no user context)
+- `AiOperation` enum: `ATHENA_EMBED`, `ATHENA_GENERATE`, `KB_CONTEXTUAL_SUMMARY` added
+- pgvector + pg_trgm extensions installed in Postgres container
+
+**Backend modules**:
+- `BotModule` (`apps/api/src/modules/bot/`): `BotService`, `RetrievalService` (RRF hybrid), `GeneratorService` (Gemini embed+generate), `ShiftResolverService`, `RespondToNewTicketWorker`
+- `KnowledgeBaseModule` (`apps/api/src/modules/knowledge-base/`): `CrawlerService` (sitemap→BFS), `ChunkerService` (heading-aware markdown), `ContextBuilderService` (contextual retrieval), `EmbeddingService`, `IndexerService`, `KnowledgeBaseController`, `CrawlAndIndexWorker`
+- `ShiftsModule` (`apps/api/src/modules/shifts/`): CRUD for Shift rows (used by bridge settings page)
+- `QueueService` gains: `enqueueBotRespond`, `enqueueKbCrawl`, `enqueueKbIndexPage`
+- `TicketsService.create()` now enqueues bot respond job after ticket creation
+
+**Frontend**:
+- `apps/bridge/src/app/settings/ai-assistant/page.tsx` — 3-card settings page (provider, KB, bot behavior)
+- `apps/bridge/src/app/settings/shifts/page.tsx` — shift management with toggle/create/delete
+- `DashboardSidebar` — Bot icon (`/settings/ai-assistant`) and Calendar icon (`/settings/shifts`) added to rail
+- `MessageCard` (bridge) — bot messages render with gradient Sparkles avatar + "AI" badge
+- Portal ticket thread — `authorBotName` messages render with ✨ avatar + "AI assistant" badge
+
+**Tests**:
+- Unit: `tests/unit/api/shift-resolver.spec.ts` (14 tests), `tests/unit/api/chunker.spec.ts` (14 tests), `tests/unit/api/rrf-fusion.spec.ts` (10 tests) — all passing
+- Integration: `tests/integration/bot.respond.spec.ts` (R61–R65 + idempotency), `tests/integration/shift-routing.spec.ts` (R66–R68), `tests/integration/ai-usage.per-user.spec.ts` (R69–R70)
+- Regression catalogue: R61–R70 added
+
+**Docs**:
+- `docs/atlas/bot.md` created — full pipeline, stack, decisions, key files
+- `docs/atlas/README.md` — Bot row added to feature table
+- `pnpm atlas:gen` run → 74 routes / 25 modules / 22 models now reflected in `_generated/`
+
+**Key decisions (added to Decisions table above)**:
+| Decision | Why |
+|---|---|
+| pgvector in existing Postgres | Zero new infra; help-center corpus is small |
+| pg-boss queue for bot (async) | Ticket creation stays fast; bot runs in ~3-8s background window |
+| Hybrid dense+sparse retrieval (RRF) | Pure vector misses exact product names / error codes |
+| Contextual retrieval (Anthropic 2024) | Doc-level summary prepended to every chunk; +35-50% recall at trivial cost |
+| Safety overrides in worker | belt-and-suspenders: empty citations → escalate; external citation → escalate |
+| `AgentRole.AGENT` → `PRIMARY_AGENT` | Semantically correct; all existing agents remain assignable as first responders |
+| `botApiKeyEnc` excluded from getSafe() | Follows same pattern as oauthAccessTokenEnc; never exposed via API |
+
+---
+
+## Session — 2026-05-30 (AI Settings UI cleanup)
+
+**Changes**:
+- Removed the standalone Bot (AI Assistant) icon from the main sidebar rail
+- Added "AI Assistant" entry to the Settings nav (under AI section) — it now lives alongside AI Usage & Cost
+- Removed from AI Assistant page: embedding model field (hardcoded as `text-embedding-004`), Test connection button, entire Bot Behavior card (retrieval threshold, confidence threshold, bot name, enabled toggle)
+- Moved "Fallback agent" setting to Settings → Agents page (new AI First-Responder card at the bottom)
+- Fixed `sources` crash: `setSources(res.data ?? [])` to guard against undefined API response
+- Fixed `EmbeddingService` and `ContextBuilderService` to resolve the Gemini API key from `AppConfig.botApiKeyEnc` (DB) at runtime when `GEMINI_API_KEY` env var is not set
+- Fixed crawler to interleave crawl+index (previously crawled all 71 pages then indexed — progress counter stayed at 0/0 during the entire crawl phase); now each page is indexed as it's discovered and `kbCrawlPagesSeen`/`kbCrawlPagesIndexed` update in real time
+- Root cause of 0 pages indexed: `text-embedding-004` 404 from Gemini API (model not accessible for the configured API key)
+
+**Docs**: `docs/atlas/ai.md` and `docs/atlas/settings.md` updated
+
+---
+
+## Session — 2026-05-31 (Bot behavior backend cleanup)
+
+**Changes**:
+- Removed `POST /config/test-bot` endpoint; removed unused `GoogleGenerativeAI`, `ConfigService`, `ServiceUnavailableException`, and `PrismaService` imports from `ConfigController`
+- Hardcoded bot behavior in `BotService` as static class constants: `RETRIEVAL_THRESHOLD = 0.5`, `CONFIDENCE_THRESHOLD = 0.7`, `BOT_NAME = "Athena"`; removed `botEnabled` DB guard (bot is now always active)
+- Removed 5 fields from `updateAppConfigSchema` Zod validation: `botEnabled`, `botModelEmbedding`, `botRetrievalThreshold`, `botConfidenceThreshold`, `botName`, `botAvatarUrl` (no longer patchable via API)
+- Migration `20260531000000_remove_bot_behavior_fields`: dropped 6 columns from `AppConfig` — `botEnabled`, `botModelEmbedding`, `botRetrievalThreshold`, `botConfidenceThreshold`, `botName`, `botAvatarUrl`
+- Patched `20260530000000_athena_bot` migration to add `IF NOT EXISTS` guards for `AiOperation`, `AiCallStatus` enums and `AiUsage` table — these were created directly in the DB without migrations, causing shadow DB failures on `prisma migrate dev`
+- Regenerated Prisma client; all TypeScript checks pass
+
+**Docs**: `docs/atlas/bot.md`, `docs/atlas/ai.md` updated; `pnpm atlas:gen` run (74 routes / 25 modules / 22 models)
+
+---
+
+## Session — 2026-05-31 (RAG fix, two-phase KB ingestion, admin UI, botModelChat removal)
+
+**Problem statement**: RAG completely broken — every embed call returned 404 because Google retired `text-embedding-004`. Chat model (`gemini-2.0-flash`) worked independently. Settings UI was developer-oriented (raw status enums, "Crawl now", "Re-index"). No cost gate before embedding.
+
+**Changes**:
+
+**Item 1 — Fix embedding model**:
+- Created `apps/api/src/modules/ai/embedding.constants.ts`: `EMBEDDING_MODEL = 'gemini-embedding-001'`, `EMBEDDING_DIMENSIONS = 768`, `EMBED_PRICE_PER_MILLION = 0.15`, `l2normalize()` (required at <3072 dims per Gemini spec)
+- Updated `EmbeddingService`: uses new model + `outputDimensionality: 768` + `l2normalize()` on each returned vector
+- Consolidated embed path: `GeneratorService.embed()` now delegates to `EmbeddingService` (removed duplicate embed implementation); `KnowledgeBaseModule` exports `EmbeddingService`; `BotModule` imports `KnowledgeBaseModule`
+
+**Item 4 — Remove botModelChat**:
+- Dropped `botModelChat String?` from schema.prisma and migration; chat model hardcoded as `gemini-2.0-flash` in `GeneratorService`
+- Removed from `updateAppConfigSchema` (Zod) and from the AI Assistant settings UI
+
+**Item 3 — Two-phase scan → confirm → embed**:
+- New schema: `SourceStatus.SCANNED`, `KbPhase` enum (`IDLE|SCANNING|AWAITING_CONFIRM|EMBEDDING|DONE|FAILED|CANCELLED`), 8 new `AppConfig` fields: `kbPhase`, `kbScanPagesSeen`, `kbScanChunkCount`, `kbScanTokenEstimate`, `kbScanCostUsd`, `kbEmbedChunksDone`, `kbEmbedChunksTotal`, `kbError`
+- `IndexerService` now has three methods: `scanPage()` (fetch+chunk+persist with `embedding=NULL`, no Gemini), `embedSource()` (embed un-embedded chunks for one source), `estimatePendingCost()` (SUM tokenCount → cost estimate); legacy `indexPage()` preserved for reindex-single-source path
+- New queues: `KB_SCAN_QUEUE` (`kb:scan`), `KB_EMBED_QUEUE` (`kb:embed`) added to queue module + service
+- `CrawlAndIndexWorker` now also registers scan worker (crawls → `scanPage()` per page → sets `kbPhase=AWAITING_CONFIRM` with cost estimate) and embed worker (iterates `SCANNED` sources → `embedSource()` → `kbPhase=DONE`)
+- New controller endpoints: `POST /kb/scan/start`, `POST /kb/scan/cancel`, `POST /kb/embed/confirm`; `GET /kb/status` extended with all new fields; `POST /kb/sources/manual` now scans into pending set instead of immediate embed
+- Migration `20260531000001_kb_two_phase_and_remove_botModelChat`: applied via `db push` + `migrate resolve`
+
+**Item 2 — Admin-friendly UI**:
+- AI Assistant page fully rewritten: two cards (AI Assistant, Help Center Knowledge), phase-aware `KbPhasePanel` component shows scan progress bar → cost-confirmation panel → embed progress bar → completion/error states
+- All developer terms replaced: Crawl now → Scan documents, Resync → Check for updates, Clear index → Remove all documents, Chunks → Sections, Last indexed → Last updated, raw status enums → Ready/Scanned/Failed/Skipped/Processing
+
+**Key decisions**:
+| Decision | Why |
+|---|---|
+| `gemini-embedding-001` at 768 dims | `text-embedding-004` retired by Google; 768-dim column already exists → no vector migration |
+| L2-normalize all embed vectors | Required by Gemini at sub-max dimensions for cosine-equivalent dot-product similarity in pgvector |
+| Two-phase scan+confirm before embed | Embedding costs real money; admin must see estimate and confirm before any Gemini embed calls are made |
+| Manual add also goes to pending set | Consistent UX: single page or full crawl both require explicit confirm before costing anything |
+| `db push` + `migrate resolve` for migration | Shadow DB couldn't replay older migrations; `db push` + manual SQL file + `migrate resolve --applied` achieves same result |
+
+**Docs**: `docs/atlas/ai.md` updated (embedding model section, two-phase flow section, new endpoint table, term mapping); `pnpm atlas:gen` run (77 routes / 25 modules / 22 models)
+
+---
+
+## Session — 2026-05-31 (Bug fix: RETRIEVAL_THRESHOLD miscalibrated for RRF)
+
+**Bug**: Bot always escalated with "Retrieval score too low" even when the KB had a direct answer. Logged score was `0.0328` against threshold `0.5`.
+
+**Root cause**: `BotService.RETRIEVAL_THRESHOLD = 0.5` was written for cosine similarity (range 0–1), but `RetrievalService` returns RRF scores bounded by `2/(k+1) ≈ 0.033` (k=60). The threshold could never be reached — every ticket escalated regardless of retrieval quality.
+
+**Fix**: Lowered `RETRIEVAL_THRESHOLD` to `0.01` (≈ rank-40 in a single retrieval list). The LLM `CONFIDENCE_THRESHOLD = 0.7` remains the quality gate — Athena won't answer if the generated confidence is low even when retrieval finds something.
+
+**Decision added to table**:
+| Decision | Why |
+|---|---|
+| `RETRIEVAL_THRESHOLD = 0.01` (not 0.5) | RRF scores max out at ~0.033; 0.5 was copied from cosine-similarity context and caused 100% escalation rate; LLM confidence (0.7) is the real quality filter |
+
+**Docs**: `docs/atlas/bot.md` updated — Gate 1 threshold corrected to 0.01; removed-fields note updated with correct embedding model name and threshold value.
+
+---
+
+## Session — 2026-05-31 (Ticket/Email flow fixes + Bot UX)
+
+**Problem statement**: Post-RAG audit surfaced 5 broken scenarios (2, 4, 6, 7, 9 in the flow matrix). Athena replies were invisible in Bridge (BUG A), displayed as raw markdown in both apps (BUG B), and answers were verbose. Inbound-email new tickets got no bot response and no confirmation email. Agent reply emails were fire-and-forget (silent SMTP failures). Customers who replied after a bot answer were silently queued as IN_PROGRESS with no human assigned.
+
+**BUG A — Athena reply invisible in bridge**:
+- Root cause: `Message` interface in `apps/bridge/src/app/tickets/[id]/page.tsx` lacked `authorBotName` and `bodyHtml`; both were never passed to `<MessageCard />`.
+- Fix: added both fields to the interface and to the `<MessageCard ... />` mapping in the render loop.
+
+**BUG B — Raw markdown in Bridge and Portal**:
+- New `MarkdownService` (`apps/api/src/modules/ai/markdown.service.ts`): converts a subset of Markdown (bold, italic, inline code, links, bullet lists, headings) to HTML using only built-in string operations — avoids ESM-only unified/rehype packages incompatible with the API's CommonJS target.
+- `BotService.respondTo()`: now sets `bodyHtml = this.markdown.render(generated.answer)` alongside `body` when creating the bot `Message` row.
+- `MessageCard.tsx` bot branch: prefers `bodyHtml` via `dangerouslySetInnerHTML` (with existing `sanitizeHtml`) over `isHtmlBody(main)` / pre-wrap fallback.
+- Portal ticket page: added `bodyHtml?: string | null` to its `Message` interface; renders `<div dangerouslySetInnerHTML>` when present, else falls back to `<p whiteSpace: pre-wrap>`.
+
+**Item 3 — Answer brevity (`BOT_GENERATION_PROMPT`)**:
+- Rewrote prompt: one direct sentence, up to 3 short bullets (optional), single `Learn more:` link. ≤ 80 words before the link. No inline scattered links, no "Related articles" dump.
+
+**Item 4+7 — escalateToHuman() + customer notification**:
+- `BotService.escalate()` refactored into public `escalateToHuman(ticketId, ticket, reason, { notifyCustomer? })`. Sets ticket `status='OPEN'`, assigns on-duty agent, writes `escalated:` SYSTEM_EVENT. Guard: no-op if already assigned.
+- `EmailService.sendEscalationNotification()`: new method sending "a specialist will follow up" email to the customer, threaded into the ticket.
+- `parseEvent()` in `MessageCard.tsx`: recognises `escalated:` and `email_delivery_failed:` SYSTEM_EVENT bodies.
+
+**Scenario 9 — auto-escalate when customer replies after bot answer**:
+- `MessagesService.create()`: before the transaction, checks for `BotInteraction.didAnswer=true` when customer replies on a WAITING ticket. If found, skips the normal WAITING→IN_PROGRESS transition and calls `escalateToHuman(…, { notifyCustomer: true })` after the transaction.
+- `ThreadIngestionService`: same check after the transaction for inbound email replies.
+
+**Scenario 2 — inbound email new tickets get bot + confirmation**:
+- `ThreadIngestionService`: when `wasCreated && !isBackfill`, sends `EmailService.sendTicketConfirmation()` (fire-and-forget) and enqueues `bot:respond-to-ticket`.
+
+**Scenario 4 — retried reply email (no more silent drops)**:
+- New `email:send-reply` pg-boss queue (`EMAIL_SEND_REPLY_QUEUE`).
+- `QueueService.enqueueEmailSendReply()`: sends with `retryLimit: 3`, `retryDelay: 30`, `retryBackoff: true`.
+- `SendReplyWorker` (`apps/api/src/modules/email/workers/send-reply.worker.ts`): loads ticket/message/appConfig, calls `EmailService.sendAgentReply()`, stores returned Message-ID. On final failure writes `email_delivery_failed:` SYSTEM_EVENT so agents see it in the thread.
+- `MessagesService.create()`: replaced `this.emailService.sendAgentReply(…).catch()` fire-and-forget with `this.queueService.enqueueEmailSendReply({ticketId, messageId})`.
+- `EmailModule` now imports `DatabaseModule`; `SendReplyWorker` registered as provider.
+- `EmailSyncModule` now imports `EmailModule` (needed by `ThreadIngestionService`).
+
+**Decisions added**:
+| Decision | Why |
+|---|---|
+| `MarkdownService` uses simple regex, no unified/rehype | unified v11+ is ESM-only; API uses `moduleResolution: node` (CommonJS). A targeted regex converter is simpler and sufficient for Athena's answer format. |
+| `bodyHtml` pre-rendered at write time (not at read time) | Consistent rendering across Bridge + Portal without adding frontend markdown deps; also stored for future email rendering. |
+| `email:send-reply` queue replaces fire-and-forget | Silent SMTP failures were undetectable. Retried queue + failure SYSTEM_EVENT gives visibility and resilience. |
+| `escalateToHuman()` is public on `BotService` | Reused by `MessagesService` (portal) and `ThreadIngestionService` (email) without duplicating logic. Guard against double-escalation (`assigneeId` check). |
+| Scenario 2 confirmation email is fire-and-forget | Not retried because `sendTicketConfirmation` already logs errors; the ticket was created successfully and the bot will respond — confirmation is best-effort. |
+
+**Docs**: `docs/atlas/messages.md`, `docs/atlas/email.md`, `docs/atlas/ai.md` updated.
+
+---
+
+## Session — 2026-06-01 (RAG quality + scan speed + Bridge instant update)
+
+**Context**: Three problems remained after the two-phase scan→confirm→embed flow shipped.
+
+**Part 1 — Retrieval quality**
+
+- **1a. FTS sparse arm** (`retrieval.service.ts`): replaced `pg_trgm similarity()` with Postgres full-text search (`ts_rank_cd + websearch_to_tsquery`). Added migration `20260601000000_kb_fts_tsv_column` adding a `tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED` column + GIN index on `KnowledgeChunk`. Direct root cause of the connector-page pollution fix.
+- **1b. Embedding taskType** (`embedding.service.ts`, `generator.service.ts`, `indexer.service.ts`): `embedChunks(texts, taskType)` now takes an optional `TaskType` argument. Documents use `RETRIEVAL_DOCUMENT`; query embeddings use `RETRIEVAL_QUERY`. Asymmetric task types improve retrieval accuracy.
+- **1c. Finer chunking** (`chunker.service.ts`): `MAX_TOKENS` 800→350, `MIN_TOKENS` 200→100. Finer chunks make plan-level facts their own discrete vector.
+- **1d. Dense cosine gate** (`bot.service.ts`, `retrieval.service.ts`): `retrieve()` now returns `{ chunks, maxDenseScore }`. Gate in `BotService` checks `maxDenseScore ≥ 0.55` (was opaque RRF score ≥ 0.01). `BotInteraction.retrievalTopScore` now stores the dense cosine for observability.
+- **1e. Context header cleanup** (`context-builder.service.ts`): strips `<style>/<script>/<head>/<nav>/<footer>/<aside>` before summarising, so the model sees article body text not CSS boilerplate.
+
+**Part 2 — Faster scan**
+
+- **2a. Context header deferred to Phase B** (`indexer.service.ts`): `scanPage()` makes zero Gemini calls — stores raw chunk text with `contextHeader = NULL`. `embedSource()` now builds the context header (one Flash call per source), prepends `[CONTEXT: …]`, updates the stored text, then embeds. `estimatePendingCost()` updated to include summary call cost; single total shown on confirm screen.
+- **2b. Parallel crawl** (`crawler.service.ts`): replaced sequential `for + delay(1000)` with `fetchConcurrent()` — bounded concurrency pool (CONCURRENCY=6). Wall-clock: `pages × (fetch + 1s)` → `ceil(pages/6) × fetch`.
+- **2c. Crawler robustness** (`crawler.service.ts`): robots.txt sitemap discovery, true incremental mode (`<lastmod>` vs `source.fetchedAt`), retry/backoff (3 attempts, 500ms × attempt), gzip sitemap support, BFS batch parallelised. `PrismaService` injected into `CrawlerService` for incremental DB lookups.
+
+**Part 3 — Bridge instant update**
+
+- `BotModule` imports `EventsModule`; `SseService` injected into `BotService`.
+- `BotService.respondTo()`: broadcasts `message-created` SSE after bot reply; broadcasts `ticket-updated` SSE after escalation.
+- `BotService.escalateToHuman()`: broadcasts `message-created` for the SYSTEM_EVENT row inside the transaction (same pattern as `MessagesService`).
+- Bridge already listens for `message-created` → refreshes thread. Reply now appears within ~1s instead of up to 10s.
+
+**Re-index required**: Changes 1b, 1c, 1e alter stored vectors/text. Run Remove all → Scan → confirm → Embed in the UI after deploying.
+
+**Docs updated**: `docs/atlas/ai.md` (retrieval: FTS + taskType + dense gate; embedding: asymmetric taskType + chunk tuning; scan: deferred context header + parallel crawl; crawler: all robustness improvements).
+
+---
+
+### 2026-05-31 — Inbound email triage (no auto-flow for unsolicited mail)
+
+**Problem**: Inbound email auto-ran the full customer-facing flow (confirmation email + Athena bot reply) for every email, including newsletters and no-reply senders. System was auto-replying to promo mail.
+
+**Changes**:
+
+**Schema** (`packages/db/prisma/schema.prisma`):
+- New enum `TriageState { LIVE, PENDING, FILTERED }` + `Ticket.triageState TriageState @default(LIVE)` + index. Applied via `db push`.
+
+**Bulk detection** (`apps/api/src/modules/email-sync/util/is-bulk-sender.ts`):
+- Shared helper detecting automated mail via: `Auto-Submitted ≠ no`, `Precedence ∈ {bulk,list,junk}`, `List-Unsubscribe`, `List-Id`, `X-Auto-Response-Suppress`, sender local-part (`no-reply`, `donotreply`, `mailer-daemon`, `postmaster`).
+- `ParsedMessage.isBulk?: boolean` added to `mail-provider.interface.ts`.
+- Both `GmailProvider` and `GraphProvider` now compute `isBulk` and set it on returned `ParsedMessage`.
+
+**Thread ingestion** (`thread-ingestion.service.ts`):
+- New email tickets set `triageState = PENDING` (normal) or `FILTERED` (bulk signals detected).
+- Removed the scenario-2 auto-flow (confirmation + bot) for email-originated tickets. Sentiment analysis stays.
+- Scenario 9 (customer reply to existing ticket → bot escalation) unaffected.
+
+**Tickets service** (`tickets.service.ts`):
+- `activateTicket(ticketId)` — single private method that sends confirmation email + enqueues bot. Called from: `create()` (portal) and `convert()` (triage agent action).
+- `list()` default filter now includes `triageState: 'LIVE'`. Accepts `triageState` query param to fetch triage queues.
+- `stats()` counts only LIVE tickets for inbox counts; also returns `pendingCount`/`filteredCount` for triage badge.
+- `convert(ticketId)` — sets `triageState = LIVE`, calls `activateTicket`. Idempotent.
+- `discard(ticketId)` — sets `status = CLOSED`, keeps `triageState = FILTERED`. No customer email.
+
+**Controller** (`tickets.controller.ts`):
+- `POST /tickets/:id/convert` (agent-only)
+- `POST /tickets/:id/discard` (agent-only)
+
+**DTO** (`tickets.dto.ts`):
+- `triageState` query param added to `listTicketsSchema`.
+
+**Bridge UI**:
+- New page `apps/bridge/src/app/triage/page.tsx` — Pending / Filtered tabs, sender+subject+snippet rows, Convert + Discard action buttons.
+- `DashboardSidebar` — Filter icon added to rail between Inbox and GitHub; shows red badge when `pendingCount > 0`. Triage section uses rail-only mode (no content panel). `Section` type extended with `'triage'`.
+
+**Key decisions**:
+| Decision | Why |
+|---|---|
+| `triageState` separate from `status` | Avoids widening TicketStatus; SLA/assignment queries stay clean |
+| `activateTicket` single source of truth | Confirmation + bot side-effects centralized; any future source (bulk convert) gets them automatically |
+| Bulk detection in shared util | Both Gmail and Graph providers use the same rules; no provider-specific branches |
+| Discard does not hard-delete | Ticket remains accessible via `/tickets/:id` for audit; `CLOSED` + `FILTERED` is effectively a spam bin |
+
+**Docs**: `docs/atlas/email.md` (triage section, bulk detection signals), `docs/atlas/tickets.md` (triageState table, mermaid creation flow, activateTicket docs, triage file list, Notable decisions, Known gaps). `pnpm atlas:gen` run (79 routes, 25 modules, 23 enums).
+
+---
+
+### 2026-06-01 — Triage → NEW/DISMISSED status merge (two-tab Inbox / Tickets)
+
+**Problem**: The `triageState` axis (LIVE/PENDING/FILTERED) plus a separate `/triage` page created a confusing dual-axis model. The inbound triage queue was nearly empty in practice, making the extra page feel heavyweight.
+
+**Changes**:
+
+**Schema** (`packages/db/prisma/schema.prisma`):
+- `TicketStatus` enum extended: `NEW` (was `PENDING`) + `DISMISSED` (was `FILTERED`).
+- `Ticket.triageState` column removed.
+- `TriageState` enum removed.
+- `isBulk Boolean @default(false)` added (denormalized from first-message bulk signal).
+- `dismissedAt DateTime?`, `dismissedById String?`, `dismissedBy Agent? @relation("TicketDismissedBy")` added.
+- `Agent.dismissedTickets` inverse relation added.
+- Migration: `20260601000001_merge_triage_into_status` — applied via direct SQL + `migrate resolve --applied`. Data backfill: PENDING → NEW, FILTERED → DISMISSED.
+
+**Backend** (`apps/api/src/modules/tickets/`):
+- `tickets.dto.ts`: removed `TriageState` enum + `triageState` param; added `view: z.enum(['inbox','tickets']).optional()`; extended status enum with `NEW`/`DISMISSED`; `updateTicketSchema` restricted to 5 lifecycle statuses only.
+- `tickets.service.ts`: `stats()` uses `status ∉ {NEW,DISMISSED}` base filter, returns `newCount` (was `pendingCount`/`filteredCount`). `list()` routes on `view` param — inbox: all `source=EMAIL`; tickets (default): excludes NEW/DISMISSED; portal: always excludes both. `create()`: removed `triageState: 'LIVE'`. `convert()`: guards on `status` (was `triageState`); sets `status=OPEN`, clears dismissal. `discard()`: accepts `agentId`, sets `status=DISMISSED + dismissedAt + dismissedById`; only NEW tickets can be dismissed.
+- `tickets.controller.ts`: passes `agent.id` to `discard()`.
+- `thread-ingestion.service.ts`: sets `status: 'NEW'` and `isBulk: firstMsg?.isBulk ?? false`; removed `triageState` computation.
+
+**Bridge UI**:
+- `Sidebar.tsx`: removed triage rail button + `'triage'` section + pathname branch; `newCount` badge on Inbox rail; simplified rail-only width condition.
+- `inbox/page.tsx` rewritten: **Inbox | Tickets tab strip** (via `?view=`); NEW rows get inline Convert/Dismiss buttons; DISMISSED rows show "Dismissed by {name}" (or "Auto-filtered") + time + strikethrough title; `isBulk` rows show a **Promotional** amber pill; TicketListItem extended with `isBulk`, `dismissedAt`, `dismissedBy`.
+- `TicketPreviewPanel.tsx`: `NEW` → `d-new` / "New"; `DISMISSED` → `d-res` / "Dismissed" added to STATUS_CLS/STATUS_LABEL.
+- `tickets/[id]/page.tsx`: type + STATUS_LABEL/STATUS_CLS/STATUS_OPTS updated (dropdown stays 5 lifecycle statuses).
+- `tickets/domain/[domain]/page.tsx`: type updated.
+- **Deleted**: `apps/bridge/src/app/triage/` directory.
+
+**Portal UI**: defensive type-map additions to `tickets/page.tsx` + `tickets/[id]/page.tsx` — backend excludes NEW/DISMISSED from portal responses so they never render.
+
+**Key decisions**:
+| Decision | Why |
+|---|---|
+| **Triage folded into `status`** | The two-axis model (triageState + status) was confusing and underused. Inbox/Tickets tabs replace the `/triage` page. Reversal of the 2026-05-31 decision. |
+| **`isBulk` denormalized on `Ticket`** | Promotional pill shown in Inbox list without joining Message rows |
+| **`dismissedById = null` = system/legacy** | Backfill-set FILTERED rows have no agent; shown as "Auto-filtered" |
+| **Dismiss guard: only `NEW` allowed** | Prevents accidental dismissal of active conversations |
+
+**Docs**: `docs/atlas/tickets.md` (lifecycle diagram, status model table, creation flow, list/filter section, Bridge UI section, notable decisions, known gaps), `docs/atlas/email.md` (triage flow → NEW status flow section). `pnpm atlas:gen` run.
+
+---
+
+### 2026-06-01 — Post-migration Inbox UX fixes (flash, pagination, pill, resurface)
+
+Four issues found and fixed after the triage→status migration shipped.
+
+**Fix 1 — Silent 15s background refresh (no flash)**
+- `loadTickets` now accepts `{ background?, append? }`. Background calls skip `setIsLoading(true)` entirely; instead they merge the response into the existing `tickets` array by id (upsert changed, prepend new), re-sorted by `updatedAt` desc. No skeleton shimmer, no scroll reset.
+
+**Fix 2 — Infinite scroll (all 890+ emails reachable)**
+- Added `offsetRef` tracking loaded count. Each page appends 100 rows to `tickets`. An `IntersectionObserver` on a 1 px sentinel div at the bottom fires `loadTickets({ append: true })` automatically while `tickets.length < total`. "Showing X of Y" footer shows progress.
+- On initial Inbox load (`view=inbox`), any domain with `newCount > 0` is auto-expanded (plus the top domain), so new mail is immediately visible without clicking.
+- `buildDomainGroups()` now returns `newCount` alongside `openCount` on each group. Domain header shows red "N new" chip.
+
+**Fix 3 — `.d-new` pill style**
+- Added `.d-new { color: #FCA5A5; background: rgba(239,68,68,0.14); }` (dark) and `html[data-theme="light"] .d-new { color: #B91C1C; background: #FEF2F2; }` (light) to `globals.css`. `STATUS_CLS` already mapped `NEW → d-new`; the rule was just missing.
+
+**Fix 4 — Resurface DISMISSED threads on customer reply**
+- `ThreadIngestionService` (`!wasCreated` update block, ~line 229): if the ticket's current status is `DISMISSED` and the inbound message is from a customer (`newMessageId` set), flips `status = 'NEW'` in the same `ticket.update()` call. No customer email sent (still pre-activation). Missed follow-ups return to the Inbox for re-triage.
+
+**Key decisions**:
+| Decision | Why |
+|---|---|
+| Background refresh merges first page only | Keeps it simple — new mail always arrives in the most-recent page; a full re-fetch with offset would require a separate "sync all pages" loop |
+| Auto-expand adds to existing set, not replaces | User manual collapses are preserved across background refreshes; only first load injects the auto-expand |
+| DISMISSED resurface = default behavior | A customer reply to a dismissed thread is a genuine follow-up; hiding it would create missed-ticket risk |
+
+**Docs**: `docs/atlas/tickets.md` (domain group cards section rewritten, infinite scroll + silent refresh documented), `docs/atlas/email.md` (DISMISSED→NEW resurface notable decision added). No new endpoints or Prisma models — `pnpm atlas:gen` not needed.
+
+### 2026-06-01 — Athena bot outage fix (missing `tsv` column + retired Gemini model)
+
+The bot escalated **every** ticket with "Bot encountered an unexpected error." Two independent root causes:
+
+1. **`tsv` FTS column missing.** Migration `20260601000000_kb_fts_tsv_column` was recorded in `_prisma_migrations` as applied but with `applied_steps_count = 0` — its SQL never ran (the later triage migration's "apply inline" comment had no SQL body). So the `KnowledgeChunk.tsv` generated column + `KnowledgeChunk_tsv_gin` index never existed. `RetrievalService.retrieve()`'s lexical arm (`WHERE tsv @@ websearch_to_tsquery(...)`) threw Postgres `42703 column "tsv" does not exist`, failing `respondTo` before generation. The code comment claimed an on-the-fly `to_tsvector` fallback that did not exist.
+2. **`gemini-2.0-flash` retired by Google (404).** Hit non-fatally in `ContextBuilderService` (chunks indexed during the window lost their context headers) and fatally in `GeneratorService` (bot answers).
+
+**Fixes**:
+- Restored the `tsv` column + GIN index (idempotent SQL; back-filled all 396 chunks).
+- `RetrievalService implements OnModuleInit` — re-runs the idempotent `ADD COLUMN IF NOT EXISTS … GENERATED … STORED` + `CREATE INDEX IF NOT EXISTS` on every boot, so the column self-heals after any `migrate reset`.
+- Wrapped the FTS query in try/catch → degrades to **dense-only** retrieval instead of throwing, so a future FTS fault can't take the whole bot down.
+- Bumped the generative model to **`gemini-2.5-flash-lite`** in `generator.service.ts`, `context-builder.service.ts`, `gemini.service.ts` (+ cost constants → 0.10/0.40 per 1M, flagged to verify). Embedding model `gemini-embedding-001` unchanged (unaffected).
+
+**Key decisions**:
+| Decision | Why |
+|---|---|
+| Generated FTS column asserted at boot (`RetrievalService.onModuleInit`), not just via migration | Generated columns aren't in the Prisma schema, so `migrate reset` / a 0-step migration can silently drop them; a boot-time idempotent guard is the only reliable defense |
+| FTS failure → dense-only, never throw | A KB-infra fault must not escalate every customer ticket; dense retrieval alone is still useful |
+
+**Tests**: `R71` added — asserts `KnowledgeChunk.tsv` column + GIN index exist and retrieval degrades gracefully when FTS fails. **Docs**: `docs/atlas/ai.md` (model name → `gemini-2.5-flash-lite`; boot-time `tsv` ensure + dense-only fallback noted). No new endpoints/models — `pnpm atlas:gen` not needed.
+
+---
+
+### 2026-06-01 — Inbox UX micro-fixes (ticket click + convert transition)
+
+Three small fixes to the Inbox row interactions:
+
+- **NEW rows now clickable** — removed `!isNew` guard from the `onClick` handler on ticket rows. Agents can now click into a NEW email's conversation thread before deciding to convert or dismiss. Only DISMISSED rows remain non-navigable.
+- **Smooth convert transition (optimistic update)** — `handleConvert` no longer calls `setTickets(prev => prev.filter(...))` + `loadTickets()` (which caused a jarring remove/re-add flash). It now flips the ticket's status to `OPEN` in local state immediately; the row transforms in place (Convert/Dismiss buttons disappear, becomes a normal clickable ticket). Reverts to `NEW` on API error.
+- **Convert button label** — changed from "✓ Convert" to "✓ Convert to Ticket" for clarity.
+
+No docs/tests needed — all three are one-line UI-only changes with no backend or data-flow impact.
+
+### 2026-06-01 — Athena "Learn more:" KB source link restored
+
+After the `gemini-2.5-flash-lite` migration the bot replies lost their `Learn more:` source link (seen in TMR-9414: answer + bullets, no link). Root cause: the link was never rendered in code — `BotService` posted `body: generated.answer` and relied entirely on the LLM to type the link into the answer field. Under structured-JSON output the smaller flash-lite model "satisfies" the citation requirement by filling the `citations[]` array and drops the inline link from the prose; `gemini-2.0-flash` used to comply with the prompt's formatting instruction.
+
+- **`BotService.appendSource()`** ([bot.service.ts](apps/api/src/modules/bot/bot.service.ts)) — strips any stray model-generated `Learn more:` line, then appends a single link built from `citations[0]`, matched back to a retrieved chunk so the label is the chunk's `headingPath` breadcrumb (fallback `Read the full article`). The combined markdown is stored as `body` and rendered into `bodyHtml`, so the portal/bridge thread shows a real anchor and the outbound email (`sendAgentReply` uses `message.body` as plain text) carries the link inline too. Reached only after all gates pass, where a valid same-origin citation is guaranteed.
+- **Prompt simplified** ([bot.prompts.ts](apps/api/src/modules/bot/bot.prompts.ts)) — the LLM is now told to write **no links** in the answer and to set `citations` to the single most relevant passage URL. Less for flash-lite to get wrong; the link is fully code-owned.
+- **Tests** — added R72 (link appended when the model omits it) and R73 (model-emitted `Learn more:` line stripped, not duplicated) to `tests/integration/bot.respond.spec.ts` + regression-catalogue rows. NOTE: the local integration harness boots `postgres:16-alpine` (no `vector` extension), so the integration suite can't run locally — schema push fails before any bot test; `appendSource` logic was verified standalone. CI must run on a pgvector-capable Postgres image.
+- **Docs** — updated `docs/atlas/ai.md` (bot answer format + run loop step 8) and `docs/atlas/bot.md` (RAG generate step), plus a Decisions row above.

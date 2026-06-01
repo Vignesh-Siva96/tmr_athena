@@ -44,7 +44,7 @@ async function main() {
   const agentPassword = await hashPassword('agent123')
   const agent = await db.agent.upsert({
     where: { email: 'agent@twominutereports.com' },
-    create: { email: 'agent@twominutereports.com', name: 'Diego Torres', password: agentPassword, role: 'AGENT', isActive: true, inviteAccepted: true },
+    create: { email: 'agent@twominutereports.com', name: 'Diego Torres', password: agentPassword, role: 'PRIMARY_AGENT', isActive: true, inviteAccepted: true },
     update: {},
   })
   console.log(`✅ Agent: ${agent.email}`)

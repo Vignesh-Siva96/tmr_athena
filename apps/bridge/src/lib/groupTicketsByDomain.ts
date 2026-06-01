@@ -8,6 +8,7 @@ export interface TicketWithUser {
 export interface DomainGroup<T extends TicketWithUser> {
   domain: string
   tickets: T[]
+  newCount: number
   openCount: number
   lastActivity: string
 }
@@ -28,9 +29,10 @@ export function buildDomainGroups<T extends TicketWithUser>(tickets: T[]): Domai
     const sorted = [...domainTickets].sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
     )
+    const newCount = sorted.filter((t) => t.status === 'NEW').length
     const openCount = sorted.filter((t) => ACTIVE_STATUSES.has(t.status)).length
     const lastActivity = sorted[0]!.updatedAt
-    groups.push({ domain, tickets: sorted, openCount, lastActivity })
+    groups.push({ domain, tickets: sorted, newCount, openCount, lastActivity })
   }
 
   groups.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())

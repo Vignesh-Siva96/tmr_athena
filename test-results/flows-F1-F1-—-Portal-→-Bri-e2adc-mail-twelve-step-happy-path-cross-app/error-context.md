@@ -1,0 +1,337 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: flows/F1.spec.ts >> F1 — Portal → Bridge SSE → Agent reply → Portal SSE + email >> twelve-step happy path
+- Location: tests/e2e/flows/F1.spec.ts:23:7
+
+# Error details
+
+```
+Test timeout of 60000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img "logo" [ref=e6]
+        - button "Tickets" [ref=e8] [cursor=pointer]:
+          - img [ref=e9]
+        - button "Github" [ref=e12] [cursor=pointer]:
+          - img [ref=e13]
+        - button "Analytics" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - generic "Diego Torres · Agent" [ref=e18]: DI
+        - link "Settings" [ref=e19] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e20]
+        - button "Sign out" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+    - main [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "Inbox" [level=1] [ref=e30]
+          - generic [ref=e31]: 2217 total
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - img
+            - textbox "Search…" [ref=e34]
+          - generic [ref=e35]:
+            - combobox [ref=e36] [cursor=pointer]:
+              - option "All statuses" [selected]
+              - option "Open"
+              - option "In Progress"
+              - option "Waiting"
+              - option "Resolved"
+              - option "Closed"
+            - img
+          - generic [ref=e37]:
+            - combobox [ref=e38] [cursor=pointer]:
+              - option "All categories" [selected]
+              - option "Bug"
+              - option "Feature"
+              - option "Question"
+              - option "Billing"
+              - option "Other"
+            - img
+      - generic [ref=e41]:
+        - generic [ref=e43]:
+          - generic [ref=e46] [cursor=pointer]:
+            - generic [ref=e47]: appsumo.com
+            - generic [ref=e48]:
+              - generic [ref=e49]: 5 tickets
+              - generic [ref=e50]: ·
+              - generic [ref=e51]: 5 open
+          - generic [ref=e52]: 4m
+          - button "Expand" [ref=e53] [cursor=pointer]:
+            - img [ref=e54]
+        - generic [ref=e57]:
+          - generic [ref=e60] [cursor=pointer]:
+            - generic [ref=e61]: linkedin.com
+            - generic [ref=e62]:
+              - generic [ref=e63]: 8 tickets
+              - generic [ref=e64]: ·
+              - generic [ref=e65]: 8 open
+          - generic [ref=e66]: Yest
+          - button "Expand" [ref=e67] [cursor=pointer]:
+            - img [ref=e68]
+        - generic [ref=e71]:
+          - generic [ref=e74] [cursor=pointer]:
+            - generic [ref=e75]: yourstory.com
+            - generic [ref=e76]:
+              - generic [ref=e77]: 2 tickets
+              - generic [ref=e78]: ·
+              - generic [ref=e79]: 2 open
+          - generic [ref=e80]: Yest
+          - button "Expand" [ref=e81] [cursor=pointer]:
+            - img [ref=e82]
+        - generic [ref=e85]:
+          - generic [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: posthog.com
+            - generic [ref=e90]:
+              - generic [ref=e91]: 2 tickets
+              - generic [ref=e92]: ·
+              - generic [ref=e93]: 2 open
+          - generic [ref=e94]: Yest
+          - button "Expand" [ref=e95] [cursor=pointer]:
+            - img [ref=e96]
+        - generic [ref=e99]:
+          - generic [ref=e102] [cursor=pointer]:
+            - generic [ref=e103]: in.email.samsung.com
+            - generic [ref=e104]:
+              - generic [ref=e105]: 1 ticket
+              - generic [ref=e106]: ·
+              - generic [ref=e107]: 1 open
+          - generic [ref=e108]: Yest
+          - button "Expand" [ref=e109] [cursor=pointer]:
+            - img [ref=e110]
+        - generic [ref=e113]:
+          - generic [ref=e116] [cursor=pointer]:
+            - generic [ref=e117]: google.com
+            - generic [ref=e118]:
+              - generic [ref=e119]: 17 tickets
+              - generic [ref=e120]: ·
+              - generic [ref=e121]: 17 open
+          - generic [ref=e122]: Yest
+          - button "Expand" [ref=e123] [cursor=pointer]:
+            - img [ref=e124]
+        - generic [ref=e127]:
+          - generic [ref=e130] [cursor=pointer]:
+            - generic [ref=e131]: gmail.com
+            - generic [ref=e132]:
+              - generic [ref=e133]: 24 tickets
+              - generic [ref=e134]: ·
+              - generic [ref=e135]: 24 open
+          - generic [ref=e136]: Yest
+          - button "Expand" [ref=e137] [cursor=pointer]:
+            - img [ref=e138]
+        - generic [ref=e141]:
+          - generic [ref=e144] [cursor=pointer]:
+            - generic [ref=e145]: email.claude.com
+            - generic [ref=e146]:
+              - generic [ref=e147]: 3 tickets
+              - generic [ref=e148]: ·
+              - generic [ref=e149]: 3 open
+          - generic [ref=e150]: Yest
+          - button "Expand" [ref=e151] [cursor=pointer]:
+            - img [ref=e152]
+        - generic [ref=e155]:
+          - generic [ref=e158] [cursor=pointer]:
+            - generic [ref=e159]: infisical.com
+            - generic [ref=e160]:
+              - generic [ref=e161]: 1 ticket
+              - generic [ref=e162]: ·
+              - generic [ref=e163]: 1 open
+          - generic [ref=e164]: May 28
+          - button "Expand" [ref=e165] [cursor=pointer]:
+            - img [ref=e166]
+        - generic [ref=e169]:
+          - generic [ref=e172] [cursor=pointer]:
+            - generic [ref=e173]: hetzner.com
+            - generic [ref=e174]:
+              - generic [ref=e175]: 3 tickets
+              - generic [ref=e176]: ·
+              - generic [ref=e177]: 3 open
+          - generic [ref=e178]: May 28
+          - button "Expand" [ref=e179] [cursor=pointer]:
+            - img [ref=e180]
+        - generic [ref=e183]:
+          - generic [ref=e186] [cursor=pointer]:
+            - generic [ref=e187]: docs.google.com
+            - generic [ref=e188]:
+              - generic [ref=e189]: 3 tickets
+              - generic [ref=e190]: ·
+              - generic [ref=e191]: 3 open
+          - generic [ref=e192]: May 28
+          - button "Expand" [ref=e193] [cursor=pointer]:
+            - img [ref=e194]
+        - generic [ref=e197]:
+          - generic [ref=e200] [cursor=pointer]:
+            - generic [ref=e201]: gox.ai
+            - generic [ref=e202]:
+              - generic [ref=e203]: 6 tickets
+              - generic [ref=e204]: ·
+              - generic [ref=e205]: 6 open
+          - generic [ref=e206]: May 28
+          - button "Expand" [ref=e207] [cursor=pointer]:
+            - img [ref=e208]
+        - generic [ref=e211]:
+          - generic [ref=e214] [cursor=pointer]:
+            - generic [ref=e215]: e.stripe.com
+            - generic [ref=e216]:
+              - generic [ref=e217]: 1 ticket
+              - generic [ref=e218]: ·
+              - generic [ref=e219]: 1 open
+          - generic [ref=e220]: May 28
+          - button "Expand" [ref=e221] [cursor=pointer]:
+            - img [ref=e222]
+        - generic [ref=e225]:
+          - generic [ref=e228] [cursor=pointer]:
+            - generic [ref=e229]: ctotalk.in
+            - generic [ref=e230]:
+              - generic [ref=e231]: 1 ticket
+              - generic [ref=e232]: ·
+              - generic [ref=e233]: 1 open
+          - generic [ref=e234]: May 28
+          - button "Expand" [ref=e235] [cursor=pointer]:
+            - img [ref=e236]
+        - generic [ref=e239]:
+          - generic [ref=e242] [cursor=pointer]:
+            - generic [ref=e243]: plumhq.com
+            - generic [ref=e244]:
+              - generic [ref=e245]: 1 ticket
+              - generic [ref=e246]: ·
+              - generic [ref=e247]: 1 open
+          - generic [ref=e248]: May 28
+          - button "Expand" [ref=e249] [cursor=pointer]:
+            - img [ref=e250]
+        - generic [ref=e253]:
+          - generic [ref=e256] [cursor=pointer]:
+            - generic [ref=e257]: github.com
+            - generic [ref=e258]:
+              - generic [ref=e259]: 3 tickets
+              - generic [ref=e260]: ·
+              - generic [ref=e261]: 3 open
+          - generic [ref=e262]: May 27
+          - button "Expand" [ref=e263] [cursor=pointer]:
+            - img [ref=e264]
+        - generic [ref=e267]:
+          - generic [ref=e270] [cursor=pointer]:
+            - generic [ref=e271]: digital.metamail.com
+            - generic [ref=e272]:
+              - generic [ref=e273]: 4 tickets
+              - generic [ref=e274]: ·
+              - generic [ref=e275]: 4 open
+          - generic [ref=e276]: May 27
+          - button "Expand" [ref=e277] [cursor=pointer]:
+            - img [ref=e278]
+        - generic [ref=e281]:
+          - generic [ref=e284] [cursor=pointer]:
+            - generic [ref=e285]: tldv.io
+            - generic [ref=e286]:
+              - generic [ref=e287]: 1 ticket
+              - generic [ref=e288]: ·
+              - generic [ref=e289]: 1 open
+          - generic [ref=e290]: May 27
+          - button "Expand" [ref=e291] [cursor=pointer]:
+            - img [ref=e292]
+        - generic [ref=e295]:
+          - generic [ref=e298] [cursor=pointer]:
+            - generic [ref=e299]: figma.com
+            - generic [ref=e300]:
+              - generic [ref=e301]: 1 ticket
+              - generic [ref=e302]: ·
+              - generic [ref=e303]: 1 open
+          - generic [ref=e304]: May 26
+          - button "Expand" [ref=e305] [cursor=pointer]:
+            - img [ref=e306]
+        - generic [ref=e309]:
+          - generic [ref=e312] [cursor=pointer]:
+            - generic [ref=e313]: mail.anthropic.com
+            - generic [ref=e314]:
+              - generic [ref=e315]: 1 ticket
+              - generic [ref=e316]: ·
+              - generic [ref=e317]: 1 open
+          - generic [ref=e318]: May 26
+          - button "Expand" [ref=e319] [cursor=pointer]:
+            - img [ref=e320]
+        - generic [ref=e323]:
+          - generic [ref=e326] [cursor=pointer]:
+            - generic [ref=e327]: brightdata.com
+            - generic [ref=e328]:
+              - generic [ref=e329]: 3 tickets
+              - generic [ref=e330]: ·
+              - generic [ref=e331]: 3 open
+          - generic [ref=e332]: May 25
+          - button "Expand" [ref=e333] [cursor=pointer]:
+            - img [ref=e334]
+        - generic [ref=e337]:
+          - generic [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: appstore.amazon.com
+            - generic [ref=e342]:
+              - generic [ref=e343]: 1 ticket
+              - generic [ref=e344]: ·
+              - generic [ref=e345]: 1 open
+          - generic [ref=e346]: May 24
+          - button "Expand" [ref=e347] [cursor=pointer]:
+            - img [ref=e348]
+        - generic [ref=e351]:
+          - generic [ref=e354] [cursor=pointer]:
+            - generic [ref=e355]: subq.ai
+            - generic [ref=e356]:
+              - generic [ref=e357]: 2 tickets
+              - generic [ref=e358]: ·
+              - generic [ref=e359]: 2 open
+          - generic [ref=e360]: May 21
+          - button "Expand" [ref=e361] [cursor=pointer]:
+            - img [ref=e362]
+        - generic [ref=e365]:
+          - generic [ref=e368] [cursor=pointer]:
+            - generic [ref=e369]: send.calendly.com
+            - generic [ref=e370]:
+              - generic [ref=e371]: 1 ticket
+              - generic [ref=e372]: ·
+              - generic [ref=e373]: 1 open
+          - generic [ref=e374]: May 20
+          - button "Expand" [ref=e375] [cursor=pointer]:
+            - img [ref=e376]
+        - generic [ref=e379]:
+          - generic [ref=e382] [cursor=pointer]:
+            - generic [ref=e383]: twominutereports.com
+            - generic [ref=e384]:
+              - generic [ref=e385]: 3 tickets
+              - generic [ref=e386]: ·
+              - generic [ref=e387]: 3 open
+          - generic [ref=e388]: May 20
+          - button "Expand" [ref=e389] [cursor=pointer]:
+            - img [ref=e390]
+        - generic [ref=e393]:
+          - generic [ref=e396] [cursor=pointer]:
+            - generic [ref=e397]: admin.manus.im
+            - generic [ref=e398]:
+              - generic [ref=e399]: 1 ticket
+              - generic [ref=e400]: ·
+              - generic [ref=e401]: 1 open
+          - generic [ref=e402]: May 18
+          - button "Expand" [ref=e403] [cursor=pointer]:
+            - img [ref=e404]
+        - generic [ref=e407]:
+          - generic [ref=e410] [cursor=pointer]:
+            - generic [ref=e411]: tutorial.ai
+            - generic [ref=e412]:
+              - generic [ref=e413]: 1 ticket
+              - generic [ref=e414]: ·
+              - generic [ref=e415]: 1 open
+          - generic [ref=e416]: May 15
+          - button "Expand" [ref=e417] [cursor=pointer]:
+            - img [ref=e418]
+  - alert [ref=e420]
+```

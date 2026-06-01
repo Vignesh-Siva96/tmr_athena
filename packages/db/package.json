@@ -15,6 +15,9 @@
     "db:seed": "tsx src/seed.ts",
     "import:chatwoot": "tsx src/import-chatwoot.ts"
   },
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.0.0"
   },

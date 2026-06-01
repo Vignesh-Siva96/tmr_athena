@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Github, Lock, CornerUpLeft } from 'lucide-react'
+import { Github, Lock, CornerUpLeft, Sparkles } from 'lucide-react'
 
 type MessageType = 'REPLY' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT'
 
@@ -15,6 +15,7 @@ interface MessageCardProps {
   isInternal: boolean
   authorUser?: Author | null
   authorAgent?: Author | null
+  authorBotName?: string | null
   attachments: Attachment[]
   createdAt: string
   supportEmail?: string
@@ -60,6 +61,8 @@ function parseEvent(body: string): string {
   if (body.startsWith('status_changed:')) { const [, f, t] = body.split(':'); return `Status changed ${f} → ${t}` }
   if (body.startsWith('github_linked:')) return `Linked to GitHub issue ${body.slice('github_linked:'.length)}`
   if (body.startsWith('assigned:')) { const w = body.slice('assigned:'.length); return w === 'unassigned' ? 'Ticket unassigned' : 'Ticket assigned' }
+  if (body.startsWith('escalated:')) return `Escalated to human — ${body.slice('escalated:'.length)}`
+  if (body.startsWith('email_delivery_failed:')) return `⚠ Email delivery failed — ${body.slice('email_delivery_failed:'.length)}`
   return body
 }
 
@@ -120,8 +123,41 @@ function ReplyActions({ onReply, onNote }: { onReply?: () => void; onNote?: () =
   )
 }
 
-export function MessageCard({ id, type, body, isInternal, authorUser, authorAgent, attachments, createdAt, supportEmail, isLast, onReply, onNote }: MessageCardProps) {
+export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, authorAgent, authorBotName, attachments, createdAt, supportEmail, isLast, onReply, onNote }: MessageCardProps) {
   const [collapsed, setCollapsed] = useState(false)
+
+  // Bot-generated reply — render with Sparkles avatar + AI badge
+  if (authorBotName && type === 'REPLY' && !isInternal) {
+    const { main, quoted } = splitQuoted(body)
+    return (
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+          <Sparkles size={16} />
+        </div>
+        <div style={{ flex: 1, background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 8px', borderBottom: '1px solid var(--d-border-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)' }}>{authorBotName}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.3)', background: 'rgba(139,92,246,0.08)' }}>
+                <Sparkles size={8} /> AI
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0, marginLeft: 12 }}>{fmtDate(createdAt)}</span>
+          </div>
+          <div style={{ padding: '12px 14px' }}>
+            {bodyHtml
+              ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(bodyHtml) }} />
+              : isHtmlBody(main)
+                ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(main) }} />
+                : <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{main}</p>
+            }
+            {!bodyHtml && quoted && <QuoteToggle quoteText={quoted} />}
+          </div>
+          {isLast && <ReplyActions onReply={onReply} onNote={onNote} />}
+        </div>
+      </div>
+    )
+  }
 
   if (type === 'SYSTEM_EVENT') {
     return (

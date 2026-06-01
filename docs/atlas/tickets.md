@@ -2,7 +2,7 @@
 title: Tickets
 stack: [NestJS, Prisma, Postgres, Zod]
 status: working
-last-reviewed: 2026-05-27
+last-reviewed: 2026-06-01
 ---
 
 # Tickets
@@ -17,7 +17,7 @@ The central object of the platform. A ticket represents one customer support con
 |---|---|---|
 | HTTP | NestJS controller + Zod validation | Same pattern as the rest of the API |
 | Persistence | Prisma + Postgres | Single source of truth |
-| Statuses | Enum in `schema.prisma` | `OPEN · IN_PROGRESS · WAITING · RESOLVED · CLOSED` |
+| Statuses | Enum in `schema.prisma` | `NEW · OPEN · IN_PROGRESS · WAITING · RESOLVED · CLOSED · DISMISSED` |
 | Soft-delete | `deletedAt` timestamp | Archive instead of hard-delete |
 | Ticket number | `@default(autoincrement())` | Human-readable `TMR-1234` displayed in UI + email subjects |
 
@@ -25,9 +25,13 @@ The central object of the platform. A ticket represents one customer support con
 
 ```mermaid
 stateDiagram-v2
-  [*] --> OPEN: created
+  [*] --> NEW: inbound email ingested
+  [*] --> OPEN: portal submit / agent creates
+  NEW --> OPEN: agent converts (activateTicket fires)
+  NEW --> DISMISSED: agent dismisses
+  DISMISSED --> OPEN: agent converts (clears dismissal)
   OPEN --> IN_PROGRESS: agent first reply
-  IN_PROGRESS --> WAITING: agent replied,<br/>awaiting customer
+  IN_PROGRESS --> WAITING: agent replied, awaiting customer
   WAITING --> IN_PROGRESS: customer replies
   IN_PROGRESS --> RESOLVED: agent marks resolved
   WAITING --> RESOLVED: agent marks resolved
@@ -39,34 +43,65 @@ stateDiagram-v2
 
 Auto-status transitions are wired in [`MessagesService.create`](../../apps/api/src/modules/messages/messages.service.ts) — see the messages atlas for the exact rules.
 
+## Status model — NEW and DISMISSED
+
+Inbound-email tickets land in `NEW` (not the live ticket queue). Portal-created tickets are `OPEN` immediately.
+
+| Status | Meaning |
+|---|---|
+| `NEW` | Inbound email awaiting agent review — not visible to the customer, no auto-reply |
+| `OPEN` | Live ticket; confirmation + bot have fired |
+| `IN_PROGRESS` | Agent replied; waiting on customer |
+| `WAITING` | Customer replied; waiting on agent |
+| `RESOLVED` | Resolved by agent |
+| `CLOSED` | Permanently closed |
+| `DISMISSED` | Agent marked as spam/irrelevant; `dismissedAt` + `dismissedById` stamped |
+
+**Rules**:
+- Portal-created tickets → `OPEN` immediately; `activateTicket()` fires confirmation + bot.
+- Inbound-email new tickets → `NEW`; `isBulk = true` if bulk signals detected. No confirmation or bot.
+- Agent clicks **Convert** (`POST /tickets/:id/convert`) → `status = OPEN`; `activateTicket()` fires confirmation + bot.
+- Agent clicks **Dismiss** (`POST /tickets/:id/discard`) → `status = DISMISSED`, `dismissedAt = now()`, `dismissedById = agentId`; no customer email. Only `NEW` tickets can be dismissed.
+- Default `GET /tickets` (Tickets tab, stats, portal) excludes `NEW` and `DISMISSED`. Inbox tab (`?view=inbox`) shows all `source = EMAIL` records with no status filter.
+- `isBulk = true` shows a **Promotional** pill in the Inbox — derived from email headers at ingest; not user-assignable.
+
 ## Creation paths
 
 ```mermaid
 flowchart TB
-  Portal[Customer fills Submit form] --> CreateTicket
-  EmailNew[New inbound email,<br/>no thread match] --> CreateTicket
+  Portal[Customer fills Submit form] --> CreateTicket[TicketsService.create]
   Agent[Agent creates manually] --> CreateTicket
+  EmailNew[New inbound email,<br/>no thread match] --> Ingest[ThreadIngestionService<br/>fetchAndUpsertThread]
 
-  CreateTicket[TicketsService.create]
   CreateTicket --> DB[(Postgres)]
-  CreateTicket --> Notify[Confirmation email]
-  Notify -.->|EmailService| Customer
+  Ingest --> DB
+  CreateTicket -->|status=OPEN| Activate[activateTicket]
+  Activate -->|confirmation + bot| Customer
+
+  Ingest -->|status=NEW, isBulk| InboxQ[Inbox · NEW row]
+  InboxQ -->|agent Convert| Activate
+  InboxQ -->|agent Dismiss| Dismissed[status=DISMISSED]
 ```
 
-`TicketsService.create()` is the single funnel — invoked from the controller for portal submissions, from `InboundEmailProcessor` for fresh email conversations, and from any future channel.
+Two ticket-creation funnels: `TicketsService.create()` is invoked for portal submissions (status `OPEN`). Inbound emails are created inside `ThreadIngestionService.fetchAndUpsertThread()` with `status = NEW` — no auto-flow fires until an agent converts the ticket. Both funnels share the same `Ticket` model and lifecycle.
+
+`TicketsService.activateTicket(ticketId)` is the single method that sends the confirmation email and enqueues the bot. It is called from exactly two places: `create()` (portal) and `convert()` (inbound email).
 
 ## List + filter + search
 
-The Inbox and All Tickets views use the same `GET /tickets` endpoint with query params:
+The Inbox and Tickets views use the same `GET /tickets` endpoint with query params:
 
-- `status` — single value or comma-separated list
+- `view` — `inbox` (all email-origin, no status filter) | `tickets` (default; excludes `NEW`/`DISMISSED`)
+- `status` — single value from `TicketStatus`; when present overrides the `view` scope
 - `category` — same
-- `assigneeId` — `me` resolves to caller; literal id otherwise
+- `assigneeId` — literal agent id
 - `search` — case-insensitive against title, customer email/name, connector
 - `limit` / `offset` — pagination (cursor-based not used; counts are small)
-- `sortOrder` — `desc` / `asc` on `createdAt`
+- `sortOrder` — `desc` / `asc` on `updatedAt` (default) or `createdAt`
 
-Stats endpoint (`GET /tickets/stats`) feeds the sidebar counts and the analytics page; computed via parallel Prisma `groupBy` + `count`.
+Portal callers (`role = user`) always get `status ∉ {NEW, DISMISSED}` regardless of `view`.
+
+Stats endpoint (`GET /tickets/stats`) feeds the sidebar counts and the analytics page; computed via parallel Prisma `groupBy` + `count`. Returns `newCount` (drives the Inbox rail badge) instead of the old `pendingCount`/`filteredCount`.
 
 ## Key files
 
@@ -76,7 +111,7 @@ Stats endpoint (`GET /tickets/stats`) feeds the sidebar counts and the analytics
 | [`apps/api/src/modules/tickets/tickets.service.ts`](../../apps/api/src/modules/tickets/tickets.service.ts) | Create / list / search / stats / status transitions / soft-delete |
 | [`apps/api/src/modules/tickets/tickets.dto.ts`](../../apps/api/src/modules/tickets/tickets.dto.ts) | Zod schemas for create / update / list |
 | [`apps/portal/src/app/submit/page.tsx`](../../apps/portal/src/app/submit/page.tsx) | Customer Submit form |
-| [`apps/bridge/src/app/inbox/page.tsx`](../../apps/bridge/src/app/inbox/page.tsx) | Inbox (`/inbox`) — domain-grouped view; gated behind `EmailNotConfiguredGate`; header has search + status/category filters |
+| [`apps/bridge/src/app/inbox/page.tsx`](../../apps/bridge/src/app/inbox/page.tsx) | Inbox (`/inbox`) — **Inbox / Tickets tab strip**; domain-grouped view; gated behind `EmailNotConfiguredGate`; header has search + status/category filters |
 | [`apps/bridge/src/app/tickets/domain/[domain]/page.tsx`](../../apps/bridge/src/app/tickets/domain/[domain]/page.tsx) | Per-domain view — hero header with favicon + name, flat ticket list, status filter, "← Inbox" back button |
 | [`apps/bridge/src/app/tickets/[id]/page.tsx`](../../apps/bridge/src/app/tickets/[id]/page.tsx) | Ticket detail — Gmail-thread layout; inline compose; AI Analysis in sidebar |
 | [`apps/bridge/src/lib/useEmailConfig.ts`](../../apps/bridge/src/lib/useEmailConfig.ts) | Hook: `GET /config` → `{ isConnected, isLoading, refresh }` — module-level cache |
@@ -96,24 +131,35 @@ Key enums: `TicketStatus` · `TicketPriority` · `TicketCategory` · `TicketSour
 
 ## Bridge UI — Inbox page (`/inbox`)
 
-The one and only list page. Previously there were two pages (`/inbox` flat list + `/tickets` domain-grouped); they are now merged. The `/inbox` route has the domain-grouped view. The old flat-list `/inbox` page is deleted. The header contains all navigation controls — the sidebar collapses to the 48 px icon rail when this section is active (no content panel).
+The one and only list page, containing two tabs driven by `?view=` (default `inbox`):
+
+| Tab | URL param | API query | Shows |
+|---|---|---|---|
+| **Inbox** | `?view=inbox` (default) | `GET /tickets?view=inbox` | All `source=EMAIL` records — `NEW`, lifecycle, `DISMISSED` |
+| **Tickets** | `?view=tickets` | `GET /tickets?view=tickets` | Only `status ∉ {NEW, DISMISSED}` |
+
+`NEW` rows in the Inbox tab show inline **Convert** / **Dismiss** buttons instead of an assignee avatar. `DISMISSED` rows show "Dismissed by {name}" (or "Auto-filtered" when no agent) + time; titles are struck through. `isBulk = true` shows a **Promotional** pill alongside the category.
 
 Header layout (left → right):
-- **Title**: "Inbox" + total count
+- **Title**: "Inbox" or "Tickets" (tracks active tab) + total count
 - **Search** — 180 px input with debounce (300 ms), clears on Esc or × button; updates `?search=` URL param
 - **Status filter** — dropdown; "All statuses" or any single `TicketStatus`
 - **Category filter** — dropdown; "All categories" or any single `TicketCategory`
 - **Clear** — appears only when any filter is active
+- **Tab strip** (below the header row): Inbox | Tickets — `?view=` param; preserves other active filters
 
-All three filters compose — all active params are preserved when changing any one filter.
+All filters compose — all active params are preserved when changing any one filter or tab.
 
 ## Bridge UI — domain group cards (`/inbox`)
 
 The Inbox page (`/inbox`) groups ticket rows by customer email domain using `buildDomainGroups()`. Key design details:
 
-- **Default state: all collapsed.** Expand state (not collapse state) is tracked — empty Set = all collapsed. Persisted in `localStorage` under `bridge.tickets.expandedDomains`.
-- **Two-zone group header**: clicking the left zone (favicon + domain name + counts) navigates to `/tickets/domain/[domain]`; the right chevron button expands/collapses the row list inline. `flexShrink: 0` on each card prevents flex-shrink distortion when multiple groups are open simultaneously.
-- **Group header content**: Google favicon (`https://www.google.com/s2/favicons?domain=…&sz=32` with abbr fallback), domain name, ticket count chip, open count chip (blue, only if > 0), last-activity timestamp, styled chevron button (border + hover background).
+- **Default state: all collapsed.** Expand state tracked as a Set; persisted in `localStorage` under `bridge.tickets.expandedDomains`. **Auto-expand exception**: on initial load of the Inbox view (`?view=inbox`), any domain that has at least one `NEW` ticket is auto-expanded, and the top domain (most recently active) is always expanded, so new mail is visible without manual interaction.
+- **Two-zone group header**: clicking the left zone (favicon + domain name + counts) navigates to `/tickets/domain/[domain]`; the right chevron button expands/collapses the row list inline.
+- **Group header content**: Google favicon with abbr fallback, domain name, ticket count chip, **new count chip** (red, only if `newCount > 0`), open count chip (blue, only if `openCount > 0`), last-activity timestamp, chevron button.
+- **`buildDomainGroups()`** (`apps/bridge/src/lib/groupTicketsByDomain.ts`) returns `DomainGroup<T>` with `newCount` (tickets with `status === 'NEW'`) and `openCount` (OPEN / IN_PROGRESS / WAITING). Groups sorted by `lastActivity` = `max(updatedAt)` across all statuses — a domain with fresh NEW mail always floats to the top.
+- **Infinite scroll**: tickets are fetched in pages of 100 (`offset` increments). An `IntersectionObserver` on a 1 px sentinel div at the bottom of the scroll container triggers the next page load silently while `tickets.length < total`. A "Showing X of Y" footer shows progress. No load-more button.
+- **Silent 15s background refresh**: the 15s poll calls `loadTickets({ background: true })`, which skips `setIsLoading(true)` entirely. Instead it merges the response by id into the existing list (upsert changed rows, prepend genuinely new ones), sorted by `updatedAt` desc. No skeleton flash; no scroll reset. New mail surfaces within 15s with no UI disruption.
 ## Bridge UI — per-domain page (`/tickets/domain/[domain]`)
 
 Navigated to by clicking the left zone of any domain group card on `/inbox`.
@@ -175,6 +221,15 @@ Both gated pages (`/inbox`, `/tickets/[id]`) render `<EmailNotConfiguredGate>` i
 - **Category always shown as `CategoryPill`** — ticket detail header and list rows use the same `CategoryPill` component (Lucide icon + colour-coded background). Plain text label is not used anywhere in the agent dashboard.
 - **Resolve button hides when resolved** — when status is RESOLVED or CLOSED, the "Resolve ticket" action is replaced by a static "✓ Resolved" chip (no onClick, dimmed). Prevents double-resolve confusion.
 - **Sidebar rail-only for tickets section** — when `activeSection === 'tickets'`, the sidebar collapses to the 48 px icon rail (content panel hidden, aside width `48px`). All filters live in the `/inbox` page header.
+
+## Notable decisions
+
+- **Triage folded into `status`** — the original `triageState` axis (LIVE/PENDING/FILTERED) was dropped in favour of adding `NEW` and `DISMISSED` directly to `TicketStatus`. The two-tab (Inbox/Tickets) model is materially clearer and `view` param handles the split. Reversal: see STATE.md decisions table.
+- **`activateTicket` is the single source of truth** for confirmation + bot side-effects. Called only from `create()` (portal) and `convert()` (inbound). `NEW` emails never auto-reply.
+- **`isBulk` denormalized on `Ticket`** — stored at ingest from the first message's bulk signal so the Inbox can show a Promotional pill without joining `Message`.
+- **`dismissedById = null` = system/legacy** — tickets dismissed by the old FILTERED backfill have `dismissedBy` null; shown as "Auto-filtered" in the UI.
+- **Dismiss is only for `NEW`** — you cannot dismiss an active lifecycle ticket. This prevents accidental loss of in-flight conversations.
+- **Bulk detection is provider-agnostic** — `isBulkSender()` lives in `email-sync/util/` and takes a lowercased headers map. Both Gmail and Graph call it after building their headers map.
 
 ## Known gaps
 

@@ -46,7 +46,70 @@ model AppConfig {
   archiveTotalSeen        Int?
   archiveTotalEstimate    Int?
 
+  // Portal auth page layout
+  portalAuthLayout      AuthLayout @default(MINIMAL)
+  portalHeroHeadline    String?
+  portalHeroSubheadline String?
+  portalFeatures        String[]   @default([])
+
   notifications  Notification[]
+
+  // AI bot configuration
+  botProvider              BotProvider?
+  botApiKeyEnc             String?
+  botFallbackAgentId       String?
+
+  // Knowledge base
+  kbRootUrl            String?
+  kbCrawlStatus        KbCrawlStatus @default(IDLE)
+  kbCrawlStartedAt     DateTime?
+  kbCrawlFinishedAt    DateTime?
+  kbCrawlPagesSeen     Int           @default(0)
+  kbCrawlPagesIndexed  Int           @default(0)
+  kbCrawlError         String?
+  kbLastRecrawledAt    DateTime?
+
+  // Two-phase scan → confirm → embed state
+  kbPhase              KbPhase  @default(IDLE)
+  kbScanPagesSeen      Int      @default(0)
+  kbScanChunkCount     Int      @default(0)
+  kbScanTokenEstimate  Int      @default(0)
+  kbScanCostUsd        Decimal? @db.Decimal(12, 6)
+  kbEmbedChunksDone    Int      @default(0)
+  kbEmbedChunksTotal   Int      @default(0)
+  kbError              String?
+
+  // Shifts
+  timezone             String        @default("UTC")
+}
+
+enum AuthLayout {
+  MINIMAL
+  BRANDED
+}
+
+enum BotProvider {
+  GEMINI
+  OPENAI
+  ANTHROPIC
+}
+
+enum KbCrawlStatus {
+  IDLE
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum KbPhase {
+  IDLE
+  SCANNING
+  AWAITING_CONFIRM
+  EMBEDDING
+  DONE
+  FAILED
+  CANCELLED
 }
 
 enum OAuthProvider {
@@ -87,11 +150,13 @@ model User {
 
   lastActiveAt DateTime?
 
-  tickets       Ticket[]         @relation("TicketCustomer")
-  messages      Message[]        @relation("MessageAuthorUser")
-  magicTokens   MagicToken[]
-  customerNotes CustomerNote[]
-  signals       CustomerSignal[]
+  tickets         Ticket[]          @relation("TicketCustomer")
+  messages        Message[]         @relation("MessageAuthorUser")
+  magicTokens     MagicToken[]
+  customerNotes   CustomerNote[]
+  signals         CustomerSignal[]
+  botInteractions BotInteraction[]
+  aiUsages        AiUsage[]
 
   @@index([email])
 }
@@ -132,7 +197,7 @@ model Agent {
   avatarUrl String?
   password  String?
   googleId  String?   @unique
-  role      AgentRole @default(AGENT)
+  role      AgentRole @default(PRIMARY_AGENT)
 
   isActive     Boolean  @default(true)
   lastActiveAt DateTime?
@@ -140,17 +205,41 @@ model Agent {
   inviteToken    String?  @unique
   inviteAccepted Boolean  @default(false)
 
-  assignedTickets   Ticket[]       @relation("TicketAssignee")
-  messages          Message[]      @relation("MessageAuthorAgent")
+  assignedTickets   Ticket[]          @relation("TicketAssignee")
+  dismissedTickets  Ticket[]          @relation("TicketDismissedBy")
+  messages          Message[]         @relation("MessageAuthorAgent")
   customerNotes     CustomerNote[]
   notificationReads NotificationRead[]
+  shifts            Shift[]
+  botInteractions   BotInteraction[]  @relation("BotInteractionEscalatee")
 
   @@index([email])
 }
 
 enum AgentRole {
   ADMIN
-  AGENT
+  PRIMARY_AGENT
+  SECONDARY_AGENT
+}
+
+// ─── SHIFTS ───────────────────────────────────────────────────────────────────
+
+model Shift {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  primaryAgentId String
+  primaryAgent   Agent    @relation(fields: [primaryAgentId], references: [id], onDelete: Cascade)
+
+  dayOfWeek      Int      // 0 = Sunday … 6 = Saturday, -1 = every day
+  startMinute    Int      // minutes from midnight, 0..1439
+  endMinute      Int      // exclusive; wraps if end < start (overnight)
+  active         Boolean  @default(true)
+  lastAssignedAt DateTime?
+
+  @@index([primaryAgentId])
+  @@index([dayOfWeek])
 }
 
 // ─── TICKETS ──────────────────────────────────────────────────────────────────
@@ -168,7 +257,12 @@ model Ticket {
   category  TicketCategory
   product   String?
   connector String?
-  source    TicketSource   @default(PORTAL)
+  source      TicketSource  @default(PORTAL)
+  isBulk      Boolean       @default(false)
+
+  dismissedAt    DateTime?
+  dismissedById  String?
+  dismissedBy    Agent?    @relation("TicketDismissedBy", fields: [dismissedById], references: [id])
 
   userId     String
   user       User   @relation("TicketCustomer", fields: [userId], references: [id])
@@ -189,16 +283,18 @@ model Ticket {
   reopenCount     Int       @default(0)
   firstResolvedAt DateTime?
 
-  githubIssue   GithubIssue?
-  messages      Message[]
-  attachments   Attachment[]
-  tags          Tag[]
-  notifications Notification[]
-  rating        TicketRating?
-  aiUsages      AiUsage[]
-  signals       CustomerSignal[]
+  githubIssue     GithubIssue?
+  messages        Message[]
+  attachments     Attachment[]
+  tags            Tag[]
+  notifications   Notification[]
+  rating          TicketRating?
+  aiUsages        AiUsage[]
+  signals         CustomerSignal[]
+  botInteractions BotInteraction[]
 
   @@index([status])
+  @@index([dismissedById])
   @@index([userId])
   @@index([assigneeId])
   @@index([emailThreadId])
@@ -206,11 +302,13 @@ model Ticket {
 }
 
 enum TicketStatus {
+  NEW
   OPEN
   IN_PROGRESS
   WAITING
   RESOLVED
   CLOSED
+  DISMISSED
 }
 
 enum TicketPriority {
@@ -253,8 +351,9 @@ model Message {
   authorAgentId String?
   authorAgent   Agent?  @relation("MessageAuthorAgent", fields: [authorAgentId], references: [id])
 
-  sentVia    MessageSentVia?
-  isInternal Boolean @default(false)
+  sentVia        MessageSentVia?
+  isInternal     Boolean @default(false)
+  authorBotName  String? // set when this message was generated by the AI bot
 
   messageId         String?  @unique
   externalMessageId String?  @unique
@@ -503,6 +602,9 @@ enum AiOperation {
   SENTIMENT
   TOPIC
   CSAT
+  ATHENA_EMBED
+  ATHENA_GENERATE
+  KB_CONTEXTUAL_SUMMARY
 }
 
 enum AiCallStatus {
@@ -526,8 +628,91 @@ model AiUsage {
   ticket           Ticket?      @relation(fields: [ticketId], references: [id], onDelete: SetNull)
   messageId        String?
   message          Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  userId           String?
+  user             User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([operation, createdAt])
+  @@index([userId])
 }
 
+// ─── KNOWLEDGE BASE ───────────────────────────────────────────────────────────
+
+enum SourceStatus {
+  PENDING
+  FETCHED
+  SCANNED
+  INDEXED
+  FAILED
+  SKIPPED
+}
+
+model KnowledgeSource {
+  id           String         @id @default(cuid())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  url          String         @unique
+  title        String?
+  contentHash  String?
+  status       SourceStatus   @default(PENDING)
+  errorMessage String?
+  fetchedAt    DateTime?
+  indexedAt    DateTime?
+
+  chunks       KnowledgeChunk[]
+
+  @@index([status])
+}
+
+model KnowledgeChunk {
+  id            String          @id @default(cuid())
+  createdAt     DateTime        @default(now())
+
+  sourceId      String
+  source        KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  ordinal       Int
+  text          String          @db.Text
+  contextHeader String?         @db.Text
+  headingPath   String[]
+  anchor        String?
+  deepUrl       String
+  tokenCount    Int
+  embedding     Unsupported("vector(768)")?
+
+  @@index([sourceId])
+  @@index([deepUrl])
+}
+
+// ─── BOT INTERACTIONS (observability) ────────────────────────────────────────
+
+model BotInteraction {
+  id                   String    @id @default(cuid())
+  createdAt            DateTime  @default(now())
+
+  ticketId             String
+  ticket               Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+
+  messageId            String?
+  retrievedChunkIds    String[]
+  retrievalTopScore    Float?
+  llmConfidence        Float?
+  didAnswer            Boolean
+  escalatedToAgentId   String?
+  escalatedToAgent     Agent?    @relation("BotInteractionEscalatee", fields: [escalatedToAgentId], references: [id], onDelete: SetNull)
+  reasoning            String?   @db.Text
+  citations            String[]
+  latencyMs            Int
+  costUsd              Decimal   @db.Decimal(10, 6)
+  totalTokens          Int
+  promptTokens         Int
+  completionTokens     Int
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([createdAt])
+}

@@ -1,3 +1,12 @@
+export interface ParsedAttachment {
+  filename: string
+  mimeType: string
+  size: number
+  contentId?: string
+  gmailMessageId: string
+  gmailAttachmentId: string
+}
+
 export interface ParsedMessage {
   id: string               // externalMessageId (Gmail messageId or Graph message id)
   rfcMessageId?: string    // RFC 5322 Message-ID header
@@ -11,6 +20,8 @@ export interface ParsedMessage {
   bodyHtml?: string
   bodyRaw?: string
   sentAt: Date
+  attachments?: ParsedAttachment[]
+  isBulk?: boolean         // true when automated/bulk signals detected
 }
 
 export interface ParsedThread {

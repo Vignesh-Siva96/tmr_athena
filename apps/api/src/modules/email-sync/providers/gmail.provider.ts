@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common'
 import { withRetry } from '../util/with-retry'
-import type { IMailProvider, ParsedThread, ParsedMessage, PollResult, RecoverResult } from './mail-provider.interface'
+import { isBulkSender } from '../util/is-bulk-sender'
+import type { IMailProvider, ParsedThread, ParsedMessage, ParsedAttachment, PollResult, RecoverResult } from './mail-provider.interface'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ParseGmailApi } = require('gmail-api-parse-message-ts') as { ParseGmailApi: new () => { parseMessage(raw: unknown): Record<string, unknown> } }
@@ -36,6 +37,34 @@ interface GmailHistoryEntry {
 }
 interface GmailHistoryList { history?: GmailHistoryEntry[]; historyId?: string; nextPageToken?: string }
 
+interface GmailPart {
+  partId?: string
+  mimeType?: string
+  filename?: string
+  headers?: { name: string; value: string }[]
+  body?: { attachmentId?: string; size?: number; data?: string }
+  parts?: GmailPart[]
+}
+
+function collectAttachmentParts(parts: GmailPart[], messageId: string, acc: ParsedAttachment[]): void {
+  for (const part of parts) {
+    if (part.filename && part.body?.attachmentId) {
+      const contentIdHeader = part.headers?.find(h => h.name.toLowerCase() === 'content-id')?.value
+      acc.push({
+        filename: part.filename,
+        mimeType: part.mimeType ?? 'application/octet-stream',
+        size: part.body.size ?? 0,
+        contentId: contentIdHeader?.replace(/[<>]/g, ''),
+        gmailMessageId: messageId,
+        gmailAttachmentId: part.body.attachmentId,
+      })
+    }
+    if (part.parts?.length) {
+      collectAttachmentParts(part.parts, messageId, acc)
+    }
+  }
+}
+
 function parseGmailMessage(raw: Record<string, unknown>): ParsedMessage {
   let parsed: Record<string, unknown> = {}
   try {
@@ -45,7 +74,7 @@ function parseGmailMessage(raw: Record<string, unknown>): ParsedMessage {
   }
 
   const headers: Record<string, string> = {}
-  const payload = raw.payload as { headers?: { name: string; value: string }[] } | undefined
+  const payload = raw.payload as { headers?: { name: string; value: string }[]; parts?: GmailPart[] } | undefined
   for (const h of (payload?.headers ?? [])) {
     headers[h.name.toLowerCase()] = h.value
   }
@@ -53,11 +82,17 @@ function parseGmailMessage(raw: Record<string, unknown>): ParsedMessage {
   const bodyPlain = (parsed.textPlain as string | undefined) ?? ''
   const bodyHtml = (parsed.textHtml as string | undefined) ?? undefined
 
+  const attachmentAcc: ParsedAttachment[] = []
+  if (payload?.parts?.length) {
+    collectAttachmentParts(payload.parts, raw.id as string, attachmentAcc)
+  }
+
+  const fromEmail = extractEmail(headers['from'] ?? '')
   return {
     id: raw.id as string,
     rfcMessageId: headers['message-id'],
     inReplyTo: headers['in-reply-to'],
-    fromEmail: extractEmail(headers['from'] ?? ''),
+    fromEmail,
     fromName: extractName(headers['from'] ?? ''),
     toEmails: parseEmailList(headers['to'] ?? ''),
     ccEmails: parseEmailList(headers['cc'] ?? ''),
@@ -65,6 +100,8 @@ function parseGmailMessage(raw: Record<string, unknown>): ParsedMessage {
     bodyPlain: bodyPlain || '(no content)',
     bodyHtml,
     sentAt: new Date(parseInt(raw.internalDate as string ?? '0', 10)),
+    attachments: attachmentAcc.length ? attachmentAcc : undefined,
+    isBulk: isBulkSender(headers, fromEmail),
   }
 }
 
@@ -239,5 +276,16 @@ export class GmailProvider implements IMailProvider {
     } catch {
       return null
     }
+  }
+
+  async fetchAttachmentBytes(gmailMessageId: string, gmailAttachmentId: string): Promise<Buffer> {
+    const token = await this.getToken()
+    const data = await withRetry(() =>
+      gmailGet<{ data: string }>(
+        token,
+        `/users/me/messages/${gmailMessageId}/attachments/${gmailAttachmentId}`,
+      )
+    )
+    return Buffer.from(data.data, 'base64url')
   }
 }

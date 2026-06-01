@@ -143,6 +143,7 @@ h3 { letter-spacing: -0.01em; line-height: 1.25; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* Dark pill colours (default) */
+.d-new    { color: #FCA5A5; background: rgba(239,68,68,0.14); }
 .d-open   { color: #93C5FD; background: rgba(59,130,246,0.14); }
 .d-prog   { color: #FCD34D; background: rgba(245,158,11,0.14); }
 .d-wait   { color: #C4B5FD; background: rgba(167,139,250,0.16); }
@@ -150,6 +151,7 @@ h3 { letter-spacing: -0.01em; line-height: 1.25; }
 .d-urgent { color: #FCA5A5; background: rgba(239,68,68,0.14); }
 
 /* Light pill overrides */
+html[data-theme="light"] .d-new    { color: #B91C1C; background: #FEF2F2; }
 html[data-theme="light"] .d-open   { color: #1D4ED8; background: #EFF4FF; }
 html[data-theme="light"] .d-prog   { color: #B45309; background: #FEF3C7; }
 html[data-theme="light"] .d-wait   { color: #6D28D9; background: #F3EEFF; }

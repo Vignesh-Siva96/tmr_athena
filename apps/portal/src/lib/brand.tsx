@@ -1,6 +1,8 @@
 'use client'
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 
+export type AuthLayout = 'MINIMAL' | 'BRANDED'
+
 export interface AppConfig {
   id: string
   appName: string
@@ -9,6 +11,10 @@ export interface AppConfig {
   primaryColor: string
   accentColor: string
   emailDisplayName: string
+  portalAuthLayout: AuthLayout
+  portalHeroHeadline: string | null
+  portalHeroSubheadline: string | null
+  portalFeatures: string[]
 }
 
 const defaultConfig: AppConfig = {
@@ -19,6 +25,10 @@ const defaultConfig: AppConfig = {
   primaryColor: '#2563EB',
   accentColor: '#0EA5E9',
   emailDisplayName: 'Support',
+  portalAuthLayout: 'MINIMAL',
+  portalHeroHeadline: null,
+  portalHeroSubheadline: null,
+  portalFeatures: [],
 }
 
 const ConfigContext = createContext<AppConfig>(defaultConfig)

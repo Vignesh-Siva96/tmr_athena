@@ -13,14 +13,12 @@ import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
 import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
-import { PrismaService } from '../database/prisma.service'
 import type { Agent } from '@tmr/db'
 
 @Controller('config')
 export class ConfigController {
   constructor(
     private readonly configService: AppConfigService,
-    private readonly db: PrismaService,
   ) {}
 
   @Get()

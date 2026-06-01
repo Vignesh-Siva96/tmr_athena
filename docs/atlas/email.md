@@ -2,7 +2,7 @@
 title: Email
 stack: [Gmail REST API, Microsoft Graph REST API, nodemailer, NestJS Schedule, Postgres, AES-256-GCM, Google OAuth2, Microsoft OAuth2]
 status: working
-last-reviewed: 2026-05-27
+last-reviewed: 2026-05-31
 ---
 
 # Email
@@ -83,13 +83,17 @@ sequenceDiagram
   Backfill->>DB: update gmailHistoryId / graphDeltaLink to current (post-archive)
 ```
 
-## Outbound flow
+## Outbound flow (retried via queue)
+
+Agent replies go through the `email:send-reply` pg-boss queue (`SendReplyWorker`), retried up to 3 times with exponential backoff. On permanent failure a `email_delivery_failed:` SYSTEM_EVENT appears in the ticket thread.
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant Agent as Agent in Bridge
   participant API as MessagesController
+  participant Q as QueueService
+  participant Worker as SendReplyWorker
   participant Email as EmailService
   participant DB as Postgres
   participant SMTP as Gmail SMTP / Graph API
@@ -98,14 +102,40 @@ sequenceDiagram
   Agent->>API: POST /tickets/:id/messages {body}
   API->>DB: persist Message row
   API->>SSE: broadcast message-created
-  API->>Email: sendAgentReply(ticket, message, appConfig)
+  API->>Q: enqueueEmailSendReply({ticketId, messageId})
+  API-->>Agent: 201 Created
+  note over Q,SMTP: async, up to 3 attempts with backoff
+  Worker->>DB: load ticket + message + appConfig
+  Worker->>Email: sendAgentReply(ticket, message, appConfig)
   Email->>DB: lookup prior Message.messageId for thread chain
   Email->>SMTP: sendMail (OAuth2 for Google, /me/sendMail for Microsoft)
   SMTP-->>Email: 250 OK / 202 Accepted
-  Email-->>API: returns new Message-ID
-  API->>DB: store Message-ID on row (for future threading)
+  Email-->>Worker: returns new Message-ID
+  Worker->>DB: store Message-ID on row (for future threading)
   SMTP-->>Customer: delivers email
 ```
+
+### Inbound email — NEW status flow
+
+When `ThreadIngestionService` creates a **new** ticket from an inbound email, it lands in the Inbox tab as `status = NEW`:
+
+- `isBulk = true` if the message is detected as automated/bulk (newsletters, no-reply senders, list-unsubscribe headers, RFC 3834 `Auto-Submitted`, Exchange suppression) — renders a **Promotional** pill in the Inbox.
+- `isBulk = false` for normal customer mail.
+
+**No** confirmation email and **no** bot response are sent on ingest. The agent reviews the Inbox (`/inbox?view=inbox`) and clicks **Convert** to activate the ticket — that fires `TicketsService.activateTicket()` which sends the confirmation and enqueues the bot. Clicking **Dismiss** sets `status = DISMISSED` and stamps `dismissedAt`/`dismissedById` without contacting the customer.
+
+#### Bulk detection signals (`isBulkSender`)
+
+`apps/api/src/modules/email-sync/util/is-bulk-sender.ts` — shared by both Gmail and Graph providers:
+- `Auto-Submitted` header present and ≠ `no` (RFC 3834)
+- `Precedence` ∈ {bulk, list, junk}
+- `List-Unsubscribe` or `List-Id` header present
+- `X-Auto-Response-Suppress` header present
+- Sender local-part matches `no-?reply` / `donotreply` / `mailer-daemon` / `postmaster`
+
+### Escalation notification (scenarios 7 + 9)
+
+`BotService.escalateToHuman()` (called from both `MessagesService` and `ThreadIngestionService`) sends a brief "a specialist will follow up" email to the customer via `EmailService.sendEscalationNotification()` when `opts.notifyCustomer = true`.
 
 ## Provider interface
 
@@ -137,6 +167,22 @@ Both Gmail and Microsoft Graph implement `IMailProvider`:
 
 - **Gmail**: `history.list` returns 404 when `historyId` has expired → re-list last 7 days, re-derive a fresh `historyId` from the profile.
 - **Microsoft**: `messages/delta` returns 410 (`SyncStateNotFound`) → same fallback, rebuild delta link from last 7 days.
+
+## Inbound email attachments (Gmail)
+
+`parseGmailMessage()` in `GmailProvider` now walks `payload.parts` recursively. For each part where `filename` is non-empty and `body.attachmentId` exists, a `ParsedAttachment` entry is added to the returned `ParsedMessage`.
+
+After the DB transaction completes in `ThreadIngestionService.fetchAndUpsertThread()`, attachments are fetched and stored:
+
+1. `GmailProvider.fetchAttachmentBytes(gmailMessageId, gmailAttachmentId)` — `GET /gmail/v1/users/me/messages/{id}/attachments/{attachmentId}`, decodes base64url.
+2. `FilesService.storeBuffer(bytes, { filename, mimeType, size, ticketId, messageId })` — MinIO PUT + presigned URL + `prisma.attachment.create()`.
+
+Attachment fetch runs **outside** the DB transaction (HTTP calls must not run inside a Postgres transaction).
+
+Safety bounds:
+- Attachments larger than **25 MB** are skipped with a warning log.
+- A failure on one attachment logs an error and continues — it never fails the whole ingest.
+- Graph provider (Microsoft) does not yet implement attachment extraction. The capability check is via duck-typing: `'fetchAttachmentBytes' in provider`.
 
 ## At-least-once semantics
 
@@ -246,6 +292,7 @@ When email is not configured (`!oauthConnected`), Bridge shows a full-page gate 
 - **`useBackfillStatus` takes `Math.max` on poll** — the poll `setStatus` uses `Math.max(polled.archiveTotalSeen, prev.archiveTotalSeen)` so a stale poll response can never roll back a higher count already set by an SSE event.
 - **`archiveTotalEstimate` persisted before first chunk** — the total thread count for the foreground phase is saved to `AppConfig.archiveTotalEstimate` before `processBatch` starts, so the very first poll returns the denominator for the `X / Y` display. Background archive has no known total; the UI shows an indeterminate bar instead.
 - **Concurrent user upsert — P2002 fallback** — `user.upsert()` outside the transaction can still race when 5 threads process the same customer email simultaneously. Fix: catch `P2002` (`PrismaClientKnownRequestError`) and fall back to `findUnique` — the winning thread already inserted the row.
+- **DISMISSED → NEW resurface on customer reply** — `ThreadIngestionService` checks the current ticket status inside the `!wasCreated` update block. If the status is `DISMISSED` and the new message is from a customer (non-agent, `newMessageId` is set), it flips `status = 'NEW'` in the same `tx.ticket.update()` call. This returns the thread to the agent Inbox for re-triage without sending any customer email (ticket is still pre-activation).
 - **No AI on backfill messages** — prevents cost spikes on thousands of historical messages. "Run AI on imported emails" gives explicit control back to the admin.
 - **TokenRefresher dedupes concurrent refreshes** — `refreshLocks: Map<string, Promise<string>>` ensures two concurrent sends don't both try to refresh the token, causing one to store a stale token.
 

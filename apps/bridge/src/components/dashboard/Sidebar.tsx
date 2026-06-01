@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox } from 'lucide-react'
+import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { useBackfillStatus } from '@/lib/useBackfillStatus'
@@ -12,7 +12,7 @@ import { NotificationsPanel } from './NotificationsPanel'
 
 type Section = 'tickets' | 'github' | 'analytics'
 
-interface Stats { byStatus: Record<string, number>; byCategory: Record<string, number>; unassigned: number }
+interface Stats { byStatus: Record<string, number>; byCategory: Record<string, number>; unassigned: number; newCount?: number }
 
 interface GithubNotif {
   id: string; isRead: boolean; createdAt: string; githubRepo: string | null
@@ -108,6 +108,7 @@ export function DashboardSidebar() {
 
   const totalOpen = stats ? (stats.byStatus['OPEN'] ?? 0) + (stats.byStatus['IN_PROGRESS'] ?? 0) + (stats.byStatus['WAITING'] ?? 0) : undefined
   const totalAll = stats ? Object.values(stats.byStatus).reduce((a, b) => a + b, 0) : undefined
+  const newBadge = stats ? (stats.newCount ?? 0) : 0
 
   const markRead = async (id: string) => {
     if (!token) return
@@ -170,7 +171,7 @@ export function DashboardSidebar() {
 
           {/* Section buttons */}
           <div style={{ position: 'relative' }}>
-            <RailBtn section="tickets" icon={<Inbox size={17} />} navigateTo="/inbox" />
+            <RailBtn section="tickets" icon={<Inbox size={17} />} badge={newBadge} navigateTo="/inbox" />
             {backfill?.archiveStatus === 'RUNNING' && (
               <span
                 title={`Importing email history: ${backfill.archiveTotalSeen?.toLocaleString() ?? 0} emails`}
@@ -194,6 +195,10 @@ export function DashboardSidebar() {
             style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--d-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, margin: '4px', cursor: 'default', flexShrink: 0 }}>
             {agent?.name?.slice(0, 2).toUpperCase() ?? 'AG'}
           </div>
+          <Link href="/settings/shifts" title="Shifts"
+            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pathname.startsWith('/settings/shifts') ? 'var(--d-accent)' : 'var(--d-text-2)', margin: '2px 4px' }}>
+            <Calendar size={15} />
+          </Link>
           <Link href="/settings" title="Settings"
             style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-2)', margin: '2px 4px' }}>
             <Settings size={15} />

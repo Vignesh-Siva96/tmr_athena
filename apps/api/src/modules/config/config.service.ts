@@ -11,6 +11,29 @@ export const updateAppConfigSchema = z.object({
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   emailDisplayName: z.string().optional(),
   supportEmail: z.string().email().nullable().optional(),
+  // Portal auth page layout
+  portalAuthLayout: z.enum(['MINIMAL', 'BRANDED']).optional(),
+  portalHeroHeadline: z.string().max(80).nullable().optional(),
+  portalHeroSubheadline: z.string().max(200).nullable().optional(),
+  portalFeatures: z.array(z.string()).max(5).optional(),
+  // Bot configuration
+  botProvider: z.enum(['GEMINI', 'OPENAI', 'ANTHROPIC']).nullable().optional(),
+  botApiKeyEnc: z.string().nullable().optional(),
+  botFallbackAgentId: z.string().nullable().optional(),
+  // KB configuration
+  kbRootUrl: z.string().url().nullable().optional(),
+  // Timezone
+  timezone: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.portalAuthLayout === 'BRANDED') {
+    if (!data.portalHeroHeadline?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'portalHeroHeadline is required when portalAuthLayout is BRANDED', path: ['portalHeroHeadline'] })
+    }
+    const features = data.portalFeatures ?? []
+    if (features.filter(f => f.trim()).length < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'At least one feature is required when portalAuthLayout is BRANDED', path: ['portalFeatures'] })
+    }
+  }
 })
 export type UpdateAppConfigDto = z.infer<typeof updateAppConfigSchema>
 
@@ -33,16 +56,17 @@ export class AppConfigService {
     })
   }
 
-  /** Returns config with OAuth tokens redacted (never exposed via API) */
+  /** Returns config with OAuth tokens and bot API key redacted (never exposed via API) */
   async getSafe(): Promise<
-    Omit<AppConfig, 'oauthAccessTokenEnc' | 'oauthRefreshTokenEnc'> &
-    { oauthConnected: boolean }
+    Omit<AppConfig, 'oauthAccessTokenEnc' | 'oauthRefreshTokenEnc' | 'botApiKeyEnc'> &
+    { oauthConnected: boolean; botKeySet: boolean }
   > {
     const cfg = await this.get()
-    const { oauthAccessTokenEnc, oauthRefreshTokenEnc, ...rest } = cfg
+    const { oauthAccessTokenEnc, oauthRefreshTokenEnc, botApiKeyEnc, ...rest } = cfg
     return {
       ...rest,
       oauthConnected: !!(oauthAccessTokenEnc && oauthRefreshTokenEnc),
+      botKeySet: botApiKeyEnc !== null && botApiKeyEnc !== undefined,
     }
   }
 

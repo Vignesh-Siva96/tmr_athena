@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { withRetry } from '../util/with-retry'
+import { isBulkSender } from '../util/is-bulk-sender'
 import type { IMailProvider, ParsedThread, ParsedMessage, PollResult, RecoverResult } from './mail-provider.interface'
 
 function graphUrl(path: string, params: Record<string, string> = {}): string {
@@ -66,11 +67,12 @@ function parseGraphMessage(msg: GraphMessage): ParsedMessage {
     bodyPlain = bodyContent
   }
 
+  const fromEmail = fromAddr.toLowerCase()
   return {
     id: msg.id,
     rfcMessageId: msg.internetMessageId ?? headers['message-id'],
     inReplyTo: headers['in-reply-to'],
-    fromEmail: fromAddr.toLowerCase(),
+    fromEmail,
     fromName,
     toEmails,
     ccEmails,
@@ -78,6 +80,7 @@ function parseGraphMessage(msg: GraphMessage): ParsedMessage {
     bodyPlain: bodyPlain || '(no content)',
     bodyHtml,
     sentAt: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+    isBulk: isBulkSender(headers, fromEmail),
   }
 }
 

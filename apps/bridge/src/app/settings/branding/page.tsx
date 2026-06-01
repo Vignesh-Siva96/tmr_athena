@@ -1,8 +1,11 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Check, Copy, Upload, Globe, Image as ImageIcon, Sparkles, X, Loader2, RefreshCw } from 'lucide-react'
+import { Check, Copy, Upload, Globe, Image as ImageIcon, Sparkles, X, Loader2, RefreshCw, Plus, Trash2, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import AuthPagePreview from '@/components/settings/branding/AuthPagePreview'
+
+type AuthLayout = 'MINIMAL' | 'BRANDED'
 
 interface AppConfig {
   appName: string
@@ -11,6 +14,10 @@ interface AppConfig {
   primaryColor: string
   accentColor: string
   emailDisplayName: string
+  portalAuthLayout: AuthLayout
+  portalHeroHeadline: string | null
+  portalHeroSubheadline: string | null
+  portalFeatures: string[]
 }
 
 interface ExtractedColor {
@@ -135,6 +142,10 @@ export default function BrandingPage() {
     accentColor: '#0EA5E9',
     emailDisplayName: '',
     logoUrl: '' as string | null,
+    portalAuthLayout: 'MINIMAL' as AuthLayout,
+    portalHeroHeadline: '',
+    portalHeroSubheadline: '',
+    portalFeatures: [''] as string[],
   })
   const [isSaved, setIsSaved] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -158,6 +169,7 @@ export default function BrandingPage() {
     if (!token) return
     api.get<AppConfig>('/config', token)
       .then((res) => {
+        const features = res.portalFeatures?.length ? res.portalFeatures : ['']
         setForm({
           orgName: res.appName ?? '',
           portalTagline: res.portalTagline ?? '',
@@ -165,6 +177,10 @@ export default function BrandingPage() {
           accentColor: res.accentColor ?? '#0EA5E9',
           emailDisplayName: res.emailDisplayName ?? '',
           logoUrl: res.logoUrl ?? null,
+          portalAuthLayout: res.portalAuthLayout ?? 'MINIMAL',
+          portalHeroHeadline: res.portalHeroHeadline ?? '',
+          portalHeroSubheadline: res.portalHeroSubheadline ?? '',
+          portalFeatures: features,
         })
         if (res.logoUrl) setLogoPreview(res.logoUrl)
       }).catch(console.error)
@@ -198,6 +214,10 @@ export default function BrandingPage() {
         primaryColor: form.primaryColor,
         accentColor: form.accentColor,
         emailDisplayName: form.emailDisplayName,
+        portalAuthLayout: form.portalAuthLayout,
+        portalHeroHeadline: form.portalHeroHeadline || null,
+        portalHeroSubheadline: form.portalHeroSubheadline || null,
+        portalFeatures: form.portalFeatures.filter(f => f.trim()),
       }, token)
       setIsSaved(true)
       setTimeout(() => setIsSaved(false), 3000)
@@ -275,6 +295,18 @@ export default function BrandingPage() {
     setForm(f => ({ ...f, [field]: hex }))
   }
 
+  // ─── Portal auth validation ───────────────────────────────────────────────
+
+  const brandedInvalid =
+    form.portalAuthLayout === 'BRANDED' &&
+    (!form.portalHeroHeadline.trim() || form.portalFeatures.filter(f => f.trim()).length < 1)
+
+  const saveDisabled = isSaving || logoUploading || brandedInvalid
+
+  const saveTitle = brandedInvalid
+    ? 'Fill in headline + at least one feature, or switch to Minimal'
+    : undefined
+
   // ─── Styles ───────────────────────────────────────────────────────────────
 
   const inputStyle: React.CSSProperties = {
@@ -303,8 +335,8 @@ export default function BrandingPage() {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--d-success)' }} /> Saved ✓
             </span>
           )}
-          <button type="button" onClick={() => { void save() }} disabled={isSaving || logoUploading}
-            style={{ height: 36, padding: '0 20px', background: 'var(--d-accent)', color: '#fff', border: 'none', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: (isSaving || logoUploading) ? 'not-allowed' : 'pointer', opacity: (isSaving || logoUploading) ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button type="button" onClick={() => { if (!saveDisabled) void save() }} disabled={saveDisabled} title={saveTitle}
+            style={{ height: 36, padding: '0 20px', background: 'var(--d-accent)', color: '#fff', border: 'none', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: saveDisabled ? 'not-allowed' : 'pointer', opacity: saveDisabled ? 0.5 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
             {(isSaving || logoUploading) && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
             {isSaving ? 'Saving…' : 'Save changes'}
           </button>
@@ -397,6 +429,128 @@ export default function BrandingPage() {
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)', marginBottom: 6 }}>Display name</label>
               <input value={form.emailDisplayName} onChange={(e) => setForm(f => ({ ...f, emailDisplayName: e.target.value }))} style={inputStyle} />
+            </div>
+          </div>
+
+          {/* ── Portal auth page ── */}
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Portal auth page</h3>
+            <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: '0 0 14px' }}>Choose how the sign-in page looks to your customers.</p>
+
+            {/* Layout radio */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              {(['MINIMAL', 'BRANDED'] as const).map((layout) => (
+                <label
+                  key={layout}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+                    border: `1px solid ${form.portalAuthLayout === layout ? 'var(--d-accent)' : 'var(--d-border)'}`,
+                    borderRadius: 'var(--r-md)', cursor: 'pointer',
+                    background: form.portalAuthLayout === layout ? 'var(--d-accent-bg, rgba(37,99,235,0.08))' : 'var(--d-surface)',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="portalAuthLayout"
+                    value={layout}
+                    checked={form.portalAuthLayout === layout}
+                    onChange={() => setForm(f => ({ ...f, portalAuthLayout: layout }))}
+                    style={{ accentColor: 'var(--d-accent)' }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-text)', margin: 0 }}>{layout === 'MINIMAL' ? 'Minimal' : 'Branded'}</p>
+                    <p style={{ fontSize: 11, color: 'var(--d-text-4)', margin: '1px 0 0' }}>
+                      {layout === 'MINIMAL' ? 'Centered form, logo + name above' : 'Split left/right with hero copy'}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {/* Branded fields (always rendered, only shown when Branded) */}
+            {form.portalAuthLayout === 'BRANDED' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)' }}>
+                      Hero headline <span style={{ color: 'var(--d-danger)' }}>*</span>
+                    </label>
+                    <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{form.portalHeroHeadline.length} / 80</span>
+                  </div>
+                  <input
+                    value={form.portalHeroHeadline}
+                    onChange={(e) => setForm(f => ({ ...f, portalHeroHeadline: e.target.value.slice(0, 80) }))}
+                    placeholder="Support that actually works."
+                    style={{ ...inputStyle, borderColor: brandedInvalid && !form.portalHeroHeadline.trim() ? 'var(--d-danger)' : 'var(--d-border)' }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)' }}>Hero subheadline</label>
+                    <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{form.portalHeroSubheadline.length} / 200</span>
+                  </div>
+                  <textarea
+                    value={form.portalHeroSubheadline}
+                    onChange={(e) => setForm(f => ({ ...f, portalHeroSubheadline: e.target.value.slice(0, 200) }))}
+                    placeholder="Create a ticket in seconds, track every reply in one place."
+                    rows={3}
+                    style={{ ...inputStyle, height: 'auto', padding: '8px 12px', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)', marginBottom: 6 }}>
+                    Features <span style={{ color: 'var(--d-danger)' }}>*</span>
+                    <span style={{ fontWeight: 400, color: 'var(--d-text-4)', marginLeft: 4 }}>(at least 1, max 5)</span>
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {form.portalFeatures.map((feat, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          value={feat}
+                          onChange={(e) => {
+                            const next = [...form.portalFeatures]
+                            next[idx] = e.target.value
+                            setForm(f => ({ ...f, portalFeatures: next }))
+                          }}
+                          placeholder={`Feature ${idx + 1}`}
+                          style={{ ...inputStyle, flex: 1 }}
+                        />
+                        {form.portalFeatures.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, portalFeatures: f.portalFeatures.filter((_, i) => i !== idx) }))}
+                            style={{ width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', color: 'var(--d-danger)', cursor: 'pointer' }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {form.portalFeatures.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, portalFeatures: [...f.portalFeatures, ''] }))}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', background: 'none', border: '1px dashed var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        <Plus size={12} /> Add feature
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--d-border)' }}>
+              <a
+                href={`${process.env['NEXT_PUBLIC_PORTAL_URL'] ?? 'http://localhost:3000'}/auth`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 12, color: 'var(--d-accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                Open portal auth page <ExternalLink size={11} />
+              </a>
             </div>
           </div>
 
@@ -542,6 +696,19 @@ export default function BrandingPage() {
                 Open live portal →
               </a>
             </div>
+          </div>
+          {/* Auth page preview */}
+          <div style={{ marginTop: 16 }}>
+            <AuthPagePreview
+              layout={form.portalAuthLayout}
+              headline={form.portalHeroHeadline}
+              subheadline={form.portalHeroSubheadline}
+              features={form.portalFeatures}
+              primaryColor={form.primaryColor}
+              accentColor={form.accentColor}
+              logoUrl={logoPreview}
+              appName={form.orgName || 'Support'}
+            />
           </div>
         </div>
       </div>

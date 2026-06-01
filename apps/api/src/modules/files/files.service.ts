@@ -4,6 +4,7 @@ import { Client } from 'minio'
 import * as crypto from 'crypto'
 import * as path from 'path'
 import { PrismaService } from '../database/prisma.service'
+import type { Attachment } from '@tmr/db'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
@@ -39,6 +40,37 @@ export class FilesService {
     }
   }
 
+  async storeBuffer(
+    buffer: Buffer,
+    opts: { filename: string; mimeType: string; size: number; ticketId?: string; messageId?: string },
+  ): Promise<Attachment> {
+    await this.ensureBucket()
+
+    const ext = path.extname(opts.filename)
+    const objectName = `${crypto.randomUUID()}${ext}`
+
+    await this.minioClient.putObject(
+      this.bucket,
+      objectName,
+      buffer,
+      opts.size,
+      { 'Content-Type': opts.mimeType },
+    )
+
+    const url = await this.minioClient.presignedGetObject(this.bucket, objectName, 7 * 24 * 60 * 60)
+
+    return this.db.attachment.create({
+      data: {
+        ticketId: opts.ticketId ?? undefined,
+        messageId: opts.messageId ?? undefined,
+        filename: opts.filename,
+        mimeType: opts.mimeType,
+        size: opts.size,
+        url,
+      },
+    })
+  }
+
   async uploadFile(
     file: Express.Multer.File,
     ticketId?: string,
@@ -47,30 +79,11 @@ export class FilesService {
       throw new BadRequestException('File exceeds 10MB limit')
     }
 
-    await this.ensureBucket()
-
-    const ext = path.extname(file.originalname)
-    const objectName = `${crypto.randomUUID()}${ext}`
-
-    await this.minioClient.putObject(
-      this.bucket,
-      objectName,
-      file.buffer,
-      file.size,
-      { 'Content-Type': file.mimetype },
-    )
-
-    // Generate presigned URL (7 days)
-    const url = await this.minioClient.presignedGetObject(this.bucket, objectName, 7 * 24 * 60 * 60)
-
-    const attachment = await this.db.attachment.create({
-      data: {
-        ticketId: ticketId ?? undefined,
-        filename: file.originalname,
-        mimeType: file.mimetype,
-        size: file.size,
-        url,
-      },
+    const attachment = await this.storeBuffer(file.buffer, {
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      ticketId,
     })
 
     return { attachment }

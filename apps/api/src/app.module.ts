@@ -19,6 +19,12 @@ import { AppEventsModule } from './common/events/app-events.module'
 import { AiModule } from './modules/ai/ai.module'
 import { EmailSyncModule } from './modules/email-sync/email-sync.module'
 import { EventsModule } from './modules/events/events.module'
+import { TestUtilsModule } from './modules/test-utils/test-utils.module'
+import { BotModule } from './modules/bot/bot.module'
+import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module'
+import { ShiftsModule } from './modules/shifts/shifts.module'
+
+const isTestEnv = process.env['NODE_ENV'] === 'test'
 
 @Module({
   imports: [
@@ -45,6 +51,12 @@ import { EventsModule } from './modules/events/events.module'
     AiModule,
     EmailSyncModule,
     EventsModule,
+    BotModule,
+    KnowledgeBaseModule,
+    ShiftsModule,
+    // Test-only: in-memory mail capture + /__test/captured-mail endpoint.
+    // Loaded only when NODE_ENV === 'test' so production never exposes it.
+    ...(isTestEnv ? [TestUtilsModule] : []),
   ],
 })
 export class AppModule {}

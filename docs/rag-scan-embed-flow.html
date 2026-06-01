@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Athena — Knowledge Base Scan & Embed Flow</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --border:#2b3340;
+    --text:#e6edf3; --text2:#b8c2cc; --muted:#8a96a3;
+    --scan:#3b82f6; --embed:#8b5cf6; --gemini:#f59e0b; --ok:#22c55e; --warn:#ef4444;
+    --code:#0b0f14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:22px;margin:48px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:17px;margin:28px 0 10px;color:var(--text)}
+  p{color:var(--text2);margin:10px 0}
+  code{background:var(--code);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:13px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;color:#d6e0ea}
+  .lede{color:var(--muted);font-size:16px;margin-top:0}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:999px;vertical-align:middle}
+  .pill.scan{background:rgba(59,130,246,.15);color:#8ab4ff;border:1px solid rgba(59,130,246,.4)}
+  .pill.embed{background:rgba(139,92,246,.15);color:#c4b1ff;border:1px solid rgba(139,92,246,.4)}
+  .pill.gemini{background:rgba(245,158,11,.13);color:#ffcf6b;border:1px solid rgba(245,158,11,.4)}
+  .pill.free{background:rgba(34,197,94,.13);color:#7ee2a0;border:1px solid rgba(34,197,94,.4)}
+
+  /* lifecycle bar */
+  .life{display:flex;align-items:stretch;gap:0;margin:18px 0;flex-wrap:wrap}
+  .life .st{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--border);padding:14px;position:relative}
+  .life .st:not(:last-child){border-right:none}
+  .life .st b{display:block;font-size:13px}
+  .life .st span{font-size:12px;color:var(--muted)}
+  .arrowrow{display:flex;justify-content:center;color:var(--muted);font-size:20px;margin:-4px 0 0}
+
+  /* step cards */
+  .flow{position:relative;margin:14px 0 0;padding-left:0}
+  .step{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:0 0 10px;position:relative}
+  .step .n{position:absolute;left:-13px;top:16px;width:26px;height:26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff}
+  .step.scan{border-left:3px solid var(--scan)} .step.scan .n{background:var(--scan)}
+  .step.embed{border-left:3px solid var(--embed)} .step.embed .n{background:var(--embed)}
+  .step h4{margin:0 0 4px;font-size:15px}
+  .step .meta{font-size:12px;color:var(--muted);font-family:"SF Mono",monospace}
+  .step p{margin:6px 0 0;font-size:14px}
+  .conn{height:14px;width:2px;background:var(--border);margin:-6px 0 -2px 26px}
+  .flowlist{margin-left:18px}
+
+  .tag{font-size:11px;font-weight:700;padding:1px 7px;border-radius:5px;margin-left:6px}
+  .tag.g{background:rgba(245,158,11,.15);color:#ffcf6b} /* gemini call */
+  .tag.db{background:rgba(99,110,123,.2);color:#b8c2cc}  /* db write */
+  .tag.net{background:rgba(59,130,246,.15);color:#8ab4ff} /* network */
+  .tag.cpu{background:rgba(34,197,94,.13);color:#7ee2a0}  /* cpu only */
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border:1px solid var(--border);vertical-align:top}
+  th{background:var(--panel2);color:var(--text)}
+  td{background:var(--panel);color:var(--text2)}
+  .box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin:14px 0}
+  .note{border-left:3px solid var(--gemini);background:rgba(245,158,11,.06)}
+  .good{border-left:3px solid var(--ok);background:rgba(34,197,94,.06)}
+  .bad{border-left:3px solid var(--warn);background:rgba(239,68,68,.06)}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto;
+    font-size:12.5px;line-height:1.55;font-family:"SF Mono",ui-monospace,Menlo,monospace;color:#cdd9e5}
+  .hl{color:#ffcf6b} .dim{color:var(--muted)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .fileref{font-family:"SF Mono",monospace;font-size:11.5px;color:var(--muted)}
+  .statemachine{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .state{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600}
+  .state.s{border-color:var(--scan);color:#8ab4ff}
+  .state.c{border-color:var(--gemini);color:#ffcf6b}
+  .state.e{border-color:var(--embed);color:#c4b1ff}
+  .state.d{border-color:var(--ok);color:#7ee2a0}
+  .to{color:var(--muted)}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:720px){.twocol{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Athena Knowledge Base — Scan &amp; Embed, Explained</h1>
+  <p class="lede">How a help-center URL becomes a searchable knowledge base, why the cost is shown
+  before embedding, and why Gemini is called <em>twice</em> in the pipeline (once during scan, once during embed).</p>
+
+  <!-- ============================================================ -->
+  <h2>The big picture</h2>
+  <p>Turning your docs into something the bot can search happens in <b>two separate phases</b>, with a
+  human confirmation in between. This split exists for one reason: <b>embedding costs money</b>, so we
+  measure the work first, show you the price, and only spend after you say "go".</p>
+
+  <div class="life">
+    <div class="st"><b>1 · Scan</b><span>Fetch + split pages into chunks. <span class="pill scan">Phase A</span></span></div>
+    <div class="st"><b>2 · Estimate</b><span>Count tokens → compute embedding $ cost.</span></div>
+    <div class="st"><b>3 · Confirm</b><span>Admin reviews cost &amp; clicks <em>Embed</em>.</span></div>
+    <div class="st"><b>4 · Embed</b><span>Turn chunks into vectors. <span class="pill embed">Phase B</span></span></div>
+    <div class="st"><b>5 · Ready</b><span>Bot can now retrieve &amp; answer.</span></div>
+  </div>
+
+  <div class="box">
+    <h3 style="margin-top:0">Two different Gemini models are involved</h3>
+    <table>
+      <tr><th>Model</th><th>What it does</th><th>Where</th></tr>
+      <tr>
+        <td><code>gemini-2.0-flash</code><br><span class="pill gemini">chat / LLM</span></td>
+        <td>Writes a 1–2 sentence <b>context header</b> summarizing each page (and later, writes the bot's answers).</td>
+        <td><span class="fileref">context-builder.service.ts</span>, called from <span class="fileref">indexer.scanPage()</span> during <b>scan</b></td>
+      </tr>
+      <tr>
+        <td><code>gemini-embedding-001</code><br><span class="pill embed">embeddings</span></td>
+        <td>Converts chunk text into a 768-number <b>vector</b> used for similarity search.</td>
+        <td><span class="fileref">embedding.service.ts</span>, called from <span class="fileref">indexer.embedSource()</span> during <b>embed</b></td>
+      </tr>
+    </table>
+    <p style="margin-bottom:0"><b>This is the key thing to understand:</b> "scanning" and "embedding" are
+    not the same Gemini call. Scanning currently uses the <em>chat</em> model (for the summary);
+    embedding uses the <em>embeddings</em> model (for the vectors).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Phase A — Scan <span class="pill scan">SCANNING</span></h2>
+  <p>Triggered by <code>POST /kb/scan/start</code>. A background worker crawls the site and, for every
+  page, runs <code>indexer.scanPage()</code>. <b>No vectors are created yet.</b></p>
+
+  <div class="legend">
+    <span><span class="sw" style="background:#3b82f6"></span> network fetch</span>
+    <span><span class="sw" style="background:#22c55e"></span> CPU only (free, fast)</span>
+    <span><span class="sw" style="background:#f59e0b"></span> Gemini call (slow, costs money)</span>
+    <span><span class="sw" style="background:#636e7b"></span> database write</span>
+  </div>
+
+  <div class="flow">
+    <div class="step scan"><div class="n">1</div>
+      <h4>Discover URLs <span class="tag net">network</span></h4>
+      <div class="meta">crawler.service.ts · crawl()</div>
+      <p>Try <code>/sitemap.xml</code> first (fast — one request lists every page). If no sitemap,
+      fall back to a breadth-first crawl following links (max depth 5, max 500 pages).</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step scan"><div class="n">2</div>
+      <h4>For each page → fetch HTML <span class="tag net">network</span></h4>
+      <div class="meta">crawler.fetchPage() · today: 1 page at a time, 1s delay between pages</div>
+      <p>Download the page, skip non-HTML / <code>noindex</code> pages, read the <code>&lt;title&gt;</code>.</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step scan"><div class="n">3</div>
+      <h4>Chunk the page <span class="tag cpu">CPU only</span></h4>
+      <div class="meta">chunker.service.ts · chunk()</div>
+      <p>Strip nav/footer/script, convert HTML → Markdown, then split into sections on
+      <code>H2/H3</code> headings. Tiny sections are merged; huge ones are split. Each chunk records its
+      heading path, a deep-link URL with <code>#anchor</code>, and an estimated <code>tokenCount</code>.</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step scan"><div class="n">4</div>
+      <h4>Write a "context header" <span class="tag g">Gemini · gemini-2.0-flash</span></h4>
+      <div class="meta">context-builder.service.ts · buildContextHeader() — called at indexer.service.ts:69</div>
+      <p>Ask the chat model for a 1–2 sentence summary of the whole page, which is prepended to every
+      chunk as <code>[CONTEXT: …]</code>. <b>This is the Gemini call that happens during scanning.</b>
+      Why it exists is explained <a href="#why" style="color:#8ab4ff">below</a>.</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step scan"><div class="n">5</div>
+      <h4>Save chunks with <code>embedding = NULL</code> <span class="tag db">db write</span></h4>
+      <div class="meta">indexer.scanPage() · status → SCANNED</div>
+      <p>Chunks are stored <b>without vectors</b>. The source row is marked <code>SCANNED</code>.
+      <code>kbScanPagesSeen</code> ticks up so the UI progress bar moves.</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step scan"><div class="n">6</div>
+      <h4>Estimate the cost <span class="tag cpu">CPU only</span></h4>
+      <div class="meta">indexer.estimatePendingCost()</div>
+      <p>Sum <code>tokenCount</code> over all <code>SCANNED</code> chunks ×
+      <code>$0.15 / 1M tokens</code> (gemini-embedding-001). Store it and flip
+      <code>kbPhase = AWAITING_CONFIRM</code>.</p>
+    </div>
+  </div>
+
+  <!-- confirmation gate -->
+  <div class="box note">
+    <h3 style="margin-top:0">⏸ Confirmation gate <span class="pill" style="background:rgba(245,158,11,.13);color:#ffcf6b">AWAITING_CONFIRM</span></h3>
+    <p style="margin-bottom:0">The UI shows <b>N pages · M chunks · ≈ $X to embed</b> and waits. Nothing
+    else happens until the admin clicks <b>Embed now</b> (<code>POST /kb/embed/confirm</code>) or
+    <b>Cancel</b> (which deletes the <code>SCANNED</code> rows and returns to <code>IDLE</code>).
+    <b>This is the "show cost before embedding" guarantee.</b></p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Phase B — Embed <span class="pill embed">EMBEDDING</span></h2>
+  <p>Triggered by <code>POST /kb/embed/confirm</code>. A worker walks every <code>SCANNED</code> source
+  and calls <code>indexer.embedSource()</code>.</p>
+
+  <div class="flow">
+    <div class="step embed"><div class="n">1</div>
+      <h4>Collect un-embedded chunks <span class="tag db">db read</span></h4>
+      <div class="meta">embedSource() · SELECT … WHERE embedding IS NULL</div>
+      <p>Grab the chunk text saved during scan (already includes the <code>[CONTEXT: …]</code> header).</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step embed"><div class="n">2</div>
+      <h4>Create vectors <span class="tag g">Gemini · gemini-embedding-001</span></h4>
+      <div class="meta">embedding.service.ts · embedChunks() — batchEmbedContents, 768 dims, L2-normalised</div>
+      <p>Each chunk's text is sent to the <b>embeddings</b> model and comes back as 768 numbers that
+      capture its meaning. <b>This is the call you are paying for</b>, and the cost matches the estimate
+      from Phase A.</p>
+    </div>
+    <div class="conn"></div>
+
+    <div class="step embed"><div class="n">3</div>
+      <h4>Store vectors &amp; mark <code>INDEXED</code> <span class="tag db">db write</span></h4>
+      <div class="meta">UPDATE "KnowledgeChunk" SET embedding = … ; source → INDEXED</div>
+      <p><code>kbEmbedChunksDone</code> ticks up for the second progress bar. When all sources are done,
+      <code>kbPhase = DONE</code>.</p>
+    </div>
+  </div>
+
+  <div class="box good">
+    <p style="margin:0"><b>Now the bot can answer.</b> At question time the same embeddings model turns the
+    customer's question into a vector, and retrieval finds the chunks whose vectors are closest (plus a
+    keyword search), then <code>gemini-2.0-flash</code> writes the answer from those chunks.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="why">Why is Gemini used during <em>scanning</em>?</h2>
+  <p>This is the part that looks surprising — scanning is supposed to be "just fetch pages", yet it calls
+  the LLM. The reason is a retrieval-quality technique called <b>contextual retrieval</b>.</p>
+
+  <div class="twocol">
+    <div class="box bad">
+      <h3 style="margin-top:0">The problem it solves</h3>
+      <p style="margin-bottom:0">A single chunk often loses the context of the page it came from. A chunk
+      that says <em>"Pro includes 50 accounts per connector"</em> doesn't contain the words "pricing" or
+      "plan comparison". So a search for <em>"Pro plan limits"</em> might miss it — the chunk is correct
+      but <b>orphaned</b> from its page's topic.</p>
+    </div>
+    <div class="box good">
+      <h3 style="margin-top:0">The fix: a context header</h3>
+      <p style="margin-bottom:0">Before embedding, ask <code>gemini-2.0-flash</code> for a one-line summary
+      of the whole page and glue it to the front of every chunk. Now each chunk's vector also carries the
+      page's topic, so it's findable.</p>
+    </div>
+  </div>
+
+  <pre>chunk text actually embedded:
+
+<span class="hl">[CONTEXT: Two Minute Reports pricing page comparing the Lite, Basic, Pro
+          and Business plans — users, accounts per connector, and pricing.]</span>
+### Pro — $129 / month
+* 10 users
+* 50 accounts per connector
+* Priority support
+...
+<span class="dim"># the [CONTEXT] line is generated by Gemini during SCAN (step 4),</span>
+<span class="dim"># then embedded into the vector during EMBED (step 2).</span></pre>
+
+  <div class="box note">
+    <h3 style="margin-top:0">The trade-off (and what the improvement plan changes)</h3>
+    <p>Because the context header is generated <b>per page during the scan</b>, the scan makes one Gemini
+    chat call for every page — that is the main reason the initial scan feels slow, and it also means a
+    small Gemini charge is incurred before the "confirm cost" step (the displayed estimate only counts
+    embedding cost).</p>
+    <p style="margin-bottom:0">The planned optimization keeps the technique but <b>moves the context-header
+    generation into Phase B</b> (right before embedding) and <b>fetches pages in parallel</b>. Scanning
+    becomes pure fetch + chunk (genuinely fast and free), the quality benefit of the context header is
+    unchanged, and the cost gate still happens before any spend.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>State machine (<code>kbPhase</code>)</h2>
+  <div class="statemachine">
+    <span class="state">IDLE</span><span class="to">→</span>
+    <span class="state s">SCANNING</span><span class="to">→</span>
+    <span class="state c">AWAITING_CONFIRM</span><span class="to">→</span>
+    <span class="state e">EMBEDDING</span><span class="to">→</span>
+    <span class="state d">DONE</span>
+  </div>
+  <p class="dim" style="font-size:13px">Cancel during scan or at the confirm gate deletes the
+  <code>SCANNED</code> rows and returns to <code>IDLE</code>/<code>CANCELLED</code>. The whole machine is
+  driven by fields on <code>AppConfig</code> and polled by the settings UI every few seconds.</p>
+
+  <!-- ============================================================ -->
+  <h2>Where each piece lives</h2>
+  <table>
+    <tr><th>Responsibility</th><th>File</th></tr>
+    <tr><td>Start/confirm/cancel/status endpoints</td><td class="fileref">apps/api/src/modules/knowledge-base/knowledge-base.controller.ts</td></tr>
+    <tr><td>Crawl orchestration + progress counters</td><td class="fileref">…/knowledge-base/workers/crawl-and-index.worker.ts</td></tr>
+    <tr><td>URL discovery + page fetch (sitemap/BFS)</td><td class="fileref">…/knowledge-base/crawler.service.ts</td></tr>
+    <tr><td>HTML → Markdown → chunks</td><td class="fileref">…/knowledge-base/chunker.service.ts</td></tr>
+    <tr><td><b>Context header</b> (Gemini chat, during scan)</td><td class="fileref">…/knowledge-base/context-builder.service.ts</td></tr>
+    <tr><td>scanPage / embedSource / cost estimate</td><td class="fileref">…/knowledge-base/indexer.service.ts</td></tr>
+    <tr><td><b>Embeddings</b> (Gemini embeddings, during embed)</td><td class="fileref">…/knowledge-base/embedding.service.ts</td></tr>
+    <tr><td>Vector + keyword retrieval at answer time</td><td class="fileref">apps/api/src/modules/bot/retrieval.service.ts</td></tr>
+  </table>
+
+  <p class="dim" style="font-size:12.5px;margin-top:36px">Generated as an explainer for the Athena KB
+  pipeline. Reflects the current two-phase implementation; line references may drift as the code evolves.</p>
+
+</div>
+</body>
+</html>

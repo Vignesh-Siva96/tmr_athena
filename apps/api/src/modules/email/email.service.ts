@@ -1,10 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as nodemailer from 'nodemailer'
 import * as crypto from 'crypto'
 import { AppConfigService } from '../config/config.service'
 import { PrismaService } from '../database/prisma.service'
 import { TokenRefresher } from '../email-oauth/token-refresher'
+import { MailCaptureService } from '../test-utils/mail-capture.service'
 import type { Ticket, Agent, Message, AppConfig } from '@tmr/db'
 
 type TicketWithUser = Ticket & {
@@ -25,6 +26,9 @@ export class EmailService implements OnModuleInit {
     private readonly appConfigService: AppConfigService,
     private readonly db: PrismaService,
     private readonly tokenRefresher: TokenRefresher,
+    // Test-only: present only when TestUtilsModule is loaded (NODE_ENV === 'test').
+    // E2E flows assert on captured mail via GET /__test/captured-mail.
+    @Optional() private readonly mailCapture?: MailCaptureService,
   ) {}
 
   /**
@@ -102,8 +106,15 @@ export class EmailService implements OnModuleInit {
   /**
    * Returns a transporter ready to send. For OAuth connections, injects a fresh
    * access token per send so we don't use a stale token from `initTransporter`.
+   *
+   * Test mode (NODE_ENV === 'test' and MailCaptureService is present): returns a
+   * fake transporter that records every sendMail call into the in-memory bucket
+   * exposed by GET /__test/captured-mail. No SMTP traffic leaves the process.
    */
   private async getTransporter(): Promise<nodemailer.Transporter> {
+    if (this.mailCapture) {
+      return this.makeCapturingTransport()
+    }
     const cfg = await this.appConfigService.get()
 
     if (cfg.oauthAccessTokenEnc) {
@@ -120,6 +131,62 @@ export class EmailService implements OnModuleInit {
     }
 
     return this.transporter
+  }
+
+  /**
+   * Build a fake transporter whose sendMail records the message into
+   * MailCaptureService instead of dispatching via SMTP. Returns nodemailer's
+   * standard `info` shape so callers (e.g. `sendAgentReply`) can still read
+   * `info.messageId` and `info.envelope`.
+   */
+  private makeCapturingTransport(): nodemailer.Transporter {
+    const capture = this.mailCapture!
+    const toHeadersRecord = (mail: nodemailer.SendMailOptions): Record<string, string> => {
+      const h: Record<string, string> = {}
+      if (mail.messageId) h['Message-ID'] = String(mail.messageId)
+      if (mail.inReplyTo) h['In-Reply-To'] = String(mail.inReplyTo)
+      if (mail.references) {
+        h['References'] = Array.isArray(mail.references) ? mail.references.join(' ') : String(mail.references)
+      }
+      if (mail.subject) h['Subject'] = String(mail.subject)
+      if (mail.from) h['From'] = String(mail.from)
+      const to = Array.isArray(mail.to) ? mail.to.join(', ') : String(mail.to ?? '')
+      h['To'] = to
+      if (mail.replyTo) h['Reply-To'] = String(mail.replyTo)
+      return h
+    }
+
+    const fake = {
+      sendMail: async (mail: nodemailer.SendMailOptions) => {
+        const headers = toHeadersRecord(mail)
+        const to = mail.to
+          ? Array.isArray(mail.to)
+            ? mail.to.map((r: any) => (typeof r === 'string' ? r : r.address))
+            : (typeof mail.to === 'string' ? mail.to : (mail.to as any).address)
+          : ''
+        capture.capture({
+          ts: new Date().toISOString(),
+          from: typeof mail.from === 'string' ? mail.from : (mail.from as any)?.address,
+          to,
+          subject: mail.subject ? String(mail.subject) : undefined,
+          text: typeof mail.text === 'string' ? mail.text : undefined,
+          html: typeof mail.html === 'string' ? mail.html : undefined,
+          headers,
+          raw: JSON.stringify({ ...mail, attachments: undefined }),
+        })
+        return {
+          envelope: { from: headers['From'], to: Array.isArray(to) ? to : [to] },
+          messageId: headers['Message-ID'] ?? '',
+          accepted: Array.isArray(to) ? to : [to],
+          rejected: [],
+          pending: [],
+          response: '250 Captured by MailCaptureService',
+        }
+      },
+      verify: async () => true,
+      close: () => undefined,
+    } as unknown as nodemailer.Transporter
+    return fake
   }
 
   private getFromAddress(appConfig: AppConfig): string {
@@ -247,6 +314,33 @@ export class EmailService implements OnModuleInit {
       this.logger.log(`Sent invite to agent ${agent.email}`)
     } catch (err) {
       this.logger.error(`Failed to send invite to ${agent.email}: ${String(err)}`)
+    }
+  }
+
+  async sendEscalationNotification(ticket: TicketWithUser, appConfig: AppConfig): Promise<void> {
+    const displayId = `TMR-${ticket.number}`
+    const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
+    try {
+      const transport = await this.getTransporter()
+      await transport.sendMail({
+        from: this.getFromAddress(appConfig),
+        to: ticket.user.email,
+        subject: `Re: [${displayId}] ${ticket.title}`,
+        replyTo: this.getReplyToAddress(ticket, appConfig),
+        text: [
+          `Hi ${ticket.user.name ?? 'there'},`,
+          '',
+          `Thanks for your message. Our team has picked up your ticket and a support specialist will follow up shortly.`,
+          '',
+          `Ticket: ${displayId}`,
+          `View your ticket: ${portalUrl}/tickets/${ticket.id}`,
+          '',
+          `— ${appConfig.appName} Support Team`,
+        ].join('\n'),
+      })
+      this.logger.log(`Sent escalation notification for ticket ${ticket.id}`)
+    } catch (err) {
+      this.logger.error(`Failed to send escalation notification for ticket ${ticket.id}: ${String(err)}`)
     }
   }
 

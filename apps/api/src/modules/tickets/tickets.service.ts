@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
 import { QueueService } from '../queue/queue.service'
@@ -25,23 +25,64 @@ export class TicketsService {
     private readonly sse: SseService,
   ) {}
 
+  // ─── Shared activation (confirmation + bot) ───────────────────────────────
+
+  private async activateTicket(ticketId: string): Promise<void> {
+    const appConfig = await this.db.appConfig.findFirst()
+    if (appConfig) {
+      const fullTicket = await this.db.ticket.findUnique({
+        where: { id: ticketId },
+        include: { user: true },
+      })
+      if (fullTicket) {
+        this.emailService
+          .sendTicketConfirmation(
+            fullTicket as Parameters<typeof this.emailService.sendTicketConfirmation>[0],
+            appConfig,
+          )
+          .catch((err: unknown) => console.error('Confirmation email failed:', err))
+      }
+    }
+    this.queueService.enqueueBotRespond({ ticketId }).catch(() => {})
+  }
+
+  // ─── Stats ────────────────────────────────────────────────────────────────
+
   async stats(): Promise<unknown> {
-    const [byStatus, byCategory, unassigned] = await Promise.all([
-      this.db.ticket.groupBy({ by: ['status'], where: { deletedAt: null }, _count: { id: true } }),
-      this.db.ticket.groupBy({ by: ['category'], where: { deletedAt: null }, _count: { id: true } }),
-      this.db.ticket.count({ where: { deletedAt: null, assigneeId: null } }),
+    const excluded: TicketStatus[] = ['NEW', 'DISMISSED']
+    const liveFilter = { deletedAt: null, status: { notIn: excluded } }
+    const [byStatus, byCategory, unassigned, newCount] = await Promise.all([
+      this.db.ticket.groupBy({ by: ['status'], where: liveFilter, _count: { _all: true } }),
+      this.db.ticket.groupBy({ by: ['category'], where: liveFilter, _count: { _all: true } }),
+      this.db.ticket.count({ where: { ...liveFilter, assigneeId: null } }),
+      this.db.ticket.count({ where: { deletedAt: null, status: 'NEW' } }),
     ])
     return {
-      byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count.id])),
-      byCategory: Object.fromEntries(byCategory.map((r) => [r.category, r._count.id])),
+      byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
+      byCategory: Object.fromEntries(byCategory.map((r) => [r.category, r._count._all])),
       unassigned,
+      newCount,
     }
   }
 
+  // ─── List ─────────────────────────────────────────────────────────────────
+
   async list(query: ListTicketsQuery, caller: CallerContext): Promise<TicketListResult> {
+    // Determine status scope from view + caller
+    const excludedStatuses: TicketStatus[] = ['NEW', 'DISMISSED']
+    let statusScope: Prisma.TicketWhereInput['status'] | undefined
+    if (caller.role === 'user') {
+      statusScope = { notIn: excludedStatuses }
+    } else if (query.view === 'inbox') {
+      statusScope = undefined
+    } else {
+      statusScope = { notIn: excludedStatuses }
+    }
+
     const where: Prisma.TicketWhereInput = {
       deletedAt: null,
-      ...(query.status && { status: query.status as TicketStatus }),
+      ...(query.view === 'inbox' && caller.role === 'agent' && { source: 'EMAIL' }),
+      ...(query.status ? { status: query.status as TicketStatus } : (statusScope ? { status: statusScope } : {})),
       ...(query.category && { category: query.category as TicketCategory }),
       ...(query.assigneeId && { assigneeId: query.assigneeId }),
       ...(caller.role === 'user' && { userId: caller.id }),
@@ -62,6 +103,7 @@ export class TicketsService {
         include: {
           user: { select: { id: true, name: true, email: true } },
           assignee: { select: { id: true, name: true, avatarUrl: true } },
+          dismissedBy: { select: { id: true, name: true } },
           tags: true,
           messages: {
             where: { deletedAt: null, isInternal: false, type: 'REPLY' },
@@ -88,6 +130,8 @@ export class TicketsService {
     }
   }
 
+  // ─── Create ───────────────────────────────────────────────────────────────
+
   async create(dto: CreateTicketDto, caller: CallerContext): Promise<{ ticket: unknown; displayId: string }> {
     const ticketResult = await this.db.$transaction(async (tx) => {
       const t = await tx.ticket.create({
@@ -113,29 +157,18 @@ export class TicketsService {
       if (dto.attachmentIds?.length) {
         await tx.attachment.updateMany({
           where: { id: { in: dto.attachmentIds } },
-          data: { ticketId: t.id },
+          data: {
+            ticketId: t.id,
+            ...(descriptionMessageId ? { messageId: descriptionMessageId } : {}),
+          },
         })
       }
       return { ticket: t, descriptionMessageId }
     })
     const { ticket, descriptionMessageId } = ticketResult
 
-    // Send confirmation email to customer (fire-and-forget)
-    const appConfig = await this.db.appConfig.findFirst()
-    if (appConfig) {
-      const ticketWithUser = await this.db.ticket.findUnique({
-        where: { id: ticket.id },
-        include: { user: true },
-      })
-      if (ticketWithUser) {
-        this.emailService
-          .sendTicketConfirmation(
-            ticketWithUser as Parameters<typeof this.emailService.sendTicketConfirmation>[0],
-            appConfig,
-          )
-          .catch((err: unknown) => console.error('Confirmation email failed:', err))
-      }
-    }
+    // Portal ticket → activate immediately (confirmation + bot)
+    await this.activateTicket(ticket.id)
 
     // Broadcast SSE event so the agent dashboard updates in real time
     this.sse.broadcast({ type: 'ticket-created', ticketId: ticket.id })
@@ -147,6 +180,8 @@ export class TicketsService {
 
     return { ticket, displayId: `TMR-${ticket.number}` }
   }
+
+  // ─── Find by ID ───────────────────────────────────────────────────────────
 
   async findById(ticketId: string, caller: CallerContext): Promise<unknown> {
     const ticket = await this.db.ticket.findUnique({
@@ -175,6 +210,8 @@ export class TicketsService {
 
     return { ticket: { ...ticket, displayId: `TMR-${ticket.number}` } }
   }
+
+  // ─── Update ───────────────────────────────────────────────────────────────
 
   async update(ticketId: string, dto: UpdateTicketDto): Promise<{ ticket: unknown }> {
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
@@ -224,6 +261,56 @@ export class TicketsService {
 
     return { ticket: { ...updated, displayId: `TMR-${updated.number}` } }
   }
+
+  // ─── Convert (NEW → OPEN) ─────────────────────────────────────────────────
+
+  async convert(ticketId: string): Promise<{ ticket: unknown }> {
+    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
+    if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
+    // Idempotent — already a real ticket, no-op
+    if (ticket.status !== 'NEW' && ticket.status !== 'DISMISSED') {
+      return { ticket: { ...ticket, displayId: `TMR-${ticket.number}` } }
+    }
+
+    const updated = await this.db.ticket.update({
+      where: { id: ticketId },
+      data: {
+        status: 'OPEN',
+        dismissedAt: null,
+        dismissedById: null,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, avatarUrl: true } },
+        tags: true,
+      },
+    })
+
+    await this.activateTicket(ticketId)
+    this.sse.broadcast({ type: 'ticket-updated', ticketId })
+
+    return { ticket: { ...updated, displayId: `TMR-${updated.number}` } }
+  }
+
+  // ─── Discard (NEW → DISMISSED) ────────────────────────────────────────────
+
+  async discard(ticketId: string, agentId: string): Promise<{ success: boolean }> {
+    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
+    if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
+    // Guard: only NEW tickets can be dismissed (idempotent on DISMISSED)
+    if (ticket.status === 'DISMISSED') return { success: true }
+    if (ticket.status !== 'NEW') throw new BadRequestException('Only NEW tickets can be dismissed')
+
+    await this.db.ticket.update({
+      where: { id: ticketId },
+      data: { status: 'DISMISSED', dismissedAt: new Date(), dismissedById: agentId },
+    })
+
+    this.sse.broadcast({ type: 'ticket-updated', ticketId })
+    return { success: true }
+  }
+
+  // ─── Soft delete ──────────────────────────────────────────────────────────
 
   async softDelete(ticketId: string): Promise<{ success: boolean }> {
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })

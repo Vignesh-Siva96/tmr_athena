@@ -25,6 +25,7 @@ const STATIC_NAV_ITEMS: { section: string; items: NavItem[] }[] = [
     { href: '/settings/email', label: 'Email', badge: null, badgeColor: 'var(--d-success)' },
   ]},
   { section: 'AI', items: [
+    { href: '/settings/ai-assistant', label: 'AI Assistant' },
     { href: '/settings/ai-usage', label: 'AI Usage & Cost' },
   ]},
 ]

@@ -7,7 +7,7 @@ import { PortalNav } from '@/components/portal/PortalNav'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 
 interface TicketListItem {
@@ -31,19 +31,23 @@ interface TicketsResponse {
 }
 
 const STATUS_LABELS: Record<TicketStatus, string> = {
+  NEW: 'New',
   OPEN: 'Open',
   IN_PROGRESS: 'In Progress',
   WAITING: 'Waiting on you',
   RESOLVED: 'Resolved',
   CLOSED: 'Closed',
+  DISMISSED: 'Dismissed',
 }
 
 const STATUS_STYLES: Record<TicketStatus, { color: string; bg: string }> = {
+  NEW: { color: '#52525B', bg: '#F4F4F5' },
   OPEN: { color: '#1D4ED8', bg: '#EFF6FF' },
   IN_PROGRESS: { color: '#B45309', bg: '#FFFBEB' },
   WAITING: { color: '#7C3AED', bg: '#F5F3FF' },
   RESOLVED: { color: '#15803D', bg: '#F0FDF4' },
   CLOSED: { color: '#52525B', bg: '#F4F4F5' },
+  DISMISSED: { color: '#52525B', bg: '#F4F4F5' },
 }
 
 const CATEGORY_LABELS: Record<TicketCategory, string> = {
@@ -79,6 +83,12 @@ function timeAgo(iso: string): string {
   const days = Math.floor(hours / 24)
   if (days === 1) return 'Yesterday'
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function ticketInitials(title: string): string {
+  const words = title.trim().split(/\s+/)
+  if (words.length >= 2) return `${words[0]![0]}${words[1]![0]}`.toUpperCase()
+  return title.slice(0, 2).toUpperCase()
 }
 
 export default function MyTicketsPage() {
@@ -125,8 +135,33 @@ export default function MyTicketsPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--p-bg)' }}>
+      <style>{`
+        .new-ticket-btn {
+          transition: background 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+        }
+        .new-ticket-btn:hover {
+          background: color-mix(in srgb, var(--p-accent) 85%, #000) !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .new-ticket-btn:active { transform: scale(0.98); }
+        .ticket-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin: 0 -12px;
+          padding: 16px 12px;
+          border-radius: 6px;
+          border-bottom: 1px solid var(--p-border-2);
+          text-decoration: none;
+          cursor: pointer;
+          transition: background 120ms ease;
+        }
+        .ticket-row:hover { background: var(--p-surface); }
+        .ticket-row .row-chevron { opacity: 0; transition: opacity 120ms ease; }
+        .ticket-row:hover .row-chevron { opacity: 1; }
+      `}</style>
       <PortalNav />
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>
+      <main style={{ maxWidth: 1180, margin: '0 auto', padding: '48px 32px 80px' }}>
         {/* Header row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
           <div>
@@ -139,6 +174,7 @@ export default function MyTicketsPage() {
           </div>
           <Link
             href="/submit"
+            className="new-ticket-btn"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -227,7 +263,7 @@ export default function MyTicketsPage() {
         <div style={{ marginTop: 0 }}>
           {isLoading ? (
             [...Array(4)].map((_, i) => (
-              <div key={i} className="shimmer" style={{ height: 68, borderRadius: 'var(--r-md)', marginTop: 8 }} />
+              <div key={i} className="shimmer" style={{ height: 72, borderRadius: 'var(--r-md)', marginTop: 8 }} />
             ))
           ) : tickets.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '64px 0' }}>
@@ -253,18 +289,28 @@ export default function MyTicketsPage() {
                 <Link
                   key={ticket.id}
                   href={`/tickets/${ticket.id}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '14px 0',
-                    borderBottom: '1px solid var(--p-border-2)',
-                    textDecoration: 'none',
-                    cursor: 'pointer',
-                  }}
+                  className="ticket-row"
                 >
+                  {/* Unread dot slot (always 12px wide for alignment) */}
+                  <div style={{ width: 12, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+                    {ticket.hasUnreadReply && (
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--p-accent)', display: 'block' }} />
+                    )}
+                  </div>
+
+                  {/* Avatar from ticket title initials */}
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--p-surface)',
+                    border: '1px solid var(--p-border)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, color: 'var(--p-text-3)',
+                  }}>
+                    {ticketInitials(ticket.title)}
+                  </div>
+
                   {/* Status badge */}
-                  <div style={{ width: 130, flexShrink: 0 }}>
+                  <div style={{ width: 120, flexShrink: 0 }}>
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -286,27 +332,28 @@ export default function MyTicketsPage() {
                     {ticket.displayId}
                   </span>
 
-                  {/* Title + meta */}
+                  {/* Title + last message preview */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {ticket.hasUnreadReply && (
-                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--p-accent)', flexShrink: 0 }} />
-                      )}
-                      <span style={{
-                        fontSize: 14,
-                        fontWeight: ticket.hasUnreadReply ? 600 : 500,
-                        color: 'var(--p-text)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {ticket.title}
+                    <span style={{
+                      fontSize: 14,
+                      fontWeight: ticket.hasUnreadReply ? 600 : 500,
+                      color: 'var(--p-text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'block',
+                    }}>
+                      {ticket.title}
+                    </span>
+                    {ticket.lastMessage && (
+                      <span style={{ fontSize: 12.5, color: 'var(--p-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', marginTop: 2 }}>
+                        {ticket.lastMessage.body}
                       </span>
-                    </div>
-                    {(ticket.product ?? ticket.connector) && (
-                      <p style={{ fontSize: 12, color: 'var(--p-text-4)', margin: '2px 0 0' }}>
+                    )}
+                    {!ticket.lastMessage && (ticket.product ?? ticket.connector) && (
+                      <span style={{ fontSize: 12, color: 'var(--p-text-4)', display: 'block', marginTop: 2 }}>
                         {[ticket.product, ticket.connector].filter(Boolean).join(' · ')}
-                      </p>
+                      </span>
                     )}
                   </div>
 
@@ -329,7 +376,7 @@ export default function MyTicketsPage() {
                     {timeAgo(ticket.updatedAt)}
                   </span>
 
-                  <ChevronRight size={16} style={{ color: 'var(--p-text-4)', flexShrink: 0 }} />
+                  <ChevronRight size={16} className="row-chevron" style={{ color: 'var(--p-text-4)', flexShrink: 0 }} />
                 </Link>
               )
             })

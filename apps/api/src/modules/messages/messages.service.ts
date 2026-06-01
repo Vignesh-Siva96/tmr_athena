@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service'
 import { EmailService } from '../email/email.service'
 import { QueueService } from '../queue/queue.service'
 import { SseService } from '../events/sse.service'
+import { BotService } from '../bot/bot.service'
 import type { CreateMessageDto, UpdateMessageDto } from './messages.dto'
 import type { MessageType, MessageSentVia, TicketStatus } from '@tmr/db'
 
@@ -27,6 +28,7 @@ export class MessagesService {
     private readonly emailService: EmailService,
     private readonly queueService: QueueService,
     private readonly sse: SseService,
+    private readonly botService: BotService,
   ) {}
 
   async create(
@@ -48,6 +50,15 @@ export class MessagesService {
 
     const isInternal = dto.type === 'INTERNAL_NOTE'
 
+    // Check if this is a customer reply to a bot-answered ticket (scenario 9)
+    let shouldAutoEscalate = false
+    if (!isInternal && caller.role === 'user' && ticket.status === 'WAITING' && dto.type === 'REPLY') {
+      const botInteraction = await this.db.botInteraction.findFirst({
+        where: { ticketId, didAnswer: true },
+      })
+      shouldAutoEscalate = !!botInteraction
+    }
+
     const message = await this.db.$transaction(async (tx) => {
       const newMessage = await tx.message.create({
         data: {
@@ -62,15 +73,22 @@ export class MessagesService {
               }
             : { authorUserId: caller.id }),
         },
-        include: {
-          authorUser: { select: { id: true, name: true, email: true, avatarUrl: true } },
-          authorAgent: { select: { id: true, name: true, email: true, avatarUrl: true } },
-          attachments: true,
-        },
       })
 
+      if (dto.attachmentIds?.length) {
+        await tx.attachment.updateMany({
+          where: {
+            id: { in: dto.attachmentIds },
+            // allow freshly-uploaded (ticketId: null) or already scoped to this ticket
+            OR: [{ ticketId }, { ticketId: null }],
+            messageId: null,  // don't steal from another message
+          },
+          data: { ticketId, messageId: newMessage.id },
+        })
+      }
+
       let newStatus: TicketStatus | null = null
-      if (!isInternal) {
+      if (!isInternal && !shouldAutoEscalate) {
         if (caller.role === 'agent' && ticket.status === 'OPEN') newStatus = 'IN_PROGRESS'
         else if (caller.role === 'agent' && ticket.status === 'IN_PROGRESS') newStatus = 'WAITING'
         else if (caller.role === 'user' && ticket.status === 'WAITING') newStatus = 'IN_PROGRESS'
@@ -95,26 +113,28 @@ export class MessagesService {
         })
       }
 
-      return newMessage
+      return tx.message.findUniqueOrThrow({
+        where: { id: newMessage.id },
+        include: {
+          authorUser: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          authorAgent: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          attachments: true,
+        },
+      })
     })
 
-    // Send email: agent reply → email to customer; store returned Message-ID for threading
+    // Auto-escalate to human when customer replies after bot answered (scenario 9)
+    if (shouldAutoEscalate) {
+      this.botService
+        .escalateToHuman(ticketId, ticket, 'Customer replied after bot answer', { notifyCustomer: true })
+        .catch((err: unknown) => console.error('Auto-escalation failed:', err))
+    }
+
+    // Send email: agent reply → email to customer; enqueue for retry on failure
     if (caller.role === 'agent' && !isInternal) {
-      const appConfig = await this.db.appConfig.findFirst()
-      if (appConfig) {
-        this.emailService
-          .sendAgentReply(
-            ticket as Parameters<typeof this.emailService.sendAgentReply>[0],
-            message as Parameters<typeof this.emailService.sendAgentReply>[1],
-            appConfig,
-          )
-          .then((msgId) => {
-            if (msgId) {
-              return this.db.message.update({ where: { id: message.id }, data: { messageId: msgId } })
-            }
-          })
-          .catch((err: unknown) => console.error('Email send failed:', err))
-      }
+      this.queueService
+        .enqueueEmailSendReply({ ticketId, messageId: message.id })
+        .catch((err: unknown) => console.error('Failed to enqueue reply email:', err))
     }
 
     // Broadcast SSE event so the agent dashboard updates in real time

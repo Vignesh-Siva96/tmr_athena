@@ -70,6 +70,26 @@ export class TicketsController {
     return this.ticketsService.update(id, dto)
   }
 
+  @Post(':id/convert')
+  @UseGuards(AgentGuard)
+  convert(
+    @CurrentAgent() agent: Agent,
+    @Param('id') id: string,
+  ) {
+    if (!agent) throw new ForbiddenException('Agent access required')
+    return this.ticketsService.convert(id)
+  }
+
+  @Post(':id/discard')
+  @UseGuards(AgentGuard)
+  discard(
+    @CurrentAgent() agent: Agent,
+    @Param('id') id: string,
+  ) {
+    if (!agent) throw new ForbiddenException('Agent access required')
+    return this.ticketsService.discard(id, agent.id)
+  }
+
   @Delete(':id')
   @UseGuards(AgentGuard)
   softDelete(

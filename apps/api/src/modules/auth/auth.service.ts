@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException, InternalServerErrorException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as crypto from 'crypto'
 import * as https from 'https'
@@ -15,7 +15,9 @@ interface JwtPayload {
 }
 
 interface GoogleTokenResponse {
-  access_token: string
+  access_token?: string
+  error?: string
+  error_description?: string
 }
 
 interface GoogleUserInfo {
@@ -157,12 +159,18 @@ export class AuthService {
       { 'Content-Type': 'application/x-www-form-urlencoded' },
     )
     const tokenData = JSON.parse(tokenRaw) as GoogleTokenResponse
+    if (!tokenData.access_token) {
+      throw new InternalServerErrorException(`Google token exchange failed: ${tokenData.error ?? 'unknown'} — ${tokenData.error_description ?? ''}`)
+    }
 
     const userInfoRaw = await httpsGet(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { Authorization: `Bearer ${tokenData.access_token}` },
     )
     const googleUser = JSON.parse(userInfoRaw) as GoogleUserInfo
+    if (!googleUser.sub || !googleUser.email) {
+      throw new InternalServerErrorException('Google userinfo response missing required fields')
+    }
 
     let isNew = false
     let user = await this.db.user.findUnique({ where: { googleId: googleUser.sub } })
@@ -249,12 +257,18 @@ export class AuthService {
       { 'Content-Type': 'application/x-www-form-urlencoded' },
     )
     const tokenData = JSON.parse(tokenRaw) as GoogleTokenResponse
+    if (!tokenData.access_token) {
+      throw new InternalServerErrorException(`Google token exchange failed: ${tokenData.error ?? 'unknown'} — ${tokenData.error_description ?? ''}`)
+    }
 
     const userInfoRaw = await httpsGet(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { Authorization: `Bearer ${tokenData.access_token}` },
     )
     const googleUser = JSON.parse(userInfoRaw) as GoogleUserInfo
+    if (!googleUser.sub || !googleUser.email) {
+      throw new InternalServerErrorException('Google userinfo response missing required fields')
+    }
 
     let agent = await this.db.agent.findUnique({ where: { googleId: googleUser.sub } })
 

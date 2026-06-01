@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const TicketStatus = z.enum(['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED'])
+const TicketStatus = z.enum(['NEW', 'OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED', 'DISMISSED'])
 const TicketPriority = z.enum(['NORMAL', 'HIGH', 'URGENT'])
 const TicketCategory = z.enum(['BUG_REPORT', 'FEATURE_REQUEST', 'QUESTION', 'BILLING', 'OTHER'])
 
@@ -9,6 +9,7 @@ export const listTicketsSchema = z.object({
   category: TicketCategory.optional(),
   assigneeId: z.string().optional(),
   search: z.string().optional(),
+  view: z.enum(['inbox', 'tickets']).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).default(0),
   sortBy: z.enum(['createdAt', 'updatedAt']).default('updatedAt'),
@@ -28,9 +29,12 @@ export const createTicketSchema = z.object({
 })
 export type CreateTicketDto = z.infer<typeof createTicketSchema>
 
+// Only the 5 lifecycle statuses are settable via PATCH — NEW/DISMISSED are set via convert/discard
+const LifecycleStatus = z.enum(['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED'])
+
 export const updateTicketSchema = z.object({
   title: z.string().min(1).max(120).optional(),
-  status: TicketStatus.optional(),
+  status: LifecycleStatus.optional(),
   priority: TicketPriority.optional(),
   assigneeId: z.string().nullable().optional(),
   category: TicketCategory.optional(),
