@@ -17,9 +17,9 @@ interface TicketUser { id: string; name: string | null; email: string }
 interface Assignee { id: string; name: string; avatarUrl: string | null }
 
 interface TicketListItem {
-  id: string; number: number; displayId: string; title: string
+  id: string; ref: string; displayId: string; isTicket: boolean; title: string
   status: TicketStatus; priority: TicketPriority; category: TicketCategory
-  connector?: string | null; assignee?: Assignee | null; user: TicketUser
+  field2?: string | null; assignee?: Assignee | null; user: TicketUser
   hasUnreadReply: boolean; updatedAt: string
   lastMessage?: { body: string; createdAt: string } | null
 }

@@ -40,7 +40,7 @@ export async function makeAgent(overrides: Partial<{
   email: string
   name: string
   password: string
-  role: 'ADMIN' | 'AGENT'
+  role: 'ADMIN' | 'PRIMARY_AGENT' | 'SECONDARY_AGENT'
   isActive: boolean
 }> = {}) {
   const password = await hashPassword(overrides.password ?? 'agent-pw')
@@ -49,25 +49,38 @@ export async function makeAgent(overrides: Partial<{
       email: overrides.email ?? `agent-${randomBytes(4).toString('hex')}@example.com`,
       name: overrides.name ?? 'Test Agent',
       password,
-      role: (overrides.role ?? 'AGENT') as any,
+      role: (overrides.role ?? 'SECONDARY_AGENT') as any,
       isActive: overrides.isActive ?? true,
       inviteAccepted: true,
     },
   })
 }
 
+const REF_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+function makeRef(): string {
+  let ref = ''
+  const bytes = randomBytes(7)
+  for (let i = 0; i < 7; i++) ref += REF_ALPHABET[bytes[i]! % 32]
+  return ref
+}
+
 export async function makeTicket(opts: {
   userId: string
   title?: string
-  status?: 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+  status?: 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
   priority?: 'NORMAL' | 'HIGH' | 'URGENT'
   category?: 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
   source?: 'PORTAL' | 'EMAIL'
   assigneeId?: string
+  isTicket?: boolean
+  ref?: string
 }) {
   return harness.prisma.ticket.create({
     data: {
       userId: opts.userId,
+      ref: opts.ref ?? makeRef(),
+      isTicket: opts.isTicket ?? true,
       title: opts.title ?? 'Test ticket',
       status: (opts.status ?? 'OPEN') as any,
       priority: (opts.priority ?? 'NORMAL') as any,
@@ -106,7 +119,7 @@ export async function makeMessage(opts: {
 /** Mint a valid JWT for a user or agent (matches the auth service's algorithm). */
 export async function signJwt(subject: { id: string; role: 'user' | 'agent'; orgRole?: string }) {
   const { createHmac } = await import('node:crypto')
-  const secret = process.env.BETTER_AUTH_SECRET ?? 'test-jwt-secret-deterministic'
+  const secret = process.env.BETTER_AUTH_SECRET ?? 'test-jwt-secret-deterministic-0123'
   const header = { alg: 'HS256', typ: 'JWT' }
   const payload = {
     sub: subject.id,

@@ -4,6 +4,7 @@ import { Octokit } from '@octokit/rest'
 import * as crypto from 'crypto'
 import { PrismaService } from '../database/prisma.service'
 import type { ConnectGithubDto, UpdateGithubConfigDto, CreateIssueDto, LinkIssueDto } from './github.dto'
+import { formatRef } from '../tickets/util/generate-ref'
 
 interface GitHubOAuthResponse {
   access_token?: string
@@ -26,6 +27,9 @@ async function githubFetch<T>(url: string, options: RequestInit): Promise<T> {
     signal: AbortSignal.timeout(GITHUB_TIMEOUT),
   })
   const text = await res.text()
+  if (!res.ok) {
+    throw new Error(`GitHub API error (status ${res.status}): ${text.slice(0, 500)}`)
+  }
   try {
     return JSON.parse(text) as T
   } catch {
@@ -151,7 +155,7 @@ export class GithubService {
     if (!repo) throw new BadRequestException('No repo specified and no default repo configured')
 
     const [owner, repoName] = repo.split('/') as [string, string]
-    const displayId = `TMR-${ticket.number}`
+    const displayId = formatRef(ticket.ref)
 
     const octokit = new Octokit({ auth: cfg.accessToken })
     const { data: ghIssue } = await octokit.issues.create({
@@ -162,13 +166,25 @@ export class GithubService {
       labels: ['support'],
     })
 
-    const issue = await this.db.$transaction(async (tx) => {
-      const created = await tx.githubIssue.create({
-        data: { ticketId, issueNumber: ghIssue.number, repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+    let issue: unknown
+    try {
+      issue = await this.db.$transaction(async (tx) => {
+        const created = await tx.githubIssue.create({
+          data: { ticketId, issueNumber: ghIssue.number, repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+        })
+        await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${repo}:#${ghIssue.number}` } })
+        return created
       })
-      await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${repo}:#${ghIssue.number}` } })
-      return created
-    })
+    } catch (err) {
+      // The GitHub issue already exists on GitHub's side at this point — there is no
+      // distributed transaction across our DB and their API. If our write fails, the
+      // issue becomes an orphan (exists on GitHub, untracked here). Log everything
+      // needed to find and reconcile it by hand: ticket, repo, issue number and URL.
+      this.logger.error(
+        `Orphaned GitHub issue: DB write failed after creating ${ghIssue.html_url} (#${ghIssue.number}) for ticket ${ticketId} in ${repo} — ${String(err)}`,
+      )
+      throw err
+    }
 
     return { issue }
   }
@@ -184,13 +200,24 @@ export class GithubService {
     const octokit = new Octokit({ auth: cfg.accessToken })
     const { data: ghIssue } = await octokit.issues.get({ owner, repo: repoName, issue_number: dto.issueNumber })
 
-    const issue = await this.db.$transaction(async (tx) => {
-      const created = await tx.githubIssue.create({
-        data: { ticketId, issueNumber: ghIssue.number, repo: dto.repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+    let issue: unknown
+    try {
+      issue = await this.db.$transaction(async (tx) => {
+        const created = await tx.githubIssue.create({
+          data: { ticketId, issueNumber: ghIssue.number, repo: dto.repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+        })
+        await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${dto.repo}:#${ghIssue.number}` } })
+        return created
       })
-      await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${dto.repo}:#${ghIssue.number}` } })
-      return created
-    })
+    } catch (err) {
+      // linkIssue references a *pre-existing* GitHub issue rather than creating one,
+      // so there's no orphan-creation risk — but the link itself silently fails to
+      // persist. Log it the same way so the failed link attempt is discoverable.
+      this.logger.error(
+        `Failed to persist GitHub issue link: ${ghIssue.html_url} (#${ghIssue.number}) for ticket ${ticketId} in ${dto.repo} — ${String(err)}`,
+      )
+      throw err
+    }
 
     return { issue }
   }
@@ -255,9 +282,14 @@ export class GithubService {
       return
     }
 
-    // Verify HMAC-SHA256 signature
+    // Verify HMAC-SHA256 signature (constant-time — `!==` would leak timing info that
+    // lets an attacker recover a valid signature byte-by-byte and forge webhook deliveries)
     const expected = 'sha256=' + crypto.createHmac('sha256', config.githubWebhookSecret).update(rawBody).digest('hex')
-    if (!signature || signature !== expected) {
+    const expectedBuf = Buffer.from(expected)
+    const actualBuf = Buffer.from(signature ?? '')
+    const signatureValid =
+      expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf)
+    if (!signatureValid) {
       this.logger.warn('Webhook signature mismatch — rejected')
       return
     }

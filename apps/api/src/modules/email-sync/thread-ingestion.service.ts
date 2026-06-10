@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import type { TicketStatus } from '@tmr/db'
 import { PrismaService } from '../database/prisma.service'
 import { QueueService } from '../queue/queue.service'
 import { FilesService } from '../files/files.service'
@@ -8,6 +9,8 @@ import { BotService } from '../bot/bot.service'
 import type { IMailProvider, ParsedAttachment } from './providers/mail-provider.interface'
 import { CustomerResolverService } from './customer-resolver.service'
 import { stripSubjectPrefixes } from './util/strip-subject'
+import { generateUniqueRef } from '../tickets/util/generate-ref'
+import { applyReplyTransition } from '../tickets/util/apply-reply-transition'
 
 const MAX_EMAIL_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
@@ -51,9 +54,24 @@ export class ThreadIngestionService {
       return { created: false }
     }
 
+    // G4: Bounce detection — mailer-daemon / postmaster sender indicates a DSN / NDR.
+    // Try to match the bounce to a known ticket and write a SYSTEM_EVENT; skip normal ingest.
+    const BOUNCE_PATTERN = /^(mailer-daemon|postmaster)(@|$)/i
+    const firstParsedMsg = [...parsed.messages].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())[0]
+    const fromLocalPart = (firstParsedMsg?.fromEmail ?? '').split('@')[0] ?? ''
+    if (BOUNCE_PATTERN.test(fromLocalPart + '@')) {
+      await this.handleBouncedThread(parsed, options)
+      return { created: false }
+    }
+
+    // Determine bulk status from the first message (used to set user category on first-ever email)
+    const parsedSorted = [...parsed.messages].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())
+    const firstMsgIsBulk = parsedSorted[0]?.isBulk ?? false
+
     // Upsert user outside the transaction so it commits immediately. Catch P2002
     // (unique violation) from concurrent threads racing on the same email and
     // fall back to a plain findUnique — the winning thread already inserted it.
+    // On CREATE only: set category based on bulk flag. Never overwrite on updates.
     let user
     try {
       user = await this.db.user.upsert({
@@ -63,6 +81,7 @@ export class ThreadIngestionService {
           name: customer.name ?? null,
           source: 'EMAIL',
           isVerified: false,
+          category: firstMsgIsBulk ? 'PROMOTIONAL' : 'CUSTOMER',
         },
         update: {},
       })
@@ -79,10 +98,12 @@ export class ThreadIngestionService {
     let ticketId: string | undefined
     let wasCreated = false
     let newMessageId: string | undefined
+    let ticketIsTicket = false
+    let ticketStatus: string = 'NEW'
     const pendingAttachments: { messageId: string; ticketId: string; attachments: ParsedAttachment[] }[] = []
 
     // Derive ticket timestamps from actual message dates
-    const sortedMessages = [...parsed.messages].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())
+    const sortedMessages = parsedSorted
     const firstMessageAt = sortedMessages[0]?.sentAt ?? new Date()
     const lastMessageAt = sortedMessages[sortedMessages.length - 1]?.sentAt ?? new Date()
 
@@ -91,7 +112,7 @@ export class ThreadIngestionService {
       // Look up ticket by externalThreadId first (fast path for email-originated tickets)
       let existingTicket = await tx.ticket.findUnique({
         where: { externalThreadId: threadId },
-        select: { id: true },
+        select: { id: true, isTicket: true, status: true },
       })
 
       // Fallback: match by In-Reply-To headers (handles replies to portal-originated tickets
@@ -108,7 +129,11 @@ export class ThreadIngestionService {
             select: { ticketId: true },
           })
           if (matchingMessage) {
-            existingTicket = { id: matchingMessage.ticketId }
+            const t = await tx.ticket.findUnique({
+              where: { id: matchingMessage.ticketId },
+              select: { id: true, isTicket: true, status: true },
+            })
+            if (t) existingTicket = t
           }
 
           // Check 2: confirmation email uses synthetic <ticket-{emailThreadId}@domain> format
@@ -121,7 +146,7 @@ export class ThreadIngestionService {
                 const emailThreadId = match[1]
                 const ticketByEmailThread = await tx.ticket.findFirst({
                   where: { emailThreadId },
-                  select: { id: true },
+                  select: { id: true, isTicket: true, status: true },
                 })
                 if (ticketByEmailThread) {
                   existingTicket = ticketByEmailThread
@@ -143,8 +168,13 @@ export class ThreadIngestionService {
 
       if (!existingTicket) {
         const firstMsg = sortedMessages[0]
+        const ref = await generateUniqueRef((r) =>
+          tx.ticket.findUnique({ where: { ref: r } }).then((t) => t !== null),
+        )
         const ticket = await tx.ticket.create({
           data: {
+            ref,
+            isTicket: false,
             externalThreadId: threadId,
             externalProvider: provider.kind,
             title: stripSubjectPrefixes(parsed.firstSubject) || '(no subject)',
@@ -158,9 +188,13 @@ export class ThreadIngestionService {
           },
         })
         ticketId = ticket.id
+        ticketIsTicket = false
+        ticketStatus = 'NEW'
         wasCreated = true
       } else {
         ticketId = existingTicket.id
+        ticketIsTicket = existingTicket.isTicket
+        ticketStatus = existingTicket.status
       }
 
       // Upsert each message, tracking the latest sentAt among new messages
@@ -216,6 +250,18 @@ export class ThreadIngestionService {
           newMessageId = created.id
         }
 
+        // Apply status transitions for live, real-ticket messages (mirrors MessagesService).
+        // Skip on backfill (historical import) and conversations (isTicket=false).
+        // Scenario-9 escalation runs after the transaction and will override OPEN status itself.
+        if (!options.isBackfill && ticketIsTicket) {
+          const result = await applyReplyTransition(
+            tx,
+            { id: ticketId!, status: ticketStatus as TicketStatus },
+            isFromAgent ? 'agent' : 'customer',
+          )
+          if (result.newStatus) ticketStatus = result.newStatus
+        }
+
         if (!latestNewMessageAt || msg.sentAt > latestNewMessageAt) {
           latestNewMessageAt = msg.sentAt
         }
@@ -244,7 +290,9 @@ export class ThreadIngestionService {
 
     // Persist email attachments after transaction (HTTP calls must not run inside a DB transaction)
     if (pendingAttachments.length) {
-      const fetcher = 'fetchAttachmentBytes' in provider ? provider as unknown as AttachmentFetcher : null
+      const isAttachmentFetcher = (p: unknown): p is AttachmentFetcher =>
+        typeof p === 'object' && p !== null && 'fetchAttachmentBytes' in p && typeof (p as AttachmentFetcher).fetchAttachmentBytes === 'function'
+      const fetcher = isAttachmentFetcher(provider) ? provider : null
       if (fetcher) {
         for (const pending of pendingAttachments) {
           for (const att of pending.attachments) {
@@ -306,5 +354,80 @@ export class ThreadIngestionService {
     }
 
     return { created: wasCreated, ticketId }
+  }
+
+  /**
+   * G4: Handle a detected bounce (DSN/NDR) message.
+   * Scans body/headers for a known outbound Message-ID or the synthetic
+   * `<ticket-{emailThreadId}@…>` token. If a ticket is found, writes a
+   * `email_delivery_failed:bounce` SYSTEM_EVENT and marks the user BOUNCING.
+   */
+  private async handleBouncedThread(
+    parsed: { messages: { bodyPlain?: string; bodyRaw?: string | null; rfcMessageId?: string }[] },
+    options: { isBackfill: boolean },
+  ): Promise<void> {
+    if (options.isBackfill) return
+
+    // Collect candidate reference IDs from body text of all messages in the thread
+    const allBodyText = parsed.messages
+      .map(m => `${m.bodyPlain ?? ''} ${m.bodyRaw ?? ''}`)
+      .join(' ')
+
+    // Pattern 1: match a known outbound Message-ID stored in our Message.messageId column
+    const msgIdPattern = /<([^@>]+@[^>]+)>/g
+    const candidateIds: string[] = []
+    let m: RegExpExecArray | null
+    while ((m = msgIdPattern.exec(allBodyText)) !== null) {
+      candidateIds.push(`<${m[1]}>`)
+    }
+
+    if (candidateIds.length > 0) {
+      const matchingMsg = await this.db.message.findFirst({
+        where: { messageId: { in: candidateIds } },
+        select: { ticketId: true, ticket: { select: { userId: true } } },
+      })
+      if (matchingMsg) {
+        await this.writeBounceEvent(matchingMsg.ticketId, matchingMsg.ticket?.userId ?? null)
+        return
+      }
+    }
+
+    // Pattern 2: synthetic <ticket-{emailThreadId}@…> token
+    const syntheticPattern = /ticket-([a-z0-9][a-z0-9-]*)@/gi
+    while ((m = syntheticPattern.exec(allBodyText)) !== null) {
+      const emailThreadId = m[1]
+      const ticket = await this.db.ticket.findFirst({
+        where: { emailThreadId },
+        select: { id: true, userId: true },
+      })
+      if (ticket) {
+        await this.writeBounceEvent(ticket.id, ticket.userId)
+        return
+      }
+    }
+
+    this.logger.debug('Bounce message received but could not be matched to a ticket — falling through to normal ingest')
+  }
+
+  private async writeBounceEvent(ticketId: string, userId: string | null): Promise<void> {
+    try {
+      await this.db.message.create({
+        data: {
+          ticketId,
+          type: 'SYSTEM_EVENT',
+          body: `email_delivery_failed:bounce`,
+          isInternal: true,
+        },
+      })
+      if (userId) {
+        await this.db.user.update({
+          where: { id: userId },
+          data: { emailStatus: 'BOUNCING' },
+        })
+      }
+      this.logger.warn(`Bounce detected for ticket ${ticketId} — wrote SYSTEM_EVENT and set user emailStatus=BOUNCING`)
+    } catch (err) {
+      this.logger.error(`Failed to write bounce event for ticket ${ticketId}: ${String(err)}`)
+    }
   }
 }

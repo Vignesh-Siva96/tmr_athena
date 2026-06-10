@@ -37,7 +37,7 @@ export default async function jestGlobalSetup(): Promise<void> {
 
 async function bootContainers(): Promise<void> {
   // ---------- Postgres ----------
-  const pg = await new PostgreSqlContainer('postgres:16-alpine')
+  const pg = await new PostgreSqlContainer('pgvector/pgvector:pg16')
     .withDatabase('tmr_test')
     .withUsername('test')
     .withPassword('test')
@@ -48,6 +48,16 @@ async function bootContainers(): Promise<void> {
 
   const baseUrl = `postgresql://test:test@${pg.getHost()}:${pg.getMappedPort(5432)}/tmr_test`
   process.env.DATABASE_URL = baseUrl
+
+  // Enable pgvector extension before Prisma schema push (requires the extension binary).
+  // The pgvector/pgvector:pg16 image ships the binary; we just need to CREATE EXTENSION.
+  // Use node-postgres (pg) directly since psql may not be installed on the host.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Client } = require('pg') as { Client: new (cfg: { connectionString: string }) => { connect(): Promise<void>; query(sql: string): Promise<void>; end(): Promise<void> } }
+  const pgClient = new Client({ connectionString: baseUrl })
+  await pgClient.connect()
+  await pgClient.query('CREATE EXTENSION IF NOT EXISTS vector;')
+  await pgClient.end()
 
   // Apply schema via `prisma db push` (not `migrate deploy`) because the project
   // has historically used `db push --accept-data-loss` for schema evolution, so
@@ -81,7 +91,7 @@ async function bootContainers(): Promise<void> {
 
   // ---------- Misc env that the API expects ----------
   process.env.EMAIL_CREDS_KEY = '0'.repeat(64) // 32-byte hex
-  process.env.BETTER_AUTH_SECRET = 'test-jwt-secret-deterministic'
+  process.env.BETTER_AUTH_SECRET = 'test-jwt-secret-deterministic-0123'
   process.env.NODE_ENV = 'test'
   process.env.EMAIL_SYNC_LIVE_POLL = '0' // tests trigger polls manually
   process.env.PORTAL_URL = 'http://portal.test'

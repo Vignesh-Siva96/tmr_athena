@@ -39,7 +39,7 @@ This section gets updated as coverage grows. Treat anything not listed here as *
 | Unit | 1 | 9 | Only `stripSubjectPrefixes` — proves the runner works |
 | Contract | 2 | 5 | Atlas drift guard is functional; will catch undocumented route changes |
 | Integration | 3 | 10 | Health smoke, ticket visibility, mail capture — proves the harness is real |
-| E2E | 1 | 0 (F1 scaffolded, never executed) | Infra ready; F1 selectors need first-run validation |
+| E2E | 2 | 2 (F1 + F2 — selectors wired, ready for first run) | Run with `pnpm test:e2e`; `--headed` for visual; `--ui` for trace viewer. Traces on failure → `coverage/playwright-report/` |
 | Security / Migration / Concurrency / Parsing / External | 0 | 0 | Empty directories, configs only |
 
 The plan calls for ~150 more tests across all layers. Each follows one of the patterns in [§6–§8](#6-worked-example--unit-test).

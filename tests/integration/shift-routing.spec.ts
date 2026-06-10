@@ -10,9 +10,10 @@
 import { harness } from './harness'
 import { makeAgent } from './factories'
 import './setup'
+import { ShiftResolverService } from '../../apps/api/src/modules/bot/shift-resolver.service'
 
 async function getShiftResolver() {
-  return harness.app.get('ShiftResolverService')
+  return harness.app.get(ShiftResolverService)
 }
 
 describe('ShiftResolverService (R66–R68)', () => {
@@ -71,13 +72,13 @@ describe('ShiftResolverService (R66–R68)', () => {
     const agentA = await makeAgent({ role: 'PRIMARY_AGENT', email: 'rr-a@example.com' })
     const agentB = await makeAgent({ role: 'PRIMARY_AGENT', email: 'rr-b@example.com' })
 
-    // Both agents have all-day shifts on every day
+    // Both agents have all-day shifts on every day (0..1440 = full 24-hour window)
     const shiftA = await harness.prisma.shift.create({
       data: {
         primaryAgentId: agentA.id,
         dayOfWeek: -1,
         startMinute: 0,
-        endMinute: 0,
+        endMinute: 1440,
         lastAssignedAt: new Date('2026-05-25T08:00:00Z'),  // recently assigned
       },
     })
@@ -86,7 +87,7 @@ describe('ShiftResolverService (R66–R68)', () => {
         primaryAgentId: agentB.id,
         dayOfWeek: -1,
         startMinute: 0,
-        endMinute: 0,
+        endMinute: 1440,
         lastAssignedAt: new Date('2026-05-24T08:00:00Z'),  // older assignment
       },
     })

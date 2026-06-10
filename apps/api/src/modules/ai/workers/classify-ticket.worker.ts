@@ -3,6 +3,7 @@ import { QueueService, ClassifyTicketJobData } from '../../queue/queue.service'
 import { AI_CLASSIFY_TICKET_QUEUE } from '../../queue/queue.module'
 import { GeminiService } from '../gemini.service'
 import { PrismaService } from '../../database/prisma.service'
+import type { Prisma } from '@tmr/db'
 
 @Injectable()
 export class ClassifyTicketWorker implements OnModuleInit {
@@ -55,15 +56,37 @@ export class ClassifyTicketWorker implements OnModuleInit {
           update: {},
         })
 
-        await this.db.$transaction([
+        // Idempotency: classification can run more than once for the same ticket (job
+        // retries, or another resolve→reopen→resolve cycle re-enqueues it). Blindly
+        // incrementing `ticketCount` every run double/triple-counts; reassigning to a
+        // different topic without decrementing the old one leaves both counts drifted.
+        // Only touch counts when the topic assignment actually changes.
+        const previousTopicId = ticket.topicId
+        const topicChanged = previousTopicId !== topicRecord.id
+
+        const ops: Prisma.PrismaPromise<unknown>[] = [
           this.db.ticket.update({
             where: { id: ticketId },
             data: { topicId: topicRecord.id },
           }),
-          this.db.topic.update({
-            where: { id: topicRecord.id },
-            data: { ticketCount: { increment: 1 } },
-          }),
+        ]
+        if (topicChanged) {
+          ops.push(
+            this.db.topic.update({
+              where: { id: topicRecord.id },
+              data: { ticketCount: { increment: 1 } },
+            }),
+          )
+          if (previousTopicId) {
+            ops.push(
+              this.db.topic.update({
+                where: { id: previousTopicId },
+                data: { ticketCount: { decrement: 1 } },
+              }),
+            )
+          }
+        }
+        ops.push(
           this.db.ticketRating.upsert({
             where: { ticketId },
             create: {
@@ -80,7 +103,9 @@ export class ClassifyTicketWorker implements OnModuleInit {
               aiSummary: result.summary,
             },
           }),
-        ])
+        )
+
+        await this.db.$transaction(ops)
       } catch (err) {
         this.logger.error(`classify-ticket failed for ticket=${ticketId}: ${String(err)}`)
         throw err

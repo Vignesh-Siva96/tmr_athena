@@ -1,7 +1,8 @@
 # Portal — Page Specifications
 
-Reference design files: `design/screens/01-Submit.jsx` through `04-TicketCustomer.jsx`
-Design tokens: `design/tokens.css` and `.claude/design-system.md`
+> Historical spec. The `design/screens/*.jsx` reference files were removed once the frontend was
+> built — the implemented app is now the reference. Design tokens live in `apps/portal/src/globals.css`
+> (documented in `.claude/design-system.md`).
 
 ---
 
@@ -22,7 +23,6 @@ All portal pages share:
 
 **Route:** `/submit` (redirect from `/`)
 **Auth:** Public (guest or logged in)
-**Reference:** `design/screens/01-Submit.jsx`
 
 ### Layout
 Single column, centered, max-width 680px.
@@ -99,7 +99,6 @@ Replaces form content with:
 
 **Route:** `/auth`
 **Auth:** Public (redirect to /tickets if already authed)
-**Reference:** `design/screens/02-Auth.jsx`
 
 ### Layout
 Split: Left panel (55%) dark | Right panel (45%) white form.
@@ -157,7 +156,6 @@ Mobile: single column, left panel collapses to logo strip.
 
 **Route:** `/tickets`
 **Auth:** Required (redirect to /auth if not logged in)
-**Reference:** `design/screens/03-MyTickets.jsx`
 
 ### Layout
 Full page, max-width 860px centered.
@@ -210,7 +208,6 @@ Each row (click → /tickets/[id]):
 
 **Route:** `/tickets/[id]`
 **Auth:** Required OR magic link (guest token)
-**Reference:** `design/screens/04-TicketCustomer.jsx`
 
 ### Layout
 Two column: Thread (65%) + Sidebar (35%). On mobile: single column.

@@ -1,18 +1,16 @@
-import { Controller, Get, UseGuards, ForbiddenException } from '@nestjs/common'
+import { Controller, Get, UseGuards } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
-import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
-import type { Agent } from '@tmr/db'
+import { AdminGuard } from '../../common/guards/admin.guard'
 
 @Controller('settings/ai-usage')
-@UseGuards(AuthGuard, AgentGuard)
+@UseGuards(AuthGuard, AgentGuard, AdminGuard)
 export class AiUsageController {
   constructor(private readonly db: PrismaService) {}
 
   @Get()
-  async getAiUsage(@CurrentAgent() agent: Agent) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
+  async getAiUsage() {
 
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())

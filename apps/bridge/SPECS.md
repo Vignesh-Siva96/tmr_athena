@@ -1,7 +1,8 @@
 # Dashboard — Page Specifications
 
-Reference design files: `design/screens/05-AgentInbox.jsx` through `08-Settings.jsx`
-Design tokens: `design/tokens.css` and `.claude/design-system.md`
+> Historical spec. The `design/screens/*.jsx` reference files were removed once the frontend was
+> built — the implemented app is now the reference. Design tokens live in `apps/bridge/src/globals.css`
+> (documented in `.claude/design-system.md`).
 
 ---
 
@@ -57,7 +58,6 @@ Count badges: right-aligned, 12px, #71717A
 
 **Route:** `/inbox`
 **Auth:** Agent required
-**Reference:** `design/screens/05-AgentInbox.jsx`
 
 ### Three-Column Layout
 - Col 1: sidebar (220px, shared, described above)
@@ -134,7 +134,6 @@ Shown on single-click of a row. Hidden by default.
 
 **Route:** `/tickets/[id]`
 **Auth:** Agent required
-**Reference:** `design/screens/06-AgentTicket.jsx`
 
 ### Three-Column Layout
 - Col 1: shared sidebar (220px)
@@ -223,7 +222,6 @@ Shown on single-click of a row. Hidden by default.
 
 **Route:** Slide-over panel, triggered from "View profile →" in ticket detail sidebar
 **Auth:** Agent required
-**Reference:** `design/screens/07-CustomerProfile.jsx`
 
 ### Overlay Behavior
 - Slides in from right, 480px wide
@@ -288,7 +286,6 @@ to skip the explainer fluff. Has been on Pro since launch."
 
 **Route:** `/settings` (redirects to `/settings/general`)
 **Auth:** Agent required (admin features gated behind role check)
-**Reference:** `design/screens/08-Settings.jsx`
 
 ### Layout
 - Shared left sidebar (same as all dashboard pages)

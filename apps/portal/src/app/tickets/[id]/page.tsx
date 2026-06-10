@@ -2,10 +2,11 @@
 import { useEffect, useState, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Bold, Italic, Code, Link as LinkIcon, List, Paperclip, Send, Copy, Github as GithubIcon } from 'lucide-react'
+import { Bold, Italic, List, Paperclip, Send, Copy, Github as GithubIcon } from 'lucide-react'
 import { PortalNav } from '@/components/portal/PortalNav'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { sanitizeHtml, isHtmlBody } from '@tmr/ui/sanitize'
 
 type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
@@ -51,13 +52,13 @@ interface GithubIconIssue {
 
 interface TicketDetail {
   id: string
-  number: number
+  ref: string
   displayId: string
   title: string
   status: TicketStatus
   category: TicketCategory
-  product?: string | null
-  connector?: string | null
+  field1?: string | null
+  field2?: string | null
   emailThreadId: string
   messages: Message[]
   attachments: Attachment[]
@@ -146,13 +147,23 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const { user, token, isLoading: authLoading } = useAuth()
   const [ticket, setTicket] = useState<TicketDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [replyBody, setReplyBody] = useState('')
+  const [hasContent, setHasContent] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const [replyAttachments, setReplyAttachments] = useState<Attachment[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const replyEditorRef = useRef<HTMLDivElement>(null)
+
+  const applyFormat = (type: 'bold' | 'italic' | 'list') => {
+    const editor = replyEditorRef.current
+    if (!editor) return
+    editor.focus()
+    if (type === 'bold') document.execCommand('bold', false)
+    else if (type === 'italic') document.execCommand('italic', false)
+    else if (type === 'list') document.execCommand('insertUnorderedList', false)
+  }
 
   useEffect(() => {
     if (!authLoading && !user) router.push('/auth')
@@ -219,14 +230,17 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   }
 
   const sendReply = async () => {
-    if (!replyBody.trim() || !token || !ticket) return
+    const textContent = replyEditorRef.current?.textContent?.trim() ?? ''
+    if (!textContent || !token || !ticket) return
     setIsSending(true)
     try {
-      const body: Record<string, unknown> = { body: replyBody }
-      if (replyAttachments.length > 0) body.attachmentIds = replyAttachments.map((a) => a.id)
-      const res = await api.post<{ message: Message }>(`/tickets/${ticket.id}/messages`, body, token)
+      const htmlBody = replyEditorRef.current?.innerHTML ?? ''
+      const payload: Record<string, unknown> = { body: htmlBody }
+      if (replyAttachments.length > 0) payload.attachmentIds = replyAttachments.map((a) => a.id)
+      const res = await api.post<{ message: Message }>(`/tickets/${ticket.id}/messages`, payload, token)
       setTicket((prev) => prev ? { ...prev, messages: [...prev.messages, res.message] } : prev)
-      setReplyBody('')
+      if (replyEditorRef.current) replyEditorRef.current.innerHTML = ''
+      setHasContent(false)
       setReplyAttachments([])
     } catch (err) {
       console.error(err)
@@ -387,6 +401,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               return (
                 <div
                   key={msg.id}
+                  data-testid="message-body"
                   style={{
                     padding: '20px 0',
                     borderBottom: isLastMessage ? 'none' : '1px solid var(--p-border-2)',
@@ -430,7 +445,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
                   {/* Body */}
                   {msg.bodyHtml
-                    ? <div className="msg-html" style={{ fontSize: 14.5, lineHeight: 1.7, color: 'var(--p-text)', paddingLeft: 48 }} dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
+                    ? <div className="msg-html" style={{ fontSize: 14.5, lineHeight: 1.7, color: 'var(--p-text)', paddingLeft: 48 }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }} />
+                    : isHtmlBody(msg.body)
+                    ? <div className="msg-html" style={{ fontSize: 14.5, lineHeight: 1.7, color: 'var(--p-text)', paddingLeft: 48 }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.body) }} />
                     : <p style={{ fontSize: 14.5, lineHeight: 1.7, color: 'var(--p-text)', margin: 0, paddingLeft: 48, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
                   }
 
@@ -478,9 +495,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                 </div>
               ) : (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ marginBottom: 6 }}>
                     <span style={{ fontSize: 12, color: 'var(--p-text-4)' }}>Reply</span>
-                    <span style={{ fontSize: 12, color: 'var(--p-text-4)' }}>Markdown supported</span>
                   </div>
                   <input ref={fileInputRef} type="file" onChange={handleFileSelect} style={{ display: 'none' }} />
                   <div style={{
@@ -490,11 +506,14 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     overflow: 'hidden',
                     boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -12px rgba(0,0,0,0.08)',
                   }}>
-                    <textarea
-                      value={replyBody}
-                      onChange={(e) => setReplyBody(e.target.value)}
-                      placeholder="Write your reply…"
-                      style={{ width: '100%', minHeight: 120, padding: '14px 16px', border: 'none', outline: 'none', resize: 'vertical', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, color: 'var(--p-text)', background: 'transparent', display: 'block', boxSizing: 'border-box' }}
+                    <div
+                      ref={replyEditorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      data-testid="reply-editor"
+                      data-placeholder="Write your reply…"
+                      onInput={() => setHasContent((replyEditorRef.current?.textContent?.trim().length ?? 0) > 0)}
+                      style={{ width: '100%', minHeight: 120, padding: '14px 16px', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, color: 'var(--p-text)', background: 'transparent', display: 'block', boxSizing: 'border-box' }}
                     />
                     {replyAttachments.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 12px 10px' }}>
@@ -509,8 +528,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderTop: '1px solid var(--p-border-2)', background: 'var(--p-surface)' }}>
                       <div style={{ display: 'flex', gap: 2 }}>
-                        {[Bold, Italic, Code, LinkIcon, List].map((Icon, i) => (
-                          <button key={i} type="button" style={{ width: 28, height: 28, borderRadius: 'var(--r-xs)', color: 'var(--p-text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer' }}>
+                        {([{ Icon: Bold, type: 'bold' as const }, { Icon: Italic, type: 'italic' as const }, { Icon: List, type: 'list' as const }]).map(({ Icon, type }) => (
+                          <button key={type} type="button" onMouseDown={(e) => { e.preventDefault(); applyFormat(type) }} style={{ width: 28, height: 28, borderRadius: 'var(--r-xs)', color: 'var(--p-text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer' }}>
                             <Icon size={13} />
                           </button>
                         ))}
@@ -519,13 +538,16 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         </button>
                       </div>
                       <button
-                        type="button" onClick={sendReply} disabled={!replyBody.trim() || isSending}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 16px', background: replyBody.trim() ? 'var(--p-accent)' : 'var(--p-border)', color: replyBody.trim() ? '#fff' : 'var(--p-text-4)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, border: 'none', cursor: replyBody.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+                        type="button" data-testid="reply-send" onClick={sendReply} disabled={!hasContent || isSending}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 16px', background: hasContent ? 'var(--p-accent)' : 'var(--p-border)', color: hasContent ? '#fff' : 'var(--p-text-4)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, border: 'none', cursor: hasContent ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
                       >
                         <Send size={13} /> {isSending ? 'Sending…' : 'Send reply'}
                       </button>
                     </div>
                   </div>
+                  <style>{`
+                    [data-placeholder]:empty:before { content: attr(data-placeholder); color: var(--p-text-4); pointer-events: none; }
+                  `}</style>
                 </>
               )}
             </div>
@@ -563,8 +585,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               <p style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--p-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', margin: '0 0 12px' }}>Details</p>
               {[
                 { label: 'Category', value: `${CATEGORY_ICONS[ticket.category]} ${CATEGORY_LABELS[ticket.category]}` },
-                ...(ticket.product ? [{ label: 'Product', value: ticket.product }] : []),
-                ...(ticket.connector ? [{ label: 'Connector', value: ticket.connector }] : []),
+                ...(ticket.field1 ? [{ label: 'Field 1', value: ticket.field1 }] : []),
+                ...(ticket.field2 ? [{ label: 'Field 2', value: ticket.field2 }] : []),
                 { label: 'Opened', value: new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>

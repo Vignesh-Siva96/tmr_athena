@@ -2,20 +2,27 @@
 title: Queue
 stack: [pg-boss v9, Postgres `pgboss` schema]
 status: working
-last-reviewed: 2026-05-29
+last-reviewed: 2026-06-10
 ---
 
 # Queue
 
 ## What it does
 
-Background job processing. Today there are exactly three queues — all owned by the [AI](ai.md) module — used to keep slow Gemini calls and CSAT emails off the request path. The infrastructure is general-purpose; new queues can be added by registering more workers via `QueueService.getBoss()`.
+Background job processing. There are **ten queues** across four owner modules ([AI](ai.md), [Bot](bot.md), [Knowledge base](bot.md), [Email](email.md)) — used to keep slow Gemini calls, bot responses, KB crawling/embedding, and outbound email off the request path. The infrastructure is general-purpose; new queues are added by exporting a constant from `queue.module.ts`, an `enqueue*` method on `QueueService`, and registering a worker via `QueueService.getBoss().work(...)`.
 
 | Queue | Producer | Worker | Purpose |
 |---|---|---|---|
-| `ai:analyze-message` | `MessagesService.create()` on customer REPLY | `AnalyzeMessageWorker` | Sentiment + churn / advocacy signal detection |
+| `ai:analyze-message` | `MessagesService.create()` on customer REPLY · `ThreadIngestionService` (live email) · `TicketsService.create()` (description message) | `AnalyzeMessageWorker` | Sentiment + churn / advocacy signal detection |
 | `ai:classify-ticket` | `TicketsService.update()` on → RESOLVED | `ClassifyTicketWorker` | Topic upsert + CSAT score + effort score + summary |
 | `ai:request-csat` | `TicketsService.update()` on → RESOLVED | `RequestCsatWorker` | Sends CSAT rating email (30 min delay) |
+| `bot:respond-to-ticket` | `TicketsService.create()` on new ticket | `RespondToNewTicketWorker` (bot module) | Athena first-responder RAG answer / escalation |
+| `kb:crawl-and-index` | `POST /kb/crawl/start` | `CrawlAndIndexWorker` | Full crawl + index of the knowledge-base root URL |
+| `kb:scan` | `POST /kb/scan/start` | `CrawlAndIndexWorker` | Phase 1 of two-phase indexing: scan + chunk count |
+| `kb:embed` | `POST /kb/embed/confirm` | `CrawlAndIndexWorker` | Phase 2: embed confirmed chunks (pgvector) |
+| `kb:index-page` | `POST /kb/sources/:id/reindex` | `CrawlAndIndexWorker` | Re-index a single source/page |
+| `email:send-reply` | `MessagesService.create()` on agent REPLY; also for `kind:'portal-copy'` customer portal replies (G1) | `SendReplyWorker` (email module) | Outbound email delivery (Gmail/Graph/SMTP) with retry; branches on `kind` field |
+| `email:send-confirmation` | `TicketsService.activateTicket()` on portal ticket create or convert | `SendConfirmationWorker` (email module) | Sends ticket confirmation email with 3× retry; writes `confirmation_sent:` SYSTEM_EVENT on success (G2) |
 
 Email ingestion does **not** use a queue — `LivePollerService` calls `ThreadIngestionService.fetchAndUpsertThread()` synchronously from its `@Cron('*/30 * * * * *')` tick. See [email.md](email.md).
 
@@ -42,7 +49,7 @@ sequenceDiagram
   participant Nest as NestJS bootstrap
   participant Q as QueueService
   participant Boss as PgBoss
-  participant Worker as AnalyzeMessageWorker / ClassifyTicketWorker / RequestCsatWorker
+  participant Worker as AI / Bot / KB / Email workers
 
   Nest->>Q: constructor
   Q->>Boss: new PgBoss(DATABASE_URL, schema='pgboss')
@@ -74,6 +81,8 @@ await queueService.enqueueRequestCsat({ ticketId }, /* delaySec */ 1800)
 // → boss.send('ai:request-csat', data, { startAfter: 1800, retryLimit: 2 })
 ```
 
+The bot / KB / email queues follow the same pattern (`enqueueBotRespond`, `enqueueKbCrawl`, `enqueueKbScan`, `enqueueKbEmbed`, `enqueueKbIndexPage`, `enqueueEmailSendReply`).
+
 Retry behaviour summary:
 
 | Queue | `retryLimit` | `retryDelay` | `startAfter` | `retryBackoff` |
@@ -81,6 +90,13 @@ Retry behaviour summary:
 | `ai:analyze-message` | 3 | 10 s | — | exponential |
 | `ai:classify-ticket` | 3 | 30 s | — | exponential |
 | `ai:request-csat` | 2 | — | 30 min | none (linear retry) |
+| `bot:respond-to-ticket` | 3 | 30 s | — | exponential |
+| `kb:crawl-and-index` | 1 | — | — | — |
+| `kb:scan` | 1 | — | — | — |
+| `kb:embed` | 1 | — | — | — |
+| `kb:index-page` | 3 | 60 s | — | exponential |
+| `email:send-reply` | 3 | 30 s | — | exponential |
+| `email:send-confirmation` | 3 | 30 s | — | exponential |
 
 After exhaustion the job moves to a failed state in `pgboss.job` and stays there for the configured archive period.
 
@@ -93,6 +109,9 @@ After exhaustion the job moves to a failed state in `pgboss.job` and stays there
 | [`apps/api/src/modules/ai/workers/analyze-message.worker.ts`](../../apps/api/src/modules/ai/workers/analyze-message.worker.ts) | Registers the worker for `ai:analyze-message` |
 | [`apps/api/src/modules/ai/workers/classify-ticket.worker.ts`](../../apps/api/src/modules/ai/workers/classify-ticket.worker.ts) | Registers the worker for `ai:classify-ticket` |
 | [`apps/api/src/modules/ai/workers/request-csat.worker.ts`](../../apps/api/src/modules/ai/workers/request-csat.worker.ts) | Registers the worker for `ai:request-csat` |
+| [`apps/api/src/modules/bot/workers/respond-to-new-ticket.worker.ts`](../../apps/api/src/modules/bot/workers/respond-to-new-ticket.worker.ts) | Registers the worker for `bot:respond-to-ticket` |
+| [`apps/api/src/modules/knowledge-base/workers/crawl-and-index.worker.ts`](../../apps/api/src/modules/knowledge-base/workers/crawl-and-index.worker.ts) | Registers the workers for all four `kb:*` queues |
+| [`apps/api/src/modules/email/workers/send-reply.worker.ts`](../../apps/api/src/modules/email/workers/send-reply.worker.ts) | Registers the worker for `email:send-reply` |
 
 ## Endpoints
 
@@ -109,5 +128,4 @@ None — the queues aren't exposed over HTTP. Inspect via SQL: `SELECT * FROM pg
 ## Known gaps
 
 - No admin UI for queue introspection (would be useful to see retries / failures without dropping into SQL).
-- No dead-letter handling beyond pg-boss's built-in archive. A job that exhausts retries logs and stops; we don't notify anyone.
-- Outbound email send is still inline + fire-and-forget on the request path. Could move to a dedicated `email:outbound` queue if reliability becomes a concern.
+- No dead-letter handling beyond pg-boss's built-in archive. A job that exhausts retries logs and stops; we don't notify anyone (except `email:send-reply`, whose worker posts an `email_delivery_failed` system event on final failure).

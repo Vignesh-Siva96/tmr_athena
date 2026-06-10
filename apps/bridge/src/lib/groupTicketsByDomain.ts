@@ -1,8 +1,11 @@
+export type UserCategory = 'CUSTOMER' | 'MARKETING' | 'PROMOTIONAL'
+
 export interface TicketWithUser {
   id: string
   updatedAt: string
   status: string
-  user: { email: string; name?: string | null }
+  isTicket?: boolean
+  user: { id: string; email: string; name?: string | null; category?: UserCategory }
 }
 
 export interface DomainGroup<T extends TicketWithUser> {
@@ -12,6 +15,8 @@ export interface DomainGroup<T extends TicketWithUser> {
   openCount: number
   lastActivity: string
 }
+
+// ─── Legacy flat grouping (domain detail page still uses this) ────────────────
 
 const ACTIVE_STATUSES = new Set(['OPEN', 'IN_PROGRESS', 'WAITING'])
 
@@ -38,3 +43,4 @@ export function buildDomainGroups<T extends TicketWithUser>(tickets: T[]): Domai
   groups.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
   return groups
 }
+

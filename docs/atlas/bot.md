@@ -18,7 +18,7 @@ Goals:
 | Queue | pg-boss (`bot:respond-to-ticket`) |
 | Vector store | pgvector (HNSW index) in the existing Postgres |
 | Sparse search | pg_trgm GIN index |
-| LLM | Gemini 2.0 Flash (chat) + text-embedding-004 (embedding) |
+| LLM | gemini-2.5-flash-lite (chat) + text-embedding-004 (embedding) |
 | Config | `AppConfig.bot*` + `AppConfig.kb*` fields |
 | Observability | `BotInteraction` table (full audit trail per ticket) |
 
@@ -69,7 +69,7 @@ RespondToNewTicketWorker
         │       │       ├─ Sparse: pg_trgm similarity (top-50)
         │       │       └─ Reciprocal Rank Fusion (k=60) → top-20 → top-5
         │       │
-        │       ├─ Gate 1: maxScore < 0.01 (RETRIEVAL_THRESHOLD) → ESCALATE
+        │       ├─ Gate 1: maxScore < 0.55 (DENSE_THRESHOLD) → ESCALATE
         │       │
         │       ├─ 4. GeneratorService.generateAnswer(question, top5)
         │       │       └─ Gemini JSON mode → {answer, citations[], confidence, can_answer, reasoning}

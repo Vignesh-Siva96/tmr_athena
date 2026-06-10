@@ -1,7 +1,7 @@
 # STATE.md — TMR Support Platform
 
 Living document. Updated every session. Reflects current reality, not the original spec.
-Last updated: 2026-06-01 (Triage → NEW/DISMISSED status merge)
+Last updated: 2026-06-09 (Plan okay-can-you-check-binary-nova: convert/status crash fix + Portal WYSIWYG editor)
 
 ---
 
@@ -30,8 +30,8 @@ pnpm --filter @tmr/api dev
 # 3. Portal
 NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm --filter @tmr/portal dev
 
-# 4. Dashboard
-NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm --filter @tmr/dashboard dev
+# 4. Bridge
+NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm --filter @tmr/bridge dev
 ```
 
 ### After schema changes
@@ -66,11 +66,15 @@ ngrok http 3001
 | **pg-boss queue** for inbound emails (replaces BullMQ + Redis)          | `email.inbound` queue backed by Postgres (`pgboss` schema); 5x exponential retry; same `DATABASE_URL`; zero extra infra to deploy |
 | **Generated FTS `tsv` column asserted at boot** (`RetrievalService.onModuleInit`) | Generated columns live in raw-SQL migrations, not `schema.prisma`; `migrate reset`/0-step migrations can silently drop them and break bot retrieval. Idempotent boot guard self-heals. (2026-06-01) |
 | **Athena `Learn more:` link rendered in code, not by the LLM** (`BotService.appendSource`) | The bot answer used to rely on the LLM typing the source link into `answer`. Under structured-JSON output `gemini-2.5-flash-lite` fills the `citations` array but drops the inline link; `gemini-2.0-flash` didn't. Link now appended deterministically from `citations[0]` (matched to a retrieved chunk for a heading label), so it's model-independent. (2026-06-01) |
+| **KB + Shifts controllers: `@UseGuards(AuthGuard, AgentGuard)` at class level, ADMIN-only on every mutation** | They had zero auth guards (KB even had a literal `// TODO: Add auth guard`) — anyone could crawl/delete the knowledge base, trigger `manualIndex` (SSRF surface), or CRUD on-call shifts. Matched the existing `ConfigController`/`AgentsController` pattern: class-level guard + per-mutation `if (agent.role !== 'ADMIN') throw new ForbiddenException(...)`. Read-only `GET` routes (`kb/status`, `kb/sources`, `shifts`) require auth but not ADMIN. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.1) |
+| **Single shared SSRF guard** — `apps/api/src/common/net/assert-public-url.ts` (`assertPublicUrl` + `fetchPublic` + `readBodyCapped`) | Three server-side `fetch()`s of admin/config-supplied URLs (`config.service.extractBrand`, KB crawler `fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod`) had no protection against internal targets (loopback, link-local incl. `169.254.169.254`, RFC1918 ranges, `localhost`), non-`http(s)` schemes, redirect chains, or oversized bodies. One module now: resolves the hostname via DNS at call time (covers DNS-rebinding), rejects private/loopback/link-local ranges + non-public schemes (`http` allowed only outside `production`), and `fetchPublic` re-validates every redirect hop (capped at 3) and caps response bytes (5 MB) via `readBodyCapped`. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.2) |
 | **IMAP IDLE client** replaces smtp-server inbound listener              | `ImapClientService` reads from org's existing inbox via IMAP IDLE, no MX changes needed                                           |
 | **VERP signed reply tokens** for threading                              | `reply+<emailThreadId>.<hmac8>@<domain>` — signed with AES-256-GCM key from `EMAIL_CREDS_KEY` env                                 |
 | **IMAP/SMTP creds stored encrypted in AppConfig**                       | AES-256-GCM via `credentials-cipher.ts`; never returned plain on GET; password-set boolean returned instead                        |
 | **`TransformResponseInterceptor` always wraps** in `{ data: ... }`      | Previous passthrough logic caused double-unwrap bugs in list responses                                                             |
-| **Ticket numbers use `@default(autoincrement())`**                      | Removed per-org sequence; single sequence since app is single-tenant                                                               |
+| **`Ticket.number` removed → `ref` (7-char Crockford base32)**           | Opaque, URL-safe code; `number` leaked sequential DB counts; `ref` never null (generated at creation for conversations too); display gated on `isTicket` |
+| **`Ticket.isTicket Boolean @default(false)`**                            | Inbound email rows land as conversations (`false`); convert sets `true`; invariant `isTicket=false ⇔ status ∈ {NEW,DISMISSED}` |
+| **`User.category` set once on first email, never overwritten**           | First-email bulk signal is highest-fidelity; subsequent emails don't mislabel real customers who got one promo in a thread |
 | **`Tag.name` is `@unique`**                                             | No org scope means tags are global                                                                                                 |
 | **Connector field is a dropdown** (not free text)                       | Better UX; maps to a fixed connector_map list                                                                                      |
 | **Destination field** (was "product") trimmed to Hub/Sheets/Data Studio | Per product decision                                                                                                               |
@@ -85,6 +89,11 @@ ngrok http 3001
 | **`firstResolvedAt` is immutable — set once, never overwritten**        | Preserves original resolution time even if ticket is reopened and resolved again                                                    |
 | **`/analytics` → redirect to `/analytics/operations`**                  | Preserves existing bookmarks/links while adding the new `/analytics/customers` sub-route                                           |
 | **Email-card format is Bridge-only; portal keeps chat bubbles**          | Portal is customer-facing — chat bubbles feel friendlier and match the portal's light-theme aesthetic. The new email-card format suits the agent tool. `MessageCard` is in `apps/bridge/` only, not `packages/ui`. |
+| **Bridge renders `bodyHtml` preferentially** (parity with Portal); quoted HTML history collapsed via `splitQuotedHtml()` (`div.gmail_quote` / `blockquote[type=cite]` detection) | Customer/agent replies in Bridge only rendered the plain-text `body`, so Gmail signatures/tables/images were lost. Worse, `isHtmlBody()`'s any-tag regex misdetected Gmail plain-text autolinks (`<https://…>`) as HTML, pushing the body through `dangerouslySetInnerHTML` and flattening it onto one line. `isHtmlBody()` now matches a known-tag allowlist. (2026-06-10, plan `when-a-email-received-soft-abelson`, R199/R200) |
+| **GraphProvider `bodyPlain` via structure-preserving `htmlToText()`** (`email-sync/util/html-to-text.ts`, no new dependency) | The old naive `replace(/<[^>]*>/g,' ')` + collapse-all-whitespace flattened the whole email onto one line in the stored `Message.body`. (2026-06-10, R201) |
+| **atlas-gen: enum-typed Prisma fields are columns, not relations, in the generated ERD** | The generator classified any uppercase non-scalar type as a relation and the ERD emitter skipped relation fields — every enum column (`Ticket.status`, `CustomerSignal.type`, …) was silently missing from `_generated/erd.md`. Enum names are now pre-scanned and excluded from relation classification. (2026-06-10, R202) |
+| **E2E simulates the mail server at the provider seam (`/__test/ingest-email` + captured-mail)** | Real-Gmail smoke testing stays manual; the test endpoint builds a `ParsedThread`, creates a fake `IMailProvider`, and calls the production `ThreadIngestionService` — all downstream logic (dedup, G3 transitions, SSE, bot) is production code. (2026-06-10, plan `when-a-email-received-soft-abelson`) |
+| **Bot disabled in E2E via absent `GEMINI_API_KEY` + no `botApiKeyEnc` in seed** | `BotService.respondTo()` catches embedding errors and writes a `BotInteraction` with `didAnswer=false` — does not crash or leave a retrying pg-boss job. E2E flows assert nothing about bot behavior. (2026-06-10) |
 | **Portal ticket thread redesigned to Zendesk-style (uniform cards)**    | Chat bubbles (blue customer / left-border agent) replaced with fully symmetric left-aligned threaded cards at 1180px width. Motivation: wider monitors had empty margins; asymmetry felt inconsistent on long tickets. Both customers and agents now see the same structure (avatar + name + body + attachments + divider). Accent reserved for customer avatar fill and the Support badge only. |
 | **Attachment fix at the data layer (not the UI layer)**                  | Portal and Bridge renderers already read `msg.attachments` correctly — the data just never arrived. Fixed three root causes: (1) `MessagesService.create()` now links `attachmentIds` via `updateMany` inside the transaction; (2) `GmailProvider.parseGmailMessage()` now extracts `payload.parts` attachments; (3) `ThreadIngestionService` fetches and stores each inbound attachment via `FilesService.storeBuffer()`. |
 | **`attachment.updateMany` guards: `ticketId` + `messageId: null`**      | Prevents cross-ticket attachment hijacking and prevents re-linking an attachment already owned by another message. Both checks run inside the same DB transaction as the message create. |
@@ -141,6 +150,17 @@ ngrok http 3001
 | **`AgentRole.AGENT` → `PRIMARY_AGENT`**                                | Semantically correct; all existing agents remain assignable as first responders; admins can demote to `SECONDARY_AGENT` later |
 | **`botApiKeyEnc` excluded from getSafe()**                             | Follows same redaction pattern as `oauthAccessTokenEnc`; API returns `botKeySet: boolean` instead |
 | **Bot message uses `authorBotName` not `authorAgentId`**               | No phantom agent row needed; display name is configurable; portal/bridge branch on `authorBotName !== null` |
+| **Guest token allowed for real-account emails (A4 fix)**               | Previously returned 409; new behavior issues a guest token bound to the existing user ID but does NOT flip `user.isGuest`. `NoGuestsGuard` applied to `GET /tickets` (and similar list endpoints) blocks guest tokens from browsing account history. Prevents lockout for TMR customers trying to submit a support ticket. |
+| **`Ticket.product`/`Ticket.connector` renamed to `field1`/`field2`**  | Makes dropdowns brand-configurable. Labels and option lists live in `AppConfig.field1Label`, `field1Options`, `field2Label`, `field2Options` (Json arrays). Portal uses `OptionSelect` component driven by config; Bridge displays the stored values directly. |
+| **Dropdown options store `value` keys, not display labels**            | Labels may change; stored `value` is stable. Display label is resolved from the current `field*Options` array at render time. Fallback: show raw value if no matching option found. |
+| **`useEmailConfig` cross-instance invalidation via module-level listener set (A3)** | `layout.tsx` and `email/page.tsx` mount separate instances of `useEmailConfig`. A module-level `Set<() => void>` lets any instance call `invalidateEmailConfigCache()` and have all instances re-fetch. Eliminates the stale "Connected" badge after OAuth disconnect. |
+| **Shared `applyReplyTransition()` utility (G3)** | Status-machine logic for inbound replies was copy-pasted between `MessagesService` (portal path) and `ThreadIngestionService` (email path). Extracted into `apps/api/src/modules/tickets/util/apply-reply-transition.ts`. Both paths now call the same utility inside the same Prisma transaction — identical behavior for OPEN→IN_PROGRESS, IN_PROGRESS→WAITING, WAITING→IN_PROGRESS, and RESOLVED/CLOSED→IN_PROGRESS+reopen. (2026-06-10, plan `when-a-email-received-soft-abelson`) |
+| **Confirmation email via pg-boss queue, not direct call (G2)** | `activateTicket()` previously called `EmailService.sendTicketConfirmation()` synchronously, blocking the HTTP response for SMTP latency (~200ms+). Now enqueues `email:send-confirmation` (3× retry, 30s backoff). `SendConfirmationWorker` checks `confirmation_sent:` SYSTEM_EVENT for idempotency before sending. (2026-06-10) |
+| **Portal reply email mirror via `kind: 'portal-copy'` (G1)** | Portal-submitted customer replies are mirrored to email (self-addressed copy) so the email thread stays current. `MessagesService` enqueues a second job with `kind: 'portal-copy'`; `SendReplyWorker` branches on this field and calls `sendPortalReplyCopy()`. RFC messageId stored on the portal Message row so the poller's `@unique` dedup guard drops the self-copy on the next cycle. Gated by `AppConfig.mirrorPortalRepliesToEmail`. (2026-06-10) |
+| **Bounce detection before user upsert (G4)** | `mailer-daemon`/`postmaster` senders are intercepted before the `user.upsert()` block in `ThreadIngestionService.fetchAndUpsertThread()`. No phantom User row for delivery systems. Matched bounce writes `email_delivery_failed:bounce` SYSTEM_EVENT + sets `User.emailStatus = BOUNCING`. Unmatched bounce falls through to normal ingest. Regex `[a-z0-9][a-z0-9-]*` in synthetic-pattern lookup ensures hyphenated `emailThreadId` values match correctly. (2026-06-10) |
+| **Graph attachments stored in Gmail-named ParsedAttachment fields (G5)** | `ParsedAttachment.gmailMessageId` / `gmailAttachmentId` are provider-opaque (named for Gmail historically). Graph stores its own message/attachment IDs there rather than adding new interface fields. `'fetchAttachmentBytes' in provider` duck-type check lets `ThreadIngestionService` use both adapters without branching. (2026-06-10) |
+| **Inbox uses SSE as primary signal, 60s poll as fallback (G6)** | Inbox previously polled every 15s. Now subscribes to `ticket-created`, `ticket-updated`, `message-created` SSE events with 300ms debounce. The `setInterval` fallback stretched to 60s — it only fires if the SSE connection dropped silently (some corporate proxies buffer SSE). (2026-06-10) |
+| **pg-boss `newJobCheckInterval: 100` in test mode** | Default pg-boss v9 polling interval is 2000ms. Queue integration tests (R112) need pg-boss to process jobs quickly; a 100ms interval in `NODE_ENV=test` is enough without timing-sensitive sleeps. (2026-06-10) |
 
 ---
 
@@ -174,7 +194,39 @@ read the atlas. If you want to know how it got that way, read this.
 
 ## Session Log
 
-### 2026-05-17 — Sessions 1–4
+### 2026-06-08 — Delivery QA flow (catalog-driven manual release-testing reports)
+
+- Added a repeatable release gate: per-release human testing checklists composed from a canonical
+  catalog, saved as durable, dated delivery-quality reports.
+- **Catalog (source of truth):** `tests/manual/_catalog/catalog.json` — all 107 manual scenarios
+  grouped by feature (18 features, tiers 0/A/B/C/D), each case `{id,type,scenario,ui,backend,tags}`
+  with stable `<feature>.<kebab>` ids. Add new scenarios here; reports only reference it.
+- **Tooling:** `pnpm qa:new "<release>" [--features a,b]` (`scripts/new-delivery-report.mjs`)
+  scaffolds `tests/manual/reports/<YYYY-MM-DD>_<slug>/` with `checklist.html` (generic runner) +
+  `report.json`. `--features` pre-seeds the checklist from the catalog deterministically; otherwise
+  it's empty for Claude to fill on demand (procedure documented in `tests/manual/README.md`).
+- **Runner:** `_template/checklist.html` is a generic, data-driven runner (no embedded cases) — loads
+  the per-report `report.json`, renders its `checklist`, tracks `results` keyed by case id.
+- **Persistence:** **File System Access API** autosaves results into `report.json` in the release
+  folder (localStorage session backup; download/load fallback on Firefox/Safari). Committed folder =
+  permanent QA record. Tier-D cases re-verify remediation fixes (T1.x/T2.x) in the running app.
+- Design note: chose a single `catalog.json` over per-feature files + index (simpler, no index drift,
+  jq-navigable). No app code changed; no atlas/schema impact. Command added to CLAUDE.md §4.
+
+### 2026-06-08 — Manual-QA catalog v2 (user-journey, user-facing only)
+
+- Reworked the manual-QA catalog (`tests/manual/_catalog/catalog.json`) from feature/tier grouping
+  (107 mixed cases) to a **user-journey model**: 72 **user-facing** cases across 6 phases —
+  1 Setup/config (admin) · 2 Customer (portal) · 3 Agent (dashboard) · 4 Email channel · 5 Bot ·
+  6 Analytics. Dependencies precede dependents (e.g. connect inbox in phase 1 before email-channel in 4).
+- **Pruned** everything a real user wouldn't do: forced API/curl calls, localStorage tampering,
+  webhook-signature/SSRF/boot-secret/rate-limit security probes (the old Tier-D), dev setup
+  (docker/logs/Prisma Studio), and DB/log assertions. Each case is now `action` (what the user does)
+  + `see` (what the user observes) — no internals.
+- Runner (`_template/checklist.html`) updated to render `action`/`see`, group under **phase header
+  bands**, and filter by phase. Generator (`scripts/new-delivery-report.mjs`) seeds by catalog/journey
+  order and supports `--features all`. Docs (catalog README, manual README) updated. `report.json`
+  schema: sections now `{key,title,phase,cases:[{id,type,action,see}]}`.
 
 - Built entire monorepo from scratch (CP-01 through CP-29)
 - Refactored from multi-tenant to single-tenant (removed orgId from all tables, replaced Org/BrandConfig with AppConfig)
@@ -1205,6 +1257,8 @@ After the Phase A–E implementation was complete but attachments were still inv
 | **`isBulk` denormalized on `Ticket`** | Promotional pill shown in Inbox list without joining Message rows |
 | **`dismissedById = null` = system/legacy** | Backfill-set FILTERED rows have no agent; shown as "Auto-filtered" |
 | **Dismiss guard: only `NEW` allowed** | Prevents accidental dismissal of active conversations |
+| **Deleted stale `.claude/` specs** (`stack.md`, `data-model.md`, `api-contracts.md`, `architecture.md`) | Superseded by `docs/atlas/` + `_generated/` (CI-gated); were ~30–45% accurate and actively misleading (multi-tenant `orgId`, Redis/BullMQ, SMTP listener). Kept only `conventions.md` + `design-system.md`; architecture overview rehomed to `docs/atlas/architecture.md`. |
+| **Removed `design/` reference folder** | Initial-frontend scaffolding (screens + tokens.css); zero code imports — live design tokens are each app's `src/globals.css`. |
 
 **Docs**: `docs/atlas/tickets.md` (lifecycle diagram, status model table, creation flow, list/filter section, Bridge UI section, notable decisions, known gaps), `docs/atlas/email.md` (triage flow → NEW status flow section). `pnpm atlas:gen` run.
 
@@ -1260,6 +1314,33 @@ The bot escalated **every** ticket with "Bot encountered an unexpected error." T
 
 ---
 
+### 2026-06-02 — Email + Ticket integration test catalogue (plan: okay-the-current-application-partitioned-wirth)
+
+Executed the agreed test-catalogue plan. All 10 scenarios (S1–S10) are now covered by named integration tests and regression-catalogue rows (R74–R86).
+
+**What was written / changed:**
+
+- **`tests/integration/email-ticket-flow.spec.ts`** (new) — 13 integration tests across S1–S10. Uses `harness.get<ThreadIngestionService>()`, `BotService`, `EmailService`, `MailCaptureService` directly where needed; HTTP endpoint tests for status-transition flows.
+- **`tests/integration/setup.ts`** — added MSW server bootstrap (`setupServer`, `listen`, `resetHandlers`, `close`). Exported `mswServer` so per-test overrides work (was referenced but never initialized — existing `bot.respond.spec.ts` was broken without it).
+- **`tests/e2e/flows/F2.spec.ts`** (new) — Playwright scaffold for inbound email → Bridge Inbox → Convert UI → Portal visibility flow. Depends on `/__test/ingest-email` test helper (to be added to `TestController`).
+- **`tests/regression-catalogue.md`** — R74–R86 rows added.
+- **Atlas doc drift fixes** (3 items, all one-line):
+  - `docs/atlas/tickets.md:39` — `RESOLVED --> OPEN` corrected to `RESOLVED --> IN_PROGRESS`
+  - `docs/atlas/bot.md:21` — `Gemini 2.0 Flash` corrected to `gemini-2.5-flash-lite`
+  - `docs/atlas/bot.md:72` — `maxScore < 0.01` corrected to `maxScore < 0.55 (DENSE_THRESHOLD)`
+  - `docs/atlas/email.md:301` — stale "attachments not extracted" gap updated to reflect implemented extraction (Graph provider remains the gap)
+
+**Key decisions:**
+
+| Decision | Why |
+|---|---|
+| MSW initialized in `setup.ts` (exported as `mswServer`) | It was referenced by `bot.respond.spec.ts` but never created; the setup file is the right place since it runs for every test file |
+| S9 escalation test uses a short `setTimeout(50ms)` after `flushPromises()` | `escalateToHuman` is fired with `.catch()` inside MessagesService; `flushPromises()` alone drains the Promise queue but the bot service calls async DB writes that need a tick |
+| F2 E2E depends on a `/__test/ingest-email` helper endpoint | TestController needs a new route to accept a canned thread payload and call ThreadIngestionService — not yet added; F2 spec is a scaffold that will fail until that endpoint exists |
+| S7 tested at DB contract level (SYSTEM_EVENT schema) rather than worker retry | The SendReplyWorker handler is an anonymous arrow function inside pg-boss `work()`, not extractable for direct testing; the contract test covers what agents see (the failure event + surviving message row) |
+
+---
+
 ### 2026-06-01 — Inbox UX micro-fixes (ticket click + convert transition)
 
 Three small fixes to the Inbox row interactions:
@@ -1278,3 +1359,583 @@ After the `gemini-2.5-flash-lite` migration the bot replies lost their `Learn mo
 - **Prompt simplified** ([bot.prompts.ts](apps/api/src/modules/bot/bot.prompts.ts)) — the LLM is now told to write **no links** in the answer and to set `citations` to the single most relevant passage URL. Less for flash-lite to get wrong; the link is fully code-owned.
 - **Tests** — added R72 (link appended when the model omits it) and R73 (model-emitted `Learn more:` line stripped, not duplicated) to `tests/integration/bot.respond.spec.ts` + regression-catalogue rows. NOTE: the local integration harness boots `postgres:16-alpine` (no `vector` extension), so the integration suite can't run locally — schema push fails before any bot test; `appendSource` logic was verified standalone. CI must run on a pgvector-capable Postgres image.
 - **Docs** — updated `docs/atlas/ai.md` (bot answer format + run loop step 8) and `docs/atlas/bot.md` (RAG generate step), plus a Decisions row above.
+
+---
+
+### 2026-06-03 — Email flow redesign: ref, isTicket, user categories, unified inbox, Customers page
+
+Plan: `~/.claude/plans/we-are-going-to-eager-quiche.md` — email-flow redesign. Executed fully.
+
+**Schema** (`packages/db/prisma/schema.prisma` + migration `20260603000000_email_flow_redesign`):
+- `Ticket.number Int @unique @default(autoincrement())` **removed** → replaced by `Ticket.ref String @unique` (7-char Crockford base32, never null).
+- `Ticket.isTicket Boolean @default(false)` **added**. Invariant: `isTicket=false ⇔ status ∈ {NEW, DISMISSED}`. Real ticket = `isTicket=true`.
+- `UserCategory { CUSTOMER MARKETING PROMOTIONAL }` enum added; `User.category UserCategory @default(CUSTOMER)` added.
+- `@@index([isTicket])` added on Ticket.
+
+**Migration**: ordered SQL — create `UserCategory`, add `User.category`, add `Ticket.isTicket + ref (nullable)`, backfill `isTicket=true` for non-NEW/DISMISSED rows, PL/pgSQL loop to backfill `ref` for every row with uniqueness retry, `SET NOT NULL`, unique + index creation, drop `number` + sequence.
+
+**New utility**: `apps/api/src/modules/tickets/util/generate-ref.ts` — `generateRefCandidate()` (crypto.randomBytes → Crockford) + `generateUniqueRef(exists)` with P2002 retry loop (≤5 attempts).
+
+**Backend changes**:
+- `tickets.service.ts`: all `TMR-${t.number}` → `t.ref`; `displayId = t.ref`; `create()`: portal tickets set `isTicket=true` + assign `ref`; `convert()`: idempotency guard switches to `if (ticket.isTicket) return …`, sets `isTicket=true`; `list()` default returns all non-DISMISSED (conversations + tickets) for agents; portal sees own `isTicket=true` only; `stats()` `newCount` = `isTicket=false, status=NEW`; `findById()` returns 404 for portal users on `isTicket=false` rows. `view` param removed from DTO.
+- `tickets.dto.ts`: `view` removed, `isTicket` optional boolean filter added.
+- `thread-ingestion.service.ts`: `isTicket=false` set on new inbound rows; `ref` generated on create; `User.category` set on first upsert (PROMOTIONAL if isBulk, CUSTOMER otherwise, never overwritten).
+- `users.service.ts + users.controller.ts + users.dto.ts`: new `GET /users` (`listCustomers`) with aggregates via `$queryRawUnsafe`; new `PATCH /users/:id` (`updateCategory`); `findById` now uses `t.ref` for displayId; agent-only guard.
+- `email.service.ts`: all `TMR-${ticket.number}` → `ticket.ref` in 3 places.
+- `ai/workers/request-csat.worker.ts`, `ai/workers/analyze-message.worker.ts`, `github/github.service.ts`, `analytics/customers.service.ts`, `analytics/rating.controller.ts`, `notifications/notifications.service.ts`: all `.number` → `.ref` references updated.
+
+**Frontend changes**:
+- `groupTicketsByDomain.ts`: `buildDomainUserGroups()` added (3-level: domain → user → conversations); `buildDomainGroups` kept (domain detail page).
+- `inbox/page.tsx`: fully rewritten — unified inbox, 3-level grouping (Domain → User → rows), no tab strip, Convert/Dismiss moved to detail sidebar, `UserCategoryBadge` on user rows, per-conversation code slot hidden for `!isTicket`.
+- `tickets/[id]/page.tsx`: `isTicket` added; breadcrumb shows "Conversation" when `!isTicket`; Actions sidebar shows Convert/Dismiss block when `!isTicket`, normal actions when `isTicket`.
+- `TicketPreviewPanel.tsx`: `UserCategoryBadge` + `UserCategoryControl` components added (exported).
+- NEW `customers/page.tsx`: Customers page with grid table, domain favicon, inline `UserCategoryControl`, open-count amber highlight, `CustomerProfilePanel` slide-over.
+- `CustomerProfilePanel.tsx`: `category` added to `UserProfile`; `UserCategoryControl` in header.
+- `Sidebar.tsx`: `customers` section added; Customers `RailBtn` added; aside width check extended for `customers`.
+- `github/page.tsx`, `NotificationsPanel.tsx`: `ticket.number` → `ticket.ref`.
+
+**Tests**:
+- NEW `tests/unit/api/generate-ref.spec.ts` — alphabet/length/uniqueness/retry/throw-after-5 (R35 pattern).
+- `tests/integration/email-ticket-flow.spec.ts` — confirmation subject regex updated (`[A-Z0-9]{7}` base32); `isTicket=false` + `ref` assertions on S2/S8; bulk → `PROMOTIONAL` category assertion; raw ticket.create calls in S4/S10 updated with `ref` + `isTicket`.
+- `tests/integration/tickets.create.spec.ts` — R35 test replaced: now asserts `isTicket=true` + valid `ref` + uniqueness.
+- NEW `tests/integration/users.customers.spec.ts` — R87/R88/R89.
+- `tests/integration/factories/index.ts` — `makeTicket` updated with `ref` + `isTicket` fields.
+- `tests/regression-catalogue.md` — R87, R88, R89, R35-retired, R90, R91 added.
+
+**Decisions**:
+| Decision | Why |
+|---|---|
+| `ref` replaces `number` | `number` exposed sequential DB counts to external parties; `ref` is opaque and URL-safe. Standard Linear/Jira/GitHub split: internal `id` (cuid, FK PK, URLs) + external `ref` (short display code). |
+| 7-char Crockford base32 | 32⁷ ≈ 34.4B combinations; with `@unique` + P2002 retry loop the collision window is negligible at hundreds of thousands of rows. Crockford avoids ambiguous chars (I/L/O/U). |
+| `ref` non-null on every row including conversations | Pre-compute at ingest time; no nullable gaps; any future export or cross-reference always has a code. Display gate is pure frontend (`if (!isTicket)` hides it). |
+| `isTicket` flag over status check | Clean invariant; status can change (NEW→DISMISSED→NEW via resurface) but `isTicket` is one-way (false→true only on convert, never reversed). |
+| `User.category` set once on first email only | Categorizing on every email would misclassify real customers who got one automated email in a thread. First-email signal is highest-fidelity. |
+| Two-key rationale (`id` + `ref`) | `id` stays the PK (FKs, URLs, SSE event payloads); `ref` is a separate human-facing display code. Standard pattern; code can be reformatted without touching any FK relationship. |
+| Convert/Dismiss moved to detail sidebar | Inline Inbox buttons required triage without seeing the conversation; detail page gives full context before acting. |
+| Unified inbox (no `view` param) | Split tab was friction. Single `GET /tickets` call; agent default excludes DISMISSED; portal scope adds `isTicket=true`. |
+
+**Docs**: `docs/atlas/email.md` (inbound flow → conversation vs ticket section), `docs/atlas/tickets.md` (ref/isTicket table, status model, list/filter, key files, Customers endpoint, Bridge UI sections, decisions updated).
+
+---
+
+### 2026-06-03 — Inbox row layout: drop sender clustering for clean two-line blocks
+
+The unified-inbox rewrite rendered conversation rows **clustered by consecutive sender** (a sender header, then indented subject lines with bullet dots). In practice this read as noisy — newsletter domains stacked a sender header + bullet-list of `[Other]` subjects + repeated promo badges per domain card.
+
+**Change** ([apps/bridge/src/app/inbox/page.tsx](apps/bridge/src/app/inbox/page.tsx)): removed the `showSender`/`prev.user.id` consecutive-clustering logic. Every conversation is now its own self-contained **two-line block** — sender name + email (+ category badge) on top, subject + category pill + `ref` (tickets only) below, with an avatar per block and a `border-top` separator between blocks. No behavior/data/endpoint change; pure presentation. Domain → conversation grouping (`buildDomainGroups`) is unchanged.
+
+No tests/atlas regen needed (presentational only).
+
+**Follow-up tweaks (same session):** subject (second line) is now always regular weight (`400`) — sender name is the only bold element per block; unread is signalled by the dot + brighter color, not weight. Sender line reordered to `name → email → category badge`.
+
+---
+
+### 2026-06-03 — Customer profile shows conversations + tickets, rows clickable
+
+Clicking a user (Customers page, or the profile slide-over) previously listed only **real tickets** — inbound email conversations (`isTicket=false`) were filtered out, and rows weren't clickable.
+
+- **Backend** ([users.service.ts](apps/api/src/modules/users/users.service.ts) `findById`): `recentTickets` query dropped `isTicket: true`, now returns all of the user's rows with `status != DISMISSED` (conversations + tickets), newest first, `take: 50`. `isTicket`/`status` flow through the existing spread mapping.
+- **Frontend** ([CustomerProfilePanel.tsx](apps/bridge/src/components/dashboard/CustomerProfilePanel.tsx)): section relabelled "Ticket History" → "Conversations & Tickets"; rows are clickable → `router.push('/tickets/:id')` with hover highlight; `ref` shown only when `isTicket`; reused shared `STATUS_CLS`/`STATUS_LABEL` (include `NEW`) and removed the local partial maps.
+- **Decision:** kept the slide-over panel (not a full-page user view) per user preference.
+
+No tests added (UI + query-filter change); `GET /users/:id` contract documented in [docs/atlas/tickets.md](docs/atlas/tickets.md).
+
+---
+
+### 2026-06-04 — Regression-safety test pass: Email + Ticketing (R92–R109)
+
+Executed plan `hey-i-have-completed-zippy-cat`. Added 35 new net-passing tests across unit + integration layers.
+
+**New tests added:**
+
+- **`tests/unit/api/is-bulk-sender.spec.ts`** (R109) — 15 unit tests covering each of the 6 `isBulkSender()` signals individually + clean human email → false.
+- **`tests/integration/tickets.update.spec.ts`** (R92–R101) — 15 integration tests: same-status no-op (R92), status change SYSTEM_EVENT (R93), assignee assign/unassign/same-agent (R94), `firstResolvedAt` immutability (R95), `stats()` exclusions (R96), `convert()` idempotency (R97), `list()` filters status/category/assignee/search (R98), pagination (R99), agent/portal visibility (R100), soft-delete GET bug characterization (R101 🟡).
+- **`tests/integration/email-ticket-flow.spec.ts`** (R102–R107 appended as S11–S15) — agent RFC Message-ID fallback match (R102), unmatched In-Reply-To creates new ticket (R103), agent-alias `authorAgentId` stamped (R105), attachment fetch failure non-fatal (R106), `createdAt` from `sentAt` not wall-clock (R107). R104 noted as covered by existing RFC dedup test.
+
+**Infrastructure fixes (enabled local integration test runs for first time):**
+
+- `tests/integration/global-setup.ts`: upgraded Postgres Testcontainer from `postgres:16-alpine` to `pgvector/pgvector:pg16` and added `CREATE EXTENSION IF NOT EXISTS vector` step before schema push.
+- `tests/integration/polyfills.js` + `tests/jest.integration.config.js`: Node 18 polyfills for `File` (from `buffer`) and `crypto` (from `node:crypto`) + fixed `@open-draft[^/]*` transform pattern for pnpm-encoded ESM packages.
+
+**Pre-existing bugs found and fixed (unblocked by now-runnable harness):**
+
+- `apps/api/src/modules/users/users.service.ts`: `listCustomers` count query used `$3` for search param but only passed `$1` — PostgreSQL error `42P18`. Fixed with `whereBaseForCount` using `$1`.
+- `tests/integration/bot.respond.spec.ts`: removed stale `botEnabled`/`botRetrievalThreshold`/`botConfidenceThreshold` AppConfig fields; updated embedding URL to `gemini-embedding-001`; fixed 768-dim vector mock; updated R62/R65 to current escalation format.
+- `tests/integration/shift-routing.spec.ts`: `ShiftResolverService` resolved via class token (not string); R68 endMinute `0→1440` to produce a valid 24-hour window.
+- `tests/integration/email-ticket-flow.spec.ts`: fixed unescaped apostrophes (TS1005); `BotService` resolved via class token; fixed `text-embedding-004→gemini-embedding-001` URL and 3-dim→768-dim mock; updated `R75/R76/R62` escalation assertions.
+
+**Deferred (R108, R110, R111):** P2002 race (non-deterministic), `parseGmailMessage`/`parseGraphMessage` not exported (require extraction refactor).
+
+**Known bug locked in:** R101 🟡 — `GET /tickets/:id` returns 200 after soft-delete (no `deletedAt` check in `findById`).
+
+**Test counts after session:** 68 unit (✅) · 69 integration (✅). All green.
+
+---
+
+### 2026-06-04 — Documentation reconciliation & cleanup
+
+Docs-only session; no feature behavior changed. No tests needed.
+
+- **CLAUDE.md** reframed to a maintenance doc: corrected single-tenant / `apps/bridge` / Phase-2-shipped facts; added §4 Commands section; de-duplicated content; fixed the "not a CI gate" line — atlas-drift + coverage-gate *are* CI-enforced; removed the build-era checkpoint list (lives in PROGRESS.md).
+- **`design/` reference folder deleted** (initial-frontend scaffolding — screens + `tokens.css`; zero code imports; live tokens are each app's `src/globals.css`). References cleaned in CLAUDE.md + both `SPECS.md`.
+- **Stale `.claude/` specs deleted** (`stack.md`, `data-model.md`, `api-contracts.md`, `architecture.md` — 30–45% accurate, actively misleading). Only `conventions.md` + `design-system.md` remain.
+- **`docs/atlas/architecture.md` created** — current hand-written system overview: services diagram, create-ticket / inbound-email / agent-reply flows, module structure notes, package table, Docker Compose summary, feature reference links.
+- **Quick Navigation index added to `docs/atlas/README.md`** — one table mapping every feature to atlas doc, API module(s), frontend page(s), and guarding tests. "Start here: architecture.md" pointer added near top.
+- **STATE.md Quick Reference fixed** — `# 4. Dashboard` / `@tmr/dashboard` corrected to `# 4. Bridge` / `@tmr/bridge`.
+- **Decisions table updated** with two new rows (deleted `.claude/` specs + removed `design/` folder).
+
+### 2026-06-05 — Live-poller resilience tests (Group D, R112–R118)
+
+Closed the last major testing gap from the email regression pass: `LivePollerService` (the `@Cron` email poller) had zero tests. Seven new integration tests guard every orchestration guarantee.
+
+**New file: `tests/integration/email-poller.spec.ts`** — 7 tests, all green.
+
+| ID | What it guards |
+|---|---|
+| R112 | `EMAIL_SYNC_LIVE_POLL !== '1'` gate — `pollAll()` is a complete no-op |
+| R113 | Happy path: `pollOne()` ingests one thread and advances `gmailHistoryId` |
+| R114 | `archiveStatus=RUNNING` config skipped by `pollAll()` |
+| R115 | No checkpoint (null `gmailHistoryId` + `graphDeltaLink`) → warn + return, no throw |
+| R116 | Per-thread try/catch isolation: first `fetchAndUpsertThread` throws, second thread ingested, checkpoint advanced |
+| R117 | Stale checkpoint error → `recoverFromStaleCheckpoint({sinceDays:7})` called; recovery checkpoint persisted |
+| R118 | Duplicate thread IDs in `pollChanges` result → dedup to one call per unique ID |
+
+**Approach:** `jest.spyOn(providerFactory, 'for')` returns an in-memory `IMailProvider` stub per test. Real `ThreadIngestionService` + real DB run for R113/R116/R118 so assertions cover actual DB side-effects (ticket row, `gmailHistoryId`). `jest.restoreAllMocks()` in each `afterEach` prevents spy leakage.
+
+**Key finding (R116):** `fetchAndUpsertThread` already catches `fetchThread` errors internally (returns `{created:false}`), so the per-thread try/catch in `pollOne` guards post-fetch failures (DB writes, downstream errors). R116 verifies this by making `fetchAndUpsertThread` itself reject via `mockRejectedValueOnce`, not by throwing from the stub's `fetchThread`.
+
+All 7 bite-checks passed (temporarily broke each guard, confirmed matching test goes red, reverted). Full integration layer still green (76/76 tests across 11 suites).
+
+**Docs:** regression-catalogue.md rows R112–R118 added (all ✅).
+
+---
+
+### Session — 2026-06-05 — Integration test coverage: Groups E–M (R119–R181)
+
+Executed plan `hey-i-have-completed-zippy-cat.md` in full: wrote 8 new integration spec files covering all remaining untested modules.
+
+**New files created:**
+- `tests/integration/messages.spec.ts` — R119–R125 (7 tests)
+- `tests/integration/auth.spec.ts` — R126–R132 (8 tests)
+- `tests/integration/config.spec.ts` — R133–R138 (8 tests)
+- `tests/integration/notifications.spec.ts` — R139–R144 (6 tests)
+- `tests/integration/agents-shifts.spec.ts` — R145–R151 (7 tests)
+- `tests/integration/analytics-rating.spec.ts` — R152–R158 (8 tests)
+- `tests/integration/github.spec.ts` — R159–R165 (9 tests)
+- `tests/integration/files-sync.spec.ts` — R166–R172 (8 tests)
+- `tests/integration/ai-kb.spec.ts` — R173–R181 (10 tests)
+
+**Total: 71 new tests; full integration suite 151/151 green; unit suite 68/68 green.**
+
+**Key findings from writing tests (correcting plan assumptions):**
+- `AgentRole` enum is `ADMIN|PRIMARY_AGENT|SECONDARY_AGENT` but `agents.dto.ts` only accepts `'ADMIN'|'AGENT'` — passing `'AGENT'` causes a DB error (Prisma validation). `'AGENT'` is not a valid `AgentRole`. Logged as known gap.
+- `agents.remove()` is a hard delete, not a soft deactivate (plan assumed deactivatedAt).
+- Factory `hashPassword` uses a 16-byte Buffer as scrypt salt; `AuthService.hashPassword` uses `randomBytes(16).toString('hex')` (hex string). These produce different hashes — auth signin tests need passwords created via the API or `hashForService` helper.
+- MSW default Gemini response is SENTIMENT-format. `classifyAndScoreTicket` (CSAT operation) requires a different response shape; overrode per-test in R174.
+- KB controller has no auth guard (TODO comment in code); R181 asserts current open-access behavior.
+- `NotificationType` has only `GITHUB_FIX_DEPLOYED|CHURN_RISK_DETECTED` (not `TICKET_ASSIGNED`).
+- `KnowledgeSource` has no `chunkCount` column — it's computed via `_count.chunks` join in the list endpoint.
+
+**Mutation checks performed (Groups E, F, G verified by breaking production guards and confirming only the matching test goes red).**
+
+**Docs:** regression-catalogue.md rows R119–R181 added (all ✅).
+
+---
+
+### Session — 2026-06-07 — Remediation T1.1: auth-guard KB + Shifts controllers
+
+Executed the first task of plan `you-are-a-senior-wiggly-piglet.md` (Tier 1 security remediation).
+
+**Problem:** `KnowledgeBaseController` (`/kb/*`) and `ShiftsController` (`/shifts/*`) had no
+`@UseGuards` at all — KB even carried a literal `// TODO: Add auth guard` on line 1. Anyone
+unauthenticated could crawl/delete the knowledge base, trigger `manualIndex` (an SSRF surface —
+fetches an arbitrary user-supplied URL), wipe the index, or CRUD on-call shifts.
+
+**Fix:**
+- Added `@Controller(...) @UseGuards(AuthGuard, AgentGuard)` to both controllers (matches
+  `AgentsController`/`ConfigController` pattern).
+- Added `if (agent.role !== 'ADMIN') throw new ForbiddenException(...)` to every mutating
+  endpoint: KB — `crawl/start`, `crawl/cancel`, `scan/start`, `scan/cancel`, `embed/confirm`,
+  `sources/manual`, `sources/:id/reindex`, `sources/:id` (DELETE), `index` (DELETE); Shifts —
+  `create`, `update`, `delete`. Read-only `GET` routes (`kb/status`, `kb/sources`, `shifts`)
+  require a valid agent token but not ADMIN.
+- Removed the `// TODO: Add auth guard` comment from `knowledge-base.controller.ts:1`.
+
+**Tests:** updated `tests/integration/agents-shifts.spec.ts` (R150/R151 now sign in as ADMIN; new
+R182 asserts 401 unauthenticated / 403 non-admin) and `tests/integration/ai-kb.spec.ts` (R177–R180
+now attach an ADMIN bearer token; R181 rewritten from "asserts open access" to "asserts guarded" —
+401 without a token, 403 for a non-admin on `sources/manual`).
+
+**Docs:** regression-catalogue.md — R181 description updated to reflect the fix, R182 added for
+Shifts. Architecture Decisions table updated (see row above).
+
+---
+
+### Session — 2026-06-07 — Remediation T1.2: shared SSRF guard for server-side fetches
+
+Continued plan `you-are-a-senior-wiggly-piglet.md`, executed the second Tier-1 task.
+
+**Problem:** `config.service.extractBrand` (admin-supplied URL), the KB `manualIndex` path, and
+`crawler.service.fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod` each called
+`fetch()` directly on a config/admin-supplied or remotely-discovered URL (sitemap `Sitemap:`
+directives and `<loc>` entries are attacker-controlled once an admin points the crawler at a
+malicious site) with no protection against SSRF — internal IPs (`127.0.0.1`, `169.254.169.254`
+cloud metadata, `10/172.16/192.168.x`, `localhost`, `::1`), non-`http(s)` schemes (`file://`),
+oversized response bodies, or open redirects to internal targets.
+
+**Fix:** added `apps/api/src/common/net/assert-public-url.ts`:
+- `assertPublicUrl(raw)` — parses the URL, requires `https:` (or `http:` only when
+  `NODE_ENV !== 'production'`), DNS-resolves the hostname (so DNS-rebinding is caught at
+  call time, not just for IP literals), and rejects loopback/link-local/private/CGNAT ranges
+  for both IPv4 and IPv6 (incl. IPv4-mapped `::ffff:a.b.c.d` and `localhost`).
+- `fetchPublic(raw, init)` — wraps `fetch` with `redirect: 'manual'`, re-validates every
+  redirect target with `assertPublicUrl` (capped at 3 hops), and rejects responses whose
+  `content-length` exceeds 5 MB.
+- `readBodyCapped(res, maxBytes)` — streams the body with a hard byte cap, throwing
+  `UnsafeUrlError` if exceeded (protects against bodies that lie about `content-length`).
+
+Wired `fetchPublic`/`readBodyCapped` into all 4 call sites (`config.service.ts:extractBrand`,
+`crawler.service.ts:fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod` — the last
+two weren't in the plan's named list but fetch attacker-influenced URLs from `robots.txt`/sitemap
+content, so they're in scope for the same SSRF class).
+
+**Tests:** new `tests/unit/api/assert-public-url.spec.ts` (8 cases) — rejects cloud-metadata IP,
+`localhost`, loopback IPv6, `file:`, private 10.x, and DNS-rebinding to a private address;
+accepts a normal public https URL and a public IP literal. `node:dns/promises` mocked via
+`vi.mock` so the suite has no network dependency. Full unit suite green (76/76).
+
+**Docs:** regression-catalogue.md row R183 added; Architecture Decisions table updated (row above).
+
+---
+
+### Session — 2026-06-07 (continuation: T2.4 wrap-up → Tier 3 complete)
+
+**All code fixes from the remediation plan are now complete.** Tests, regression-catalogue rows, and
+docs-atlas updates were intentionally deferred per user directive ("complete all tasks, save tests for
+later") — the next session should write those.
+
+**T2.5 — Transaction races fixed:**
+- `github.service.ts`: wrapped `$transaction` (post-API DB write) in try/catch with `logger.error`
+  logging the full orphan-issue URL/number/repo/ticketId on failure — the orphan is un-preventable
+  without distributed 2PC (GitHub has no rollback API) but is now at least discoverable in logs.
+- `bot.service.ts:escalateToHuman`: fixed TOCTOU race — replaced stale `ticket.assigneeId` early-guard
+  + unconditional `tx.ticket.update` with a single `tx.ticket.updateMany({ where: { assigneeId: null } })`
+  that checks and acts atomically, preventing double-escalation from two near-simultaneous replies.
+
+**T2.6 — LLM output validation:**
+- `gemini.service.ts`: added `analyzeMessageResultSchema` and `classifyAndScoreResultSchema` (Zod),
+  changed `invoke<T>` to take `schema: z.ZodType<T>` and parse (not just cast) the raw JSON.
+- `analyzeMessage()` now derives `sentimentLabel` locally from the validated `score` using the prompt's
+  own thresholds — eliminates Prisma enum-constraint crash risk from a bad model label.
+- `generator.service.ts`: added `generatedAnswerSchema` (confidence ∈ [0,1]) replacing the `as T` cast.
+
+**Tier 3 — all items:**
+- **Rate limiting**: in-memory `RateLimitGuard` + `@RateLimit` decorator (`common/guards/rate-limit.guard.ts`);
+  applied 10/min to 6 auth endpoints, 20/min to 2 rating endpoints.
+- **fetch refactor**: `auth.service.ts` hand-rolled `https.request` helpers replaced with `oauthPost`/
+  `oauthGet` using `fetch` + 10s timeout + `res.ok` check + 1 MB body cap.
+- **timingSafeEqual**: `auth.guard.ts` JWT signature + `github.service.ts` HMAC-SHA256 webhook signature.
+- **N+1 fixes**: `indexer.service.ts` batched per-chunk UPDATE → single `VALUES` list query;
+  `customers.service.ts` topic aggregation → `$queryRaw` with `AVG(sentimentScore)`;
+  `users.service.ts` pagination → 2-query (page then targeted aggregate).
+- **Frontend**: portal search debounced 350ms; localStorage `JSON.parse` guards in both `auth.tsx` files.
+- **Cast cleanup**: `users.service.ts` `as any` removed; `email.service.ts` nodemailer `AddrLike` type;
+  `thread-ingestion.service.ts` `isAttachmentFetcher` type guard.
+- **Misc**: `githubFetch` now throws on non-OK HTTP; `queue.service.ts` swallowed shutdown errors now
+  logged at debug; SSE 25s heartbeat merged into stream; `AdminGuard` created and wired into
+  6 controllers (22 inline role checks replaced).
+
+**Decisions recorded:** (no new architectural decisions — all changes are within the existing design;
+key judgment calls noted in plan file's task annotations)
+
+---
+
+### Session — 2026-06-07 (deferred test pass: R184–R194)
+
+**Purpose:** write all tests deferred from earlier sessions per user directive. Code was already done;
+this session was test-only.
+
+**Tests written (R184–R194):**
+- **R184** (`email-poller.spec`): T2.1 — all-threads-succeed → checkpoint advances to `newCheckpoint`;
+  any-thread-fails → checkpoint stays at old value. Also updated R116 assertion (was asserting old
+  broken behavior where checkpoint advanced despite failure).
+- **R185** (`tests/unit/api/validate-env.spec.ts`, 6 cases): T1.3 — `validateEnv` throws on missing,
+  too-short, non-string `BETTER_AUTH_SECRET`; accepts at minimum length and longer.
+- **R186** (`tests/unit/portal/sanitize-html.spec.ts`, 10 cases): T1.4 — `sanitizeHtml` strips
+  `<script>`, `<iframe>`, `on*` event attrs, `javascript:` in href/src/action; preserves safe content.
+- **R187** (`auth.spec`, 4 cases): T1.6 — signup/signin/agentSignin/guest responses contain no
+  `password` field.
+- **R188** (`auth.spec`, 3 cases): T1.7 — guest POST returns 409 for real-account email; 201 for new;
+  idempotent re-use of existing guest row.
+- **R189** (`config.spec`, 2 cases): T1.6 — `PATCH /config botApiKeyEnc` stores AES-256-GCM ciphertext
+  (not plaintext); null clears and sets `botKeySet=false`.
+- **R190** (`config.spec`, 3 cases): T2.4 — `POST /config/logo` stores file in MinIO, persists URL;
+  400 without file; 403 for non-admin.
+- **R191** (`ai-kb.spec`, 3 cases): T2.6 — out-of-range model output (score:99, rating:37) throws via
+  Zod and records AiUsage ERROR; valid data creates OK row.
+- **R192** (`tests/unit/api/worker-guards.spec.ts`, 4 cases): T2.2 — SendReplyWorker refuses
+  INTERNAL_NOTE, SYSTEM_EVENT, and isInternal=true messages.
+- **R193** (`worker-guards.spec`, 2 cases): T2.3 — RequestCsatWorker skips when `csat_requested`
+  marker exists; writes marker after first successful send.
+- **R194** (`worker-guards.spec`, 2 cases): T2.3 — ClassifyTicketWorker only touches topicCount on
+  topic change; re-classifying to same topic is a no-op.
+
+**Bug fixed during test pass:** `bot.respond.spec.ts` R61/R72/R73/idempotency were failing because
+T1.6's `decrypt(botApiKeyEnc)` call in `GeneratorService.getApiKey()` threw on the raw `'test-api-key'`
+stub seeded directly in the DB (not a valid AES-256-GCM blob). Fixed: `beforeEach` now calls
+`encrypt('test-api-key')` before upserting so the stored value is properly encrypted. Uses the same
+`EMAIL_CREDS_KEY = '0'.repeat(64)` that `global-setup.ts` sets for integration tests.
+
+**Infrastructure notes:**
+- Worker handler testing uses the lambda-capture pattern: mock `getBoss().work(queue, handler)` to
+  capture the second argument, then invoke it with a synthetic job object — no pg-boss or Docker needed.
+- Unit tests in `tests/unit/api/` run without a DOM; jsdom is only applied to `portal/` and `bridge/`
+  subdirs per `vitest.unit.config.ts`. `setup.ts` wraps `require('@testing-library/jest-dom/vitest')`
+  in try/catch since the package only exists in portal/bridge workspaces.
+
+**Still deferred (not written this session):**
+- T1.5 IDOR tests (attachment ownership, note scoping)
+- T2.5 transaction/race tests (escalation atomicity, GitHub orphan logging)
+- Tier 3 opportunistic tests (rate-limit guard, AdminGuard, etc.)
+
+**Decisions recorded:** (none — all test code follows existing patterns)
+
+---
+
+### Session — 2026-06-08 — Plan effervescent-leaping-nova: 5 bug fixes + configurable dropdowns
+
+**Purpose:** Execute plan `effervescent-leaping-nova`. Five pilot bug fixes (A1–A5) and configurable portal dropdowns feature (B1–B6).
+
+**Changes shipped:**
+
+**A1 — GitHub settings hardcoded colors:**
+- `apps/bridge/src/app/settings/github/page.tsx`: replaced all hardcoded hex/rgba literals with CSS token vars (`var(--d-surface)`, `var(--d-border)`, `var(--d-success)`, `var(--d-warning)`, `var(--d-danger)`, etc.). Page now adapts correctly to theme changes.
+
+**A2 — GitHub repo-save desync:**
+- Same file: added `loadStatus()` call after `PATCH /github/config` succeeds so the displayed status reflects what the server actually returned, not local state.
+
+**A3 — Email badge not updating on disconnect:**
+- `apps/bridge/src/lib/useEmailConfig.ts`: replaced isolated per-instance re-fetch with a module-level `listeners` Set. Any call to `invalidateEmailConfigCache()` now propagates to all mounted instances. `settings/layout.tsx` switched from manual `GET /config` fetch to `useEmailConfig()` hook; badge updates automatically when the email settings page disconnects.
+
+**A4 — Guest session blocked for existing accounts:**
+- `apps/api/src/modules/auth/auth.service.ts`: removed `ConflictException` for existing real-account emails. Guest token now bound to existing user ID; `user.isGuest` is NOT changed.
+- New file: `apps/api/src/common/guards/no-guests.guard.ts` — `NoGuestsGuard` + `@NoGuests()` decorator. Applied to `GET /tickets` so guest tokens cannot browse account ticket history.
+- `apps/api/src/modules/tickets/tickets.module.ts`: `NoGuestsGuard` added to providers.
+
+**A5 — Portal signup password strength:**
+- `apps/portal/src/components/auth/AuthForm.tsx`: Zod schema adds `min(8)` + `/[0-9]/` + `/[^A-Za-z0-9]/` rules; `mode: 'onChange'` for live validation; inline strength checklist UI under password field.
+- `apps/api/src/modules/auth/auth.dto.ts`: backend `signupSchema` updated with matching rules.
+- Integration test passwords updated to meet new strength requirements.
+
+**B1 — Rename `product`/`connector` → `field1`/`field2`:**
+- `packages/db/prisma/schema.prisma`: columns renamed (via `db:push`).
+- Propagated through: `tickets.dto.ts`, `tickets.service.ts`, `packages/types/src/ticket.ts`, analytics services, all Bridge/portal pages that referenced the old field names.
+
+**B2+B3 — AppConfig dropdown fields:**
+- Schema: added `field1Label`, `field1Options`, `field2Label`, `field2Options` to `AppConfig`.
+- `config.service.ts`: added `dropdownOptionSchema`, 4 fields to `UPDATABLE_FIELDS` and `updateAppConfigSchema`.
+
+**B4 — Portal submit page configurable dropdowns:**
+- `apps/portal/src/lib/brand.tsx`: added `DropdownOption` interface + 4 fields to `AppConfig`.
+- `apps/portal/src/components/portal/ConnectorSelect.tsx`: rewritten as generic `OptionSelect`.
+- `apps/portal/src/app/submit/page.tsx`: dropdowns now driven by `appConfig.field1Options`/`field2Options`.
+
+**B5 — Bridge branding settings dropdown config UI:**
+- `apps/bridge/src/app/settings/branding/page.tsx`: added `DropdownOption` interface, 4 fields to `AppConfig` and `form` state; loads from and saves to `PATCH /config`. New "Ticket Dropdowns" card with label input + add/remove option rows (value, label, optional icon) for each dropdown.
+
+**B6 — Analytics field rename:**
+- `analytics.service.ts`: new `byField1` and `byField2` breakdown replaces `byConnector`.
+- `customers.service.ts`: `frictionByField2` replaces `frictionByConnector`.
+- Bridge analytics pages updated to match new response shape.
+
+**Seed:**
+- `packages/db/src/seed.ts`: `field1`/`field2` replaces `product`/`connector` in ticket seeds; AppConfig seeded with `field1Label: 'Product'`, `field2Label: 'Connector'`, and representative options arrays.
+
+**Tests:**
+- `auth.spec.ts` (R188): updated to reflect A4 behavior change (201 instead of 409 for real-account emails); added R195 (NoGuestsGuard blocks `GET /tickets`).
+- `config.spec.ts` (R196): new tests for dropdown fields round-trip + invalid option shape rejection.
+- Integration test passwords updated throughout auth.spec.ts to meet new strength rules (A5).
+
+**Docs:**
+- `docs/atlas/auth.md`: updated guest flow decision note with NoGuestsGuard detail.
+- `docs/atlas/tickets.md`: `connector` → `field2` in search description.
+- `docs/atlas/settings.md`: branding page key files updated; new "Configurable portal dropdowns" section documenting AppConfig fields, option shape, and portal integration.
+- `docs/atlas/_generated/`: regenerated via `pnpm atlas:gen` (ERD, api-routes, module-graph reflect renamed fields).
+
+**Decisions recorded:** See Decisions table rows added for A3, A4, B1 (field rename + value-key pattern).
+
+---
+
+## Session Log — 2026-06-09 (Plan okay-can-you-check-binary-nova)
+
+### Part 1 — Convert/status-update crash fix
+
+**Bug:** Clicking *Convert to Ticket* in Bridge crashed with `Cannot read properties of undefined (reading 'reduce')` because `TicketsService.convert()` returned a partial payload (no `messages`, `attachments`, `githubIssue`, `rating`) and `setTicket(res.ticket)` replaced the fully-loaded page state.
+
+**Fix:**
+- Added `TICKET_DETAIL_INCLUDE` constant in `tickets.service.ts` — agent-visibility shape (messages where `deletedAt: null`, all relations).
+- `convert()` refactored: both the NEW→OPEN path and the idempotent already-real-ticket branch now re-fetch with `TICKET_DETAIL_INCLUDE` before returning.
+- `update()` refactored: dropped the partial include from `tx.ticket.update`; after the transaction commits a full `findUnique(TICKET_DETAIL_INCLUDE)` re-fetch is returned, ensuring the SYSTEM_EVENT message created inside the transaction is included.
+- `findById()` updated to spread `TICKET_DETAIL_INCLUDE` as base (still adds `isInternal: false` filter for portal callers).
+- Belt-and-suspenders guard: `(ticket.messages ?? []).reduce(…)` at Bridge `page.tsx:539`.
+
+**Tests added (R197, R198):** `tickets.update.spec.ts` + assertion in `email-ticket-flow.spec.ts`.
+
+### Part 2 — Portal rich-text editor: WYSIWYG, drop Code/Link + "Markdown supported"
+
+**Bug:** Formatting toolbar buttons in Portal submit form and reply box had no `onClick` — formatting did nothing. "Markdown supported" label was misleading (Portal never processed markdown for user input).
+
+**Fix (frontend only, no backend change):**
+- **Submit form** (`apps/portal/src/app/submit/page.tsx`): replaced `<textarea>` with `contentEditable` div + `descEditorRef`; added `applyFormat(bold|italic|list)` using `document.execCommand`; toolbar now only Bold/Italic/List (Code and Link removed); "Markdown supported" removed; `onSubmit` reads `innerHTML` directly from ref.
+- **Reply box** (`apps/portal/src/app/tickets/[id]/page.tsx`): same pattern with `replyEditorRef`; replaced `replyBody` state with `hasContent` boolean; removed Code/Link buttons and "Markdown supported" label.
+- **Message display** (same file): added `isHtmlBody()` detection branch so Portal-submitted HTML renders correctly instead of showing raw tags.
+- **`packages/ui/src/sanitize.ts`**: extracted `isHtmlBody()` helper and re-exported from `packages/ui/src/index.ts` for shared use across Portal and Bridge.
+
+**No route/model/module change → `pnpm atlas:gen` not needed.**
+
+**Editor behavior verified manually** (contentEditable + execCommand resist jsdom unit testing; existing E2E flows cover the happy path).
+
+### Docs/tests
+- `tests/regression-catalogue.md`: R197, R198 added.
+- `STATE.md`: this entry.
+- No atlas changes needed (no new endpoints or module wiring).
+
+## Session — 2026-06-10 (Atlas doc audit + Gmail email body rendering fix — plan `when-a-email-received-soft-abelson`)
+
+### Part 0 — Atlas docs audited against the working tree; drift fixed
+
+Full audit of `docs/atlas/` (hand-written + `_generated/`). Accurate already: tickets, messages, bot, analytics, settings, portal-ticket-view, README, architecture, api-routes, module-graph. Fixed:
+
+- **Generator bug (`scripts/atlas-gen.ts`)** — enum-typed Prisma fields were classified as relations and skipped by the ERD emitter, so every enum column (`Ticket.status/priority/category/source`, `CustomerSignal.type`, `Message.type/sentVia`, …) was missing from `_generated/erd.md`. Enum names are now pre-scanned (`enumNames` set) and excluded; `pnpm atlas:gen` re-run. Guard test: `atlas-erd-enum-fields.spec.ts` (R202).
+- **queue.md** — claimed "exactly three queues"; documented all 9 (`ai:*` ×3, `bot:respond-to-ticket`, `kb:*` ×4, `email:send-reply`) with producers, workers, retry config; removed stale "outbound email is inline fire-and-forget" gap.
+- **realtime.md** — SSE auth is now two-phase (`POST /events/ticket` exchanges JWT for short-lived single-use ticket → `GET /events?ticket=…`); corrected the claim that the inbox subscribes to SSE (it polls every 15 s; `ticket-created`/`ticket-updated` currently have no Bridge subscriber).
+- **auth.md** — removed the deleted `POST /auth/magic-link` endpoint (flowchart, key-files, known-gaps now says "no forgot-password flow at all").
+- **files.md** — server **does** enforce the 10 MB upload limit (`FileInterceptor` `limits`); inbound email attachments **are** ingested (25 MB cap) — both stale gap rows removed/corrected.
+- **notifications.md** — documented the second kind, `CHURN_RISK_DETECTED` (created by `AnalyzeMessageWorker`).
+- **ai.md** — pricing/model updated: `gemini-2.5-flash-lite` at $0.10/$0.40 per 1M (was Flash 2.0 $0.075/$0.30). (email.md had no stale pricing — audit-agent false positive.)
+- **github.md** — documented `DELETE /tickets/:id/github/link` (unlink) + `POST …/pending`.
+- `docs/atlas/architecture.md` is still **untracked** — include it in the next commit.
+
+### Part 1 — Gmail-ingested email bodies rendered flattened/mangled in Bridge
+
+**Bug:** an inbound Gmail email ("Sakthi is Batman" + HTML signature) displayed as one flattened line. Root cause (verified against DB row `cmq7seaw20007r5tbp0625gyd`): ingestion was fine (`body` + `bodyHtml` both stored correctly), but (1) Bridge's `MessageCard` never rendered `bodyHtml` for customer/agent replies, and (2) `isHtmlBody()`'s `/<[a-z][\s\S]*>/` regex matched Gmail's plain-text autolink `<https://twominutereports.com/>`, so the plain text went through `dangerouslySetInnerHTML` — newlines collapsed, the `<https://…>` token parsed as a bogus tag and vanished.
+
+**Fix:**
+- `packages/ui/src/sanitize.ts` — `isHtmlBody()` now matches a known-HTML-tag allowlist; new `splitQuotedHtml()` detaches `div.gmail_quote` / `blockquote[type=cite]` (keeps quote-only bodies intact; skips nested quotes).
+- `apps/bridge/.../MessageCard.tsx` — new shared `MessageBody` block: prefers sanitized `bodyHtml` (quoted history behind the `···` toggle, now HTML-capable `QuoteToggle`), plain-text fallback unchanged; deleted the local duplicate `isHtmlBody`; bot + customer/agent branches unified.
+- `apps/api/.../email-sync/util/html-to-text.ts` (new) — structure-preserving HTML→text (block tags → newlines, entity decode, horizontal-whitespace-only collapse); `GraphProvider` now uses it for `bodyPlain` instead of the naive tag-strip.
+- No re-ingestion/migration needed — existing messages already have `bodyHtml` stored; fix is render-side (+ Graph ingestion quality going forward).
+
+### Docs/tests
+- Tests: `sanitize-html.spec.ts` extended (R199 ×4, R200 ×5), new `html-to-text.spec.ts` (R201 ×6), new `atlas-erd-enum-fields.spec.ts` (R202). All passing.
+- `tests/regression-catalogue.md`: R199–R202 added.
+- Atlas: `messages.md` (rendering decisions), plus all Part-0 pages; `_generated/` regenerated.
+- STATE.md: 3 new Decisions rows + this entry.
+
+---
+
+## Session Log — 2026-06-10 (Plan when-a-email-received-soft-abelson: G1–G7 ticket lifecycle gaps)
+
+### Overview
+
+Executed the full `when-a-email-received-soft-abelson` plan: 7 lifecycle gaps (G1–G7) plus a new `docs/atlas/ticket-lifecycle.md` reference document.
+
+### G3 — Shared `applyReplyTransition()` utility
+
+Extracted inline status-machine code from `MessagesService` and `ThreadIngestionService` into a single shared utility (`apps/api/src/modules/tickets/util/apply-reply-transition.ts`). Handles: agent OPEN→IN_PROGRESS, agent IN_PROGRESS→WAITING, customer WAITING→IN_PROGRESS, customer RESOLVED/CLOSED→IN_PROGRESS (+reopenCount++). Each transition writes a `status_changed:` SYSTEM_EVENT atomically in the same transaction. Both portal and email paths now produce identical status-machine behavior. **Tests:** R108–R111 in `email-ticket-flow.spec.ts`.
+
+### G2 — Reliable confirmation email via queue
+
+Moved `sendTicketConfirmation()` out of `activateTicket()` (direct synchronous SMTP call) into a `email:send-confirmation` pg-boss queue. `SendConfirmationWorker` processes jobs with 3× retry + 30s exponential backoff. Idempotency: checks for `confirmation_sent:` SYSTEM_EVENT before sending; writes it on success; writes `email_delivery_failed:Confirmation…` on permanent failure. `TicketsModule` no longer imports `EmailModule`. **Schema:** no change (email itself unchanged). **Tests:** R112.
+
+### G1 — Portal reply email mirror
+
+Customer portal REPLY messages now enqueue a second `email:send-reply` job with `kind: 'portal-copy'`. `SendReplyWorker` branches on this field, calls `EmailService.sendPortalReplyCopy()` (From/To=support, Reply-To=customer, body prefixed with `[Portal reply from ...]`), and stores the returned Message-ID on the portal `Message` row for RFC dedup. Gated by `AppConfig.mirrorPortalRepliesToEmail Boolean @default(true)` (new field, schema pushed via `db:push`). `ConfigService` updated to include `mirrorPortalRepliesToEmail` in `UPDATABLE_FIELDS`.
+
+### G5 — Microsoft Graph attachment extraction
+
+`GraphProvider` now extracts attachments when `hasAttachments = true` per message: fetches attachment list, calls `fetchAttachmentBytes()` to decode `contentBytes` base64. Graph message/attachment IDs stored in `ParsedAttachment.gmailMessageId`/`gmailAttachmentId` fields (provider-opaque). `ThreadIngestionService` duck-types `'fetchAttachmentBytes' in provider` — works for both Gmail and Graph without branching.
+
+### G4 — Bounce detection
+
+Pre-ingest check in `fetchAndUpsertThread`: BOUNCE_PATTERN `/^(mailer-daemon|postmaster)(@|$)/i` on first message `fromEmail`. On match: skip user upsert, try to match bounce to a known ticket (RFC Message-ID lookup, then synthetic `ticket-{emailThreadId}@` pattern with regex `[a-z0-9][a-z0-9-]*` to support hyphenated IDs). On match: write `email_delivery_failed:bounce` SYSTEM_EVENT + set `User.emailStatus = BOUNCING`. Bridge sidebar shows "email bouncing" chip. **Tests:** R114–R115.
+
+### G6 — Inbox SSE real-time updates
+
+`apps/bridge/src/app/inbox/page.tsx` now subscribes to `ticket-created`, `ticket-updated`, `message-created` SSE events via `sseEventBus.on()`. Debounced trigger (300ms) calls `refetch()`. `visibilitychange` also triggers refetch on tab re-focus. Poll interval stretched from 15s → 60s (fallback only for SSE connection loss).
+
+### G7 — Bridge reply composer file attachment
+
+`apps/bridge/src/app/tickets/[id]/page.tsx` wired: hidden `<input type="file">` opened by Paperclip button click; files uploaded to `POST /api/v1/files/upload?ticketId={id}`; attachment chips appear above toolbar with `×` remove button; `attachmentIds` included in `POST /tickets/:id/messages` payload. Mirrors the portal composer pattern. Also added bounce status chip in ticket sidebar (`emailStatus !== 'ACTIVE'` → red chip).
+
+### Lifecycle doc
+
+`docs/atlas/ticket-lifecycle.md` — new 13-case comprehensive reference covering all paths: portal create, email ingest, backfill, convert, dismiss, portal reply, agent reply, inbound reply, CSAT, escalation, reopen, bounce, GitHub fix-deployed. Linked from `docs/atlas/README.md`.
+
+### Test fixes
+
+- **TS1128 at line 1111**: extra `})` from heredoc append removed.
+- **S1/S2 confirmation tests**: updated to directly invoke `emailService.sendTicketConfirmation()` (pattern matching existing agent-reply tests) — queue path tested separately by R112.
+- **R112**: pg-boss `newJobCheckInterval: 100` in `NODE_ENV=test`; 800ms wait now reliable.
+- **R114 bounce regex**: `[a-z0-9]+` → `[a-z0-9][a-z0-9-]*` to match hyphenated `emailThreadId` values.
+
+### Docs updated
+
+- `docs/atlas/ticket-lifecycle.md` (new)
+- `docs/atlas/email.md` — G1/G2/G4/G5 sections, bounce detection, Graph attachments, data model fields, notable decisions
+- `docs/atlas/messages.md` — G1/G3/G7, shared utility, status table updated (RESOLVED/CLOSED reopen), known gaps trimmed
+- `docs/atlas/queue.md` — `email:send-confirmation` added, send-reply updated (kind: portal-copy)
+- `docs/atlas/realtime.md` — inbox SSE subscription row, polling note updated
+- `docs/atlas/_generated/` regenerated via `pnpm atlas:gen`
+- `tests/regression-catalogue.md` — R108–R112, R114–R115 added
+- STATE.md — 8 new Decisions rows + this session entry
+
+---
+
+## Session Log — 2026-06-10 (Plan when-a-email-received-soft-abelson: E2E test suite)
+
+### Overview
+
+Executed the E2E portion of the `when-a-email-received-soft-abelson` plan: wired up the two core email ticketing flows (F1 portal-to-bridge round-trip, F2 inbound email triage) as real Playwright tests. All infra was already scaffolded; this session made the tests runnable.
+
+### New API endpoint: `POST /__test/ingest-email` (test-only)
+
+Added to `TestController` / `TestUtilsModule` (loaded only when `NODE_ENV=test`). Accepts `{ from, fromName?, subject, body, threadId?, messageId?, inReplyTo?, headers? }`, builds a `ParsedThread` + minimal fake `IMailProvider`, and calls the production `ThreadIngestionService.fetchAndUpsertThread()`. All downstream logic is production code. `TestUtilsModule` now imports `EmailSyncModule` to resolve `ThreadIngestionService`.
+
+### Bot disabled in E2E
+
+No `GEMINI_API_KEY` in the playwright webServer env + no `botApiKeyEnc` in seed. `BotService.respondTo()` catches embedding errors gracefully (logs, writes `BotInteraction.didAnswer=false`, does NOT throw or leave a retrying pg-boss job).
+
+### Stable selectors (`data-testid`)
+
+Added to every E2E touchpoint (render-only, no logic change):
+- Bridge inbox: `inbox-row`, `ticket-ref`, `status-pill`
+- Bridge ticket detail: `reply-editor`, `reply-send`, `convert-ticket`, `dismiss-ticket`
+- Bridge `MessageCard` body div: `message-body`
+- Portal submit form: `submit-title`, `submit-description`, `submit-send`
+- Portal ticket detail: `reply-editor`, `reply-send`, message container `message-body`
+
+### E2E fixtures (`tests/e2e/fixtures/`)
+
+- `auth.ts` — `agentApiLogin`, `customerApiLogin`, `plantAgentToken`, `plantCustomerToken`
+- `mail.ts` — `getCapturedMail`, `resetCapturedMail`, `expectMailDelivered` (wraps `expect.poll` for G2 queue latency)
+- `ingest.ts` — `ingestEmail` (wraps `POST /__test/ingest-email`)
+
+### F1 spec rewritten
+
+`tests/e2e/flows/F1.spec.ts` — portal ticket submit (real UI login), G2 confirmation email poll, SSE-driven inbox row, agent reply via `reply-editor`/`reply-send`, customer portal shows reply, customer reply triggers G1 portal-copy email. Unique subject per run for data isolation.
+
+### F2 spec rewritten
+
+`tests/e2e/flows/F2.spec.ts` — ingest from unique stranger email, SSE inbox row (no status-pill/ticket-ref until convert), convert button, confirmation email, agent reply, follow-up ingest (same threadId, new messageId, inReplyTo agent message-id) → G3 status transition. Portal-side skipped (stranger has no password).
+
+### Plumbing fixes
+
+- `global-setup.ts` line 62: removed `|| true` from seed step — failures now surface loudly.
+- `.gitignore`: added `.playwright-state.json`, `test-results/`.
+
+### Docs updated
+
+- `tests/README.md` — E2E row updated (2 files, 2 tests, run instructions)
+- `tests/regression-catalogue.md` — R116 (F1), R117 (F2) added
+- STATE.md — 2 new Decisions rows + this session entry

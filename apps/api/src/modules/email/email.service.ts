@@ -7,6 +7,7 @@ import { PrismaService } from '../database/prisma.service'
 import { TokenRefresher } from '../email-oauth/token-refresher'
 import { MailCaptureService } from '../test-utils/mail-capture.service'
 import type { Ticket, Agent, Message, AppConfig } from '@tmr/db'
+import { formatRef } from '../tickets/util/generate-ref'
 
 type TicketWithUser = Ticket & {
   user: { id: string; email: string; name: string | null }
@@ -159,14 +160,16 @@ export class EmailService implements OnModuleInit {
     const fake = {
       sendMail: async (mail: nodemailer.SendMailOptions) => {
         const headers = toHeadersRecord(mail)
+        type AddrLike = string | { address: string }
+        const addrStr = (v: AddrLike): string => typeof v === 'string' ? v : v.address
         const to = mail.to
           ? Array.isArray(mail.to)
-            ? mail.to.map((r: any) => (typeof r === 'string' ? r : r.address))
-            : (typeof mail.to === 'string' ? mail.to : (mail.to as any).address)
+            ? mail.to.map((r) => addrStr(r as AddrLike))
+            : addrStr(mail.to as AddrLike)
           : ''
         capture.capture({
           ts: new Date().toISOString(),
-          from: typeof mail.from === 'string' ? mail.from : (mail.from as any)?.address,
+          from: mail.from ? addrStr(mail.from as AddrLike) : undefined,
           to,
           subject: mail.subject ? String(mail.subject) : undefined,
           text: typeof mail.text === 'string' ? mail.text : undefined,
@@ -221,7 +224,7 @@ export class EmailService implements OnModuleInit {
   }
 
   async sendTicketConfirmation(ticket: TicketWithUser, appConfig: AppConfig): Promise<void> {
-    const displayId = `TMR-${ticket.number}`
+    const displayId = formatRef(ticket.ref)
     const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
     const domain = this.getDomain(appConfig)
     const messageId = this.generateMessageId(domain)
@@ -261,7 +264,7 @@ export class EmailService implements OnModuleInit {
     message: MessageWithAgent,
     appConfig: AppConfig,
   ): Promise<string | null> {
-    const displayId = `TMR-${ticket.number}`
+    const displayId = formatRef(ticket.ref)
     const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
     const domain = this.getDomain(appConfig)
     const { inReplyTo, references } = await this.buildThreadHeaders(ticket, domain)
@@ -294,6 +297,43 @@ export class EmailService implements OnModuleInit {
     }
   }
 
+  /**
+   * Mirror a customer portal reply into the support mailbox as a self-addressed copy.
+   * From: support, To: support inbox, Reply-To: customer, threaded with existing headers.
+   * Gmail/Graph threads it under the existing conversation. The returned Message-ID
+   * must be stored on the portal Message row so the poller deduplicates it on the next poll.
+   */
+  async sendPortalReplyCopy(
+    ticket: TicketWithUser,
+    message: { body: string },
+    appConfig: AppConfig,
+  ): Promise<string | null> {
+    const displayId = formatRef(ticket.ref)
+    const domain = this.getDomain(appConfig)
+    const { inReplyTo, references } = await this.buildThreadHeaders(ticket, domain)
+    const msgId = this.generateMessageId(domain)
+    const supportAddr = appConfig.oauthEmail ?? this.config.get<string>('SMTP_FROM') ?? 'support@twominutereports.com'
+
+    try {
+      const transport = await this.getTransporter()
+      await transport.sendMail({
+        from: this.getFromAddress(appConfig),
+        to: supportAddr,
+        replyTo: ticket.user.email,
+        subject: `Re: [${displayId}] ${ticket.title}`,
+        messageId: msgId,
+        inReplyTo,
+        references,
+        text: `[Portal reply from ${ticket.user.name ?? ticket.user.email} <${ticket.user.email}>]\n\n${message.body}`,
+      })
+      this.logger.log(`Sent portal reply copy for ticket ${ticket.id} msgId=${msgId}`)
+      return msgId
+    } catch (err) {
+      this.logger.error(`Failed to send portal reply copy for ticket ${ticket.id}: ${String(err)}`)
+      return null
+    }
+  }
+
   async sendAgentInvite(agent: Agent, appConfig: AppConfig, inviteUrl: string): Promise<void> {
     try {
       const transport = await this.getTransporter()
@@ -318,7 +358,7 @@ export class EmailService implements OnModuleInit {
   }
 
   async sendEscalationNotification(ticket: TicketWithUser, appConfig: AppConfig): Promise<void> {
-    const displayId = `TMR-${ticket.number}`
+    const displayId = formatRef(ticket.ref)
     const portalUrl = this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'
     try {
       const transport = await this.getTransporter()

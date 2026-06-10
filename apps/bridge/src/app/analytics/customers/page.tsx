@@ -32,7 +32,7 @@ interface CustomerInsightsData {
   emergingTopics: { topicId: string; name: string; ticketCount: number; deltaWoW: number | null }[]
   signals: { churnCount30d: number; advocacyCount30d: number; recentChurn: SignalItem[]; recentAdvocacy: SignalItem[] }
   effort: { avgScore30d: number | null; distribution: { score: number; count: number }[]; scatterVsCsat: { ticketId: string; csat: number; effort: number }[] }
-  frictionByConnector: { connector: string; count: number }[]
+  frictionByField2: { value: string; count: number }[]
   categoryMixOverTime: ({ date: string } & Record<string, number>)[]
   convoDepthByCategory: { category: string; avgDepth: number }[]
 }
@@ -498,14 +498,14 @@ export default function CustomerInsightsPage() {
           <SectionHeader title="Product experience" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '20px 24px' }}>
-              <ChartTitle title="Bug reports by connector" info="Number of tickets categorised as Bug Report per integration connector. Highlights which integrations cause the most friction." />
-              {data.frictionByConnector.length === 0 ? (
+              <ChartTitle title="Bug reports by field 2" info="Number of bug report tickets per value in the second configurable dropdown. Highlights which options cause the most friction." />
+              {data.frictionByField2.length === 0 ? (
                 <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-4)', fontSize: 13 }}>No bug report data</div>
               ) : (
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={data.frictionByConnector.slice(0, 8)} layout="vertical" margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
+                  <BarChart data={data.frictionByField2.slice(0, 8)} layout="vertical" margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
                     <XAxis type="number" tick={{ fill: 'var(--d-text-4)', fontSize: 10 }} />
-                    <YAxis type="category" dataKey="connector" tick={{ fill: 'var(--d-text-3)', fontSize: 10 }} width={110} />
+                    <YAxis type="category" dataKey="value" tick={{ fill: 'var(--d-text-3)', fontSize: 10 }} width={110} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="count" name="Bug reports" fill="#EF4444" fillOpacity={0.75} radius={[0, 4, 4, 0]}>
                       <LabelList dataKey="count" position="right" style={{ fontSize: 10, fill: 'var(--d-text-4)' }} />

@@ -2,7 +2,7 @@
 title: Auth
 stack: [Custom JWT (HMAC-SHA256), localStorage, Google OAuth (portal wired)]
 status: working
-last-reviewed: 2026-05-28 (session 5)
+last-reviewed: 2026-06-10
 ---
 
 # Auth
@@ -26,7 +26,6 @@ flowchart LR
   Portal --> EP[POST /auth/signin]
   Portal --> SU[POST /auth/signup]
   Portal --> Guest[POST /auth/guest<br/>email-only flow]
-  Portal --> ML[POST /auth/magic-link]
   Portal --> GO[POST /auth/google<br/>OAuth redirect dance]
 
   Agent[Agent] --> Bridge
@@ -53,7 +52,7 @@ flowchart LR
 | File | Role |
 |---|---|
 | [`apps/api/src/modules/auth/auth.controller.ts`](../../apps/api/src/modules/auth/auth.controller.ts) | All `/auth/*` endpoints |
-| [`apps/api/src/modules/auth/auth.service.ts`](../../apps/api/src/modules/auth/auth.service.ts) | JWT sign + verify, password hashing, magic-link generation, guest session |
+| [`apps/api/src/modules/auth/auth.service.ts`](../../apps/api/src/modules/auth/auth.service.ts) | JWT sign + verify, password hashing, guest session |
 | [`apps/portal/src/lib/auth.tsx`](../../apps/portal/src/lib/auth.tsx) | Customer auth context (localStorage JWT) |
 | [`apps/bridge/src/lib/auth.tsx`](../../apps/bridge/src/lib/auth.tsx) | Agent auth context |
 
@@ -138,7 +137,7 @@ Do NOT use the `GOOGLE_OAUTH_CLIENT_ID` (that's the Gmail REST OAuth client). Us
 
 - **Custom JWT** instead of `better-auth`. Better Auth's schema conflicted with our custom Prisma models. We implemented HMAC-SHA256 sign + verify in ~40 lines.
 - **`localStorage` JWT** is acceptable for internal-tool scale; production deployments should consider `httpOnly` cookies.
-- **Guest flow**: portal `Submit` POSTs to `/auth/guest` first with the customer's email; gets back a short-lived token sufficient to upload files and create a ticket. The User row is real, just `isGuest = true` until they sign up.
+- **Guest flow**: portal `Submit` POSTs to `/auth/guest` first with the customer's email; gets back a short-lived token sufficient to upload files and create a ticket. If the email belongs to an existing real account the same endpoint succeeds — a guest token is issued bound to that user's ID, but `user.isGuest` is NOT changed. `NoGuestsGuard` (decorator `@NoGuests()`) is applied to list endpoints (e.g. `GET /tickets`) so a guest token bound to a real account cannot browse account history.
 - **State nonce in `sessionStorage`** (not `localStorage`): nonce survives the redirect round-trip (same tab) but not cross-tab access, which is the correct scope for CSRF protection.
 - **`handledRef` prevents Strict Mode double-invoke**: React 18 Strict Mode mounts → unmounts → remounts effects. Without the ref, the second mount finds an empty sessionStorage (nonce was consumed on first mount) and incorrectly redirects to `/auth?error=invalid_state`. `handledRef.current = true` after first execution guards against this. Same pattern used in Bridge's GitHub OAuth callback.
 - **Same Google OAuth client for portal + agent**: avoids creating a second Google Cloud client. The only difference is that the portal callback URI must be added to the existing client's authorized list.
@@ -147,5 +146,5 @@ Do NOT use the `GOOGLE_OAUTH_CLIENT_ID` (that's the Gmail REST OAuth client). Us
 ## Known gaps
 
 - **Agent Google OAuth not wired**. Bridge's `POST /auth/agent/google` exists but the Bridge UI button has no click handler.
-- **Forgot password / magic-link UI**. The API endpoint exists; the portal doesn't have a flow that uses it yet.
+- **No forgot-password flow**. The former `POST /auth/magic-link` endpoint was removed from the API; there is currently no password-reset path at all (neither API nor portal UI).
 - **Token rotation / refresh tokens** — JWTs are long-lived; no rotation strategy.

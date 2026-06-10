@@ -17,7 +17,10 @@ type SigninData = z.infer<typeof signinSchema>
 
 const signupSchema = z.object({
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[0-9]/, 'Must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
   confirmPassword: z.string(),
   name: z.string().optional(),
 }).refine((d) => d.password === d.confirmPassword, {
@@ -54,7 +57,9 @@ export default function AuthForm({ initialError }: Props) {
   const [isLoading, setIsLoading] = useState(false)
 
   const signinForm = useForm<SigninData>({ resolver: zodResolver(signinSchema) })
-  const signupForm = useForm<SignupData>({ resolver: zodResolver(signupSchema) })
+  const signupForm = useForm<SignupData>({ resolver: zodResolver(signupSchema), mode: 'onChange' })
+
+  const signupPassword = signupForm.watch('password') ?? ''
 
   const handleSignin = async (data: SigninData) => {
     setError(null)
@@ -306,7 +311,19 @@ export default function AuthForm({ initialError }: Props) {
             <div>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 6 }}>Password</label>
               <input {...signupForm.register('password')} type="password" style={inputStyle(!!signupForm.formState.errors.password)} />
-              {signupForm.formState.errors.password && <p style={{ fontSize: 12, color: 'var(--p-danger)', marginTop: 4 }}>{signupForm.formState.errors.password.message}</p>}
+              {signupPassword && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 6 }}>
+                  {[
+                    { ok: signupPassword.length >= 8, label: 'At least 8 characters' },
+                    { ok: /[0-9]/.test(signupPassword), label: 'Contains a number' },
+                    { ok: /[^A-Za-z0-9]/.test(signupPassword), label: 'Contains a special character' },
+                  ].map(({ ok, label }) => (
+                    <p key={label} style={{ fontSize: 11, margin: 0, color: ok ? 'var(--p-success, #047857)' : 'var(--p-text-4)' }}>
+                      {ok ? '✓' : '○'} {label}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--p-text)', marginBottom: 6 }}>Confirm password</label>

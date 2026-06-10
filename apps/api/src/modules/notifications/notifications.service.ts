@@ -23,7 +23,7 @@ export class NotificationsService {
       take: 50,
       include: {
         ticket: {
-          select: { id: true, number: true, title: true, userId: true,
+          select: { id: true, ref: true, title: true, userId: true,
             user: { select: { id: true, name: true, email: true } },
           },
         },

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common'
 import { withRetry } from '../util/with-retry'
 import { isBulkSender } from '../util/is-bulk-sender'
+import { htmlToText } from '../util/html-to-text'
 import type { IMailProvider, ParsedThread, ParsedMessage, PollResult, RecoverResult } from './mail-provider.interface'
 
 function graphUrl(path: string, params: Record<string, string> = {}): string {
@@ -36,6 +37,16 @@ interface GraphMessage {
   internetMessageId?: string
   internetMessageHeaders?: { name: string; value: string }[]
   isRead?: boolean
+  hasAttachments?: boolean
+}
+
+interface GraphAttachment {
+  id?: string
+  name?: string
+  contentType?: string
+  size?: number
+  '@odata.type'?: string
+  contentBytes?: string
 }
 
 interface GraphMessageList {
@@ -44,7 +55,7 @@ interface GraphMessageList {
   '@odata.deltaLink'?: string
 }
 
-function parseGraphMessage(msg: GraphMessage): ParsedMessage {
+function parseGraphMessage(msg: GraphMessage, attachments: GraphAttachment[] = []): ParsedMessage {
   const headers: Record<string, string> = {}
   for (const h of (msg.internetMessageHeaders ?? [])) {
     headers[h.name.toLowerCase()] = h.value
@@ -62,12 +73,25 @@ function parseGraphMessage(msg: GraphMessage): ParsedMessage {
   let bodyHtml: string | undefined
   if (isHtml) {
     bodyHtml = bodyContent
-    bodyPlain = bodyContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+    bodyPlain = htmlToText(bodyContent)
   } else {
     bodyPlain = bodyContent
   }
 
   const fromEmail = fromAddr.toLowerCase()
+
+  // Map Graph attachment metadata into ParsedAttachment using providerMessageId/providerAttachmentId
+  // stored in the gmailMessageId/gmailAttachmentId fields (provider-opaque in the interface).
+  const parsedAttachments = attachments
+    .filter(a => a['@odata.type'] !== '#microsoft.graph.referenceAttachment' && a.id)
+    .map(a => ({
+      filename: a.name ?? 'attachment',
+      mimeType: a.contentType ?? 'application/octet-stream',
+      size: a.size ?? 0,
+      gmailMessageId: msg.id,     // Graph message id (provider-opaque field)
+      gmailAttachmentId: a.id!,   // Graph attachment id (provider-opaque field)
+    }))
+
   return {
     id: msg.id,
     rfcMessageId: msg.internetMessageId ?? headers['message-id'],
@@ -81,6 +105,7 @@ function parseGraphMessage(msg: GraphMessage): ParsedMessage {
     bodyHtml,
     sentAt: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
     isBulk: isBulkSender(headers, fromEmail),
+    attachments: parsedAttachments.length > 0 ? parsedAttachments : undefined,
   }
 }
 
@@ -132,16 +157,48 @@ export class GraphProvider implements IMailProvider {
     const filter = `conversationId eq '${conversationId}'`
     const url = graphUrl('/me/messages', {
       '$filter': filter,
-      '$select': 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId,internetMessageHeaders,isRead',
+      '$select': 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId,internetMessageHeaders,isRead,hasAttachments',
       '$top': '100',
     })
 
     const data = await withRetry(() => graphGet<GraphMessageList>(token, url))
-    const messages = (data.value ?? []).map(parseGraphMessage)
+    const rawMessages = data.value ?? []
+
+    // For messages with attachments, fetch the attachment metadata list
+    const messages = await Promise.all(
+      rawMessages.map(async (msg) => {
+        let attachments: GraphAttachment[] = []
+        if (msg.hasAttachments) {
+          try {
+            const attUrl = graphUrl(`/me/messages/${msg.id}/attachments`, {
+              '$select': 'id,name,contentType,size,@odata.type',
+            })
+            const attData = await withRetry(() =>
+              graphGet<{ value?: GraphAttachment[] }>(token, attUrl),
+            )
+            attachments = attData.value ?? []
+          } catch (err) {
+            this.logger.warn(`Failed to list attachments for message ${msg.id}: ${String(err)}`)
+          }
+        }
+        return parseGraphMessage(msg, attachments)
+      }),
+    )
+
     const firstSubject = messages[0]?.subject ?? ''
-    const hasUnread = (data.value ?? []).some(m => !m.isRead)
+    const hasUnread = rawMessages.some(m => !m.isRead)
 
     return { id: conversationId, messages, firstSubject, hasUnread }
+  }
+
+  async fetchAttachmentBytes(messageId: string, attachmentId: string): Promise<Buffer> {
+    const token = await this.getToken()
+    const url = graphUrl(`/me/messages/${messageId}/attachments/${attachmentId}`)
+    const data = await withRetry(() => graphGet<GraphAttachment & { contentBytes?: string }>(token, url))
+    if (!data.contentBytes) {
+      throw new Error(`Graph attachment ${attachmentId} has no contentBytes`)
+    }
+    return Buffer.from(data.contentBytes, 'base64')
   }
 
   async pollChanges(checkpoint: string): Promise<PollResult> {

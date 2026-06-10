@@ -10,14 +10,14 @@ import { NotificationsPanel } from './NotificationsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'tickets' | 'github' | 'analytics'
+type Section = 'tickets' | 'customers' | 'github' | 'analytics'
 
 interface Stats { byStatus: Record<string, number>; byCategory: Record<string, number>; unassigned: number; newCount?: number }
 
 interface GithubNotif {
   id: string; isRead: boolean; createdAt: string; githubRepo: string | null
   githubIssueNumber: number | null; githubIssueTitle: string | null
-  ticket: { id: string; number: number } | null
+  ticket: { id: string; ref: string } | null
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ export function DashboardSidebar() {
   useEffect(() => {
     if (pathname.startsWith('/analytics')) setActiveSection('analytics')
     else if (pathname.startsWith('/github')) setActiveSection('github')
+    else if (pathname.startsWith('/customers')) setActiveSection('customers')
     else if (!pathname.startsWith('/settings')) setActiveSection('tickets')
   }, [pathname])
 
@@ -107,7 +108,9 @@ export function DashboardSidebar() {
   }, [activeSection, notifsLoaded, token])
 
   const totalOpen = stats ? (stats.byStatus['OPEN'] ?? 0) + (stats.byStatus['IN_PROGRESS'] ?? 0) + (stats.byStatus['WAITING'] ?? 0) : undefined
+  void totalOpen
   const totalAll = stats ? Object.values(stats.byStatus).reduce((a, b) => a + b, 0) : undefined
+  void totalAll
   const newBadge = stats ? (stats.newCount ?? 0) : 0
 
   const markRead = async (id: string) => {
@@ -157,7 +160,7 @@ export function DashboardSidebar() {
   return (
     <>
       <style>{`@keyframes bfPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }`}</style>
-      <aside style={{ width: activeSection === 'tickets' ? 48 : 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
+      <aside style={{ width: (activeSection === 'tickets' || activeSection === 'customers') ? 48 : 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
 
         {/* ── Rail ── */}
         <div style={{ width: 48, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: '1px solid var(--d-border-2)', paddingTop: 8 }}>
@@ -184,6 +187,7 @@ export function DashboardSidebar() {
               />
             )}
           </div>
+          <RailBtn section="customers" icon={<Users size={17} />} navigateTo="/customers" />
           <RailBtn section="github" icon={<svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor"><path d={OCTOCAT} /></svg>} badge={unreadCount} navigateTo="/github" />
           <RailBtn section="analytics" icon={<BarChart2 size={17} />} navigateTo="/analytics" />
 
@@ -209,8 +213,8 @@ export function DashboardSidebar() {
           </button>
         </div>
 
-        {/* ── Panel — hidden when tickets section active (rail-only mode) ── */}
-        {activeSection !== 'tickets' && (
+        {/* ── Panel — hidden when tickets or customers section active (rail-only mode) ── */}
+        {activeSection !== 'tickets' && activeSection !== 'customers' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
           {/* App name */}

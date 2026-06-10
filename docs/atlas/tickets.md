@@ -2,7 +2,7 @@
 title: Tickets
 stack: [NestJS, Prisma, Postgres, Zod]
 status: working
-last-reviewed: 2026-06-01
+last-reviewed: 2026-06-03
 ---
 
 # Tickets
@@ -19,7 +19,8 @@ The central object of the platform. A ticket represents one customer support con
 | Persistence | Prisma + Postgres | Single source of truth |
 | Statuses | Enum in `schema.prisma` | `NEW · OPEN · IN_PROGRESS · WAITING · RESOLVED · CLOSED · DISMISSED` |
 | Soft-delete | `deletedAt` timestamp | Archive instead of hard-delete |
-| Ticket number | `@default(autoincrement())` | Human-readable `TMR-1234` displayed in UI + email subjects |
+| Ticket ref | `ref String @unique` — 7-char Crockford base32 | Opaque unique code; never null; replaces old `number` autoincrement |
+| `isTicket` flag | `Boolean @default(false)` | `false` = conversation awaiting triage; `true` = real ticket (convert has fired) |
 
 ## Lifecycle
 
@@ -36,21 +37,34 @@ stateDiagram-v2
   IN_PROGRESS --> RESOLVED: agent marks resolved
   WAITING --> RESOLVED: agent marks resolved
   OPEN --> RESOLVED: direct resolve
-  RESOLVED --> OPEN: customer reopens
+  RESOLVED --> IN_PROGRESS: customer reopens
   RESOLVED --> CLOSED: time / admin close
   CLOSED --> [*]: soft delete (deletedAt)
 ```
 
 Auto-status transitions are wired in [`MessagesService.create`](../../apps/api/src/modules/messages/messages.service.ts) — see the messages atlas for the exact rules.
 
+## Conversation vs ticket — `isTicket` invariant
+
+Every `Ticket` row gets a `ref` at creation (7-char Crockford base32, unique, never null). The invariant:
+
+| `isTicket` | Meaning |
+|---|---|
+| `false` | **Conversation** — inbound email awaiting triage; `ref` exists in DB but **not rendered in UI** |
+| `true` | **Real ticket** — `activateTicket()` has fired; `ref` badge shown |
+
+- Portal creates: `isTicket = true` immediately.
+- Email ingest: `isTicket = false`, `status = NEW`. Convert → sets `isTicket = true` + `status = OPEN` + fires `activateTicket()`. `ref` is never regenerated on convert.
+- Idempotent convert: if `isTicket` is already `true`, no-op.
+
 ## Status model — NEW and DISMISSED
 
-Inbound-email tickets land in `NEW` (not the live ticket queue). Portal-created tickets are `OPEN` immediately.
+Inbound-email rows land in `NEW` (conversation, not yet a real ticket). Portal rows are `OPEN` immediately.
 
 | Status | Meaning |
 |---|---|
-| `NEW` | Inbound email awaiting agent review — not visible to the customer, no auto-reply |
-| `OPEN` | Live ticket; confirmation + bot have fired |
+| `NEW` | Inbound email awaiting agent triage — not visible to customer, no auto-reply |
+| `OPEN` | Real ticket; confirmation + bot have fired |
 | `IN_PROGRESS` | Agent replied; waiting on customer |
 | `WAITING` | Customer replied; waiting on agent |
 | `RESOLVED` | Resolved by agent |
@@ -58,12 +72,12 @@ Inbound-email tickets land in `NEW` (not the live ticket queue). Portal-created 
 | `DISMISSED` | Agent marked as spam/irrelevant; `dismissedAt` + `dismissedById` stamped |
 
 **Rules**:
-- Portal-created tickets → `OPEN` immediately; `activateTicket()` fires confirmation + bot.
-- Inbound-email new tickets → `NEW`; `isBulk = true` if bulk signals detected. No confirmation or bot.
-- Agent clicks **Convert** (`POST /tickets/:id/convert`) → `status = OPEN`; `activateTicket()` fires confirmation + bot.
-- Agent clicks **Dismiss** (`POST /tickets/:id/discard`) → `status = DISMISSED`, `dismissedAt = now()`, `dismissedById = agentId`; no customer email. Only `NEW` tickets can be dismissed.
-- Default `GET /tickets` (Tickets tab, stats, portal) excludes `NEW` and `DISMISSED`. Inbox tab (`?view=inbox`) shows all `source = EMAIL` records with no status filter.
-- `isBulk = true` shows a **Promotional** pill in the Inbox — derived from email headers at ingest; not user-assignable.
+- Portal tickets → `isTicket=true`, `OPEN` immediately; `activateTicket()` fires confirmation + bot.
+- Inbound emails → `isTicket=false`, `NEW`; `isBulk = true` if bulk signals detected. No confirmation or bot.
+- Agent clicks **Convert to ticket** (sidebar on detail page) → `isTicket=true`, `status=OPEN`; `activateTicket()` fires.
+- Agent clicks **Dismiss** (sidebar) → `status=DISMISSED`; no customer email. Only `NEW` conversations can be dismissed.
+- Default `GET /tickets` (portal, stats) excludes `DISMISSED`. Agent default sees everything except DISMISSED (conversations + tickets).
+- `isBulk = true` still stored on `Ticket` but no longer drives UI — `User.category=PROMOTIONAL` is the new user-level signal.
 
 ## Creation paths
 
@@ -89,19 +103,32 @@ Two ticket-creation funnels: `TicketsService.create()` is invoked for portal sub
 
 ## List + filter + search
 
-The Inbox and Tickets views use the same `GET /tickets` endpoint with query params:
+The unified Inbox and Portal use the same `GET /tickets` endpoint with query params (no `view` param anymore):
 
-- `view` — `inbox` (all email-origin, no status filter) | `tickets` (default; excludes `NEW`/`DISMISSED`)
-- `status` — single value from `TicketStatus`; when present overrides the `view` scope
+- `status` — single value from `TicketStatus`; optional passthrough filter
+- `isTicket` — `true` | `false`; optional passthrough filter
 - `category` — same
 - `assigneeId` — literal agent id
-- `search` — case-insensitive against title, customer email/name, connector
-- `limit` / `offset` — pagination (cursor-based not used; counts are small)
+- `search` — case-insensitive against title, customer email/name, `field2`
+- `limit` / `offset` — pagination
 - `sortOrder` — `desc` / `asc` on `updatedAt` (default) or `createdAt`
 
-Portal callers (`role = user`) always get `status ∉ {NEW, DISMISSED}` regardless of `view`.
+Agent default: returns all non-deleted non-DISMISSED rows (conversations + tickets). Portal callers (`role=user`) always get own `isTicket=true` rows only; portal must not deep-link to pre-triage conversations (returns 404).
 
-Stats endpoint (`GET /tickets/stats`) feeds the sidebar counts and the analytics page; computed via parallel Prisma `groupBy` + `count`. Returns `newCount` (drives the Inbox rail badge) instead of the old `pendingCount`/`filteredCount`.
+Stats (`GET /tickets/stats`): `newCount` = conversations with `isTicket=false, status=NEW` (drives Inbox badge). Stats only count real tickets (`isTicket=true`) for `byStatus`/`byCategory`/`unassigned`.
+
+## Customers page — `GET /users`
+
+New agent-only endpoint: `GET /users?limit&offset&search&category` returns paginated customers with aggregates:
+
+- `ticketCount` — real tickets (`isTicket=true`)
+- `conversationCount` — conversations (`isTicket=false`, not DISMISSED)
+- `openCount` — rows with `status IN (OPEN, IN_PROGRESS, WAITING)`
+- `domain` — `split_part(email,'@',2)` from Postgres
+
+`PATCH /users/:id { category }` — agent updates `User.category` (CUSTOMER/MARKETING/PROMOTIONAL).
+
+`GET /users/:id` returns the customer profile: user info, stats (`totalTickets`/`openTickets`, tickets only), `notes`, and `recentTickets` — the user's **conversations *and* tickets** (`status != DISMISSED`, newest first, up to 50). Each row carries `isTicket`/`status`; the Bridge `CustomerProfilePanel` renders them under "Conversations & Tickets", shows the `ref` only when `isTicket`, and each row is clickable → `/tickets/:id`.
 
 ## Key files
 
@@ -111,12 +138,14 @@ Stats endpoint (`GET /tickets/stats`) feeds the sidebar counts and the analytics
 | [`apps/api/src/modules/tickets/tickets.service.ts`](../../apps/api/src/modules/tickets/tickets.service.ts) | Create / list / search / stats / status transitions / soft-delete |
 | [`apps/api/src/modules/tickets/tickets.dto.ts`](../../apps/api/src/modules/tickets/tickets.dto.ts) | Zod schemas for create / update / list |
 | [`apps/portal/src/app/submit/page.tsx`](../../apps/portal/src/app/submit/page.tsx) | Customer Submit form |
-| [`apps/bridge/src/app/inbox/page.tsx`](../../apps/bridge/src/app/inbox/page.tsx) | Inbox (`/inbox`) — **Inbox / Tickets tab strip**; domain-grouped view; gated behind `EmailNotConfiguredGate`; header has search + status/category filters |
+| [`apps/bridge/src/app/inbox/page.tsx`](../../apps/bridge/src/app/inbox/page.tsx) | Unified Inbox — **Domain → conversations** (2-level, sender shown inline per row); no tab strip; Convert/Dismiss in ticket detail sidebar |
+| [`apps/bridge/src/app/customers/page.tsx`](../../apps/bridge/src/app/customers/page.tsx) | Customers page — table of users with aggregates; inline `UserCategoryControl` |
 | [`apps/bridge/src/app/tickets/domain/[domain]/page.tsx`](../../apps/bridge/src/app/tickets/domain/[domain]/page.tsx) | Per-domain view — hero header with favicon + name, flat ticket list, status filter, "← Inbox" back button |
 | [`apps/bridge/src/app/tickets/[id]/page.tsx`](../../apps/bridge/src/app/tickets/[id]/page.tsx) | Ticket detail — Gmail-thread layout; inline compose; AI Analysis in sidebar |
 | [`apps/bridge/src/lib/useEmailConfig.ts`](../../apps/bridge/src/lib/useEmailConfig.ts) | Hook: `GET /config` → `{ isConnected, isLoading, refresh }` — module-level cache |
 | [`apps/bridge/src/components/dashboard/EmailNotConfiguredGate.tsx`](../../apps/bridge/src/components/dashboard/EmailNotConfiguredGate.tsx) | Full-page gate; ADMIN sees Connect CTA → `/settings/email`; non-ADMIN sees "ask admin" state |
-| [`apps/bridge/src/lib/groupTicketsByDomain.ts`](../../apps/bridge/src/lib/groupTicketsByDomain.ts) | Pure helper: groups tickets by `user.email` domain; sorts groups by `lastActivity` desc |
+| [`apps/bridge/src/lib/groupTicketsByDomain.ts`](../../apps/bridge/src/lib/groupTicketsByDomain.ts) | `buildDomainGroups` — flat domain→recency-sorted tickets[] with new/open counts (inbox filters out DISMISSED before calling) |
+| [`apps/api/src/modules/tickets/util/generate-ref.ts`](../../apps/api/src/modules/tickets/util/generate-ref.ts) | Crockford base32 ref generator with P2002 retry |
 | [`apps/bridge/src/components/dashboard/MessageCard.tsx`](../../apps/bridge/src/components/dashboard/MessageCard.tsx) | Email-card renderer (Bridge only) — handles REPLY / INTERNAL_NOTE / SYSTEM_EVENT |
 
 ## Endpoints
@@ -127,18 +156,17 @@ See `TicketsController` in [_generated/api-routes.md](_generated/api-routes.md#t
 
 `Ticket` (the row itself), `Message` (thread), `Attachment` (linked at create-time), `User` (customer), `Agent` (assignee), `Notification` (fix-deployed flag). See [_generated/erd.md](_generated/erd.md).
 
-Key enums: `TicketStatus` · `TicketPriority` · `TicketCategory` · `TicketSource`.
+Key enums: `TicketStatus` · `TicketPriority` · `TicketCategory` · `TicketSource` · `UserCategory`.
 
 ## Bridge UI — Inbox page (`/inbox`)
 
-The one and only list page, containing two tabs driven by `?view=` (default `inbox`):
+Single unified Inbox. No tab strip. One `GET /tickets` call returns conversations + tickets, excluding DISMISSED.
 
-| Tab | URL param | API query | Shows |
-|---|---|---|---|
-| **Inbox** | `?view=inbox` (default) | `GET /tickets?view=inbox` | All `source=EMAIL` records — `NEW`, lifecycle, `DISMISSED` |
-| **Tickets** | `?view=tickets` | `GET /tickets?view=tickets` | Only `status ∉ {NEW, DISMISSED}` |
+**2-level grouping** (Domain → conversations, sender shown inline):
+- **Domain card**: favicon, domain name, conversation count, new/open counts, last activity, expand/collapse chevron. Click left zone → `/tickets/domain/[domain]`. Single `expandedDomains` set persisted in localStorage; `PREVIEW_COUNT=5` "show more" applies to conversations.
+- **Conversation row** (two-line, sender inline, clustered by consecutive sender): avatar + sender name + `UserCategoryBadge` *only for PROMOTIONAL/MARKETING* on line 1; unread dot + title (bold when new) + CategoryPill + `ref` code badge *only when `isTicket`* on line 2. Right side collapses empty slots — status pill *only for real tickets*, assignee avatar *only when assigned*, timestamp. No "Conversation" pill, no dashed assignee placeholder.
 
-`NEW` rows in the Inbox tab show inline **Convert** / **Dismiss** buttons instead of an assignee avatar. `DISMISSED` rows show "Dismissed by {name}" (or "Auto-filtered" when no agent) + time; titles are struck through. `isBulk = true` shows a **Promotional** pill alongside the category.
+**Convert / Dismiss** moved from inline inbox buttons to the **ticket detail right sidebar** (`/tickets/[id]`). When `!isTicket`: sidebar shows "Convert to ticket" (green) + "Dismiss" buttons; hides status/priority until converted.
 
 Header layout (left → right):
 - **Title**: "Inbox" or "Tickets" (tracks active tab) + total count

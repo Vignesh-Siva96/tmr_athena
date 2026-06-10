@@ -12,7 +12,7 @@ import { api } from '@/lib/api'
 
 interface GithubNotification {
   id: string; isRead: boolean; createdAt: string
-  ticket: { id: string; number: number; title: string; user: { name: string | null; email: string } } | null
+  ticket: { id: string; ref: string; title: string; user: { name: string | null; email: string } } | null
   githubIssueNumber: number | null; githubRepo: string | null; githubIssueTitle: string | null
 }
 
@@ -21,7 +21,7 @@ type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 
 interface FullTicket {
-  id: string; number: number; displayId: string; title: string
+  id: string; ref: string; displayId: string; title: string
   status: TicketStatus; priority: TicketPriority; category: TicketCategory
   connector?: string | null; product?: string | null; source: string
   createdAt: string; updatedAt: string
@@ -188,7 +188,7 @@ export default function GithubActionPage() {
                     {n.githubIssueTitle && <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.githubIssueTitle}</p>}
                     <p style={{ fontSize: 11, color: 'var(--d-text-4)', margin: 0, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {n.githubRepo}#{n.githubIssueNumber}
-                      {n.ticket && <span style={{ fontFamily: 'inherit', color: 'var(--d-text-3)', marginLeft: 8 }}>· TMR-{n.ticket.number}</span>}
+                      {n.ticket && <span style={{ fontFamily: 'inherit', color: 'var(--d-text-3)', marginLeft: 8 }}>· TMR-{n.ticket.ref}</span>}
                     </p>
                   </div>
                 )

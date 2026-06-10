@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { Github, Lock, CornerUpLeft, Sparkles } from 'lucide-react'
+import { sanitizeHtml, isHtmlBody, splitQuotedHtml } from '@tmr/ui/sanitize'
 
 type MessageType = 'REPLY' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT'
 
@@ -36,27 +37,6 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function isHtmlBody(body: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(body)
-}
-
-function sanitizeHtml(html: string): string {
-  if (typeof document === 'undefined') return html
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  // Remove unsafe elements
-  tmp.querySelectorAll('script, style, iframe, object, embed, form').forEach((el) => el.remove())
-  // Remove event handler attributes from all elements
-  tmp.querySelectorAll('*').forEach((el) => {
-    Array.from(el.attributes).forEach((attr) => {
-      if (attr.name.startsWith('on') || attr.name === 'src' && el.tagName !== 'IMG') {
-        el.removeAttribute(attr.name)
-      }
-    })
-  })
-  return tmp.innerHTML
-}
-
 function parseEvent(body: string): string {
   if (body.startsWith('status_changed:')) { const [, f, t] = body.split(':'); return `Status changed ${f} → ${t}` }
   if (body.startsWith('github_linked:')) return `Linked to GitHub issue ${body.slice('github_linked:'.length)}`
@@ -87,8 +67,9 @@ function splitQuoted(body: string): { main: string; quoted: string | null } {
   return { main: body, quoted: null }
 }
 
-function QuoteToggle({ quoteText }: { quoteText: string }) {
+function QuoteToggle({ quoteText, isHtml }: { quoteText: string; isHtml?: boolean }) {
   const [expanded, setExpanded] = useState(false)
+  const quoteStyle = { marginTop: 8, padding: '10px 14px', borderLeft: '3px solid var(--d-border)', borderRadius: '0 4px 4px 0', fontSize: 13, color: 'var(--d-text-4)', lineHeight: 1.6 } as const
   return (
     <div style={{ marginTop: 10 }}>
       <button type="button" onClick={() => setExpanded((e) => !e)}
@@ -96,11 +77,34 @@ function QuoteToggle({ quoteText }: { quoteText: string }) {
         {expanded ? '▴ Hide quoted text' : '···'}
       </button>
       {expanded && (
-        <div style={{ marginTop: 8, padding: '10px 14px', borderLeft: '3px solid var(--d-border)', borderRadius: '0 4px 4px 0', fontSize: 13, color: 'var(--d-text-4)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-          {quoteText}
-        </div>
+        isHtml
+          ? <div className="msg-html" style={quoteStyle} dangerouslySetInnerHTML={{ __html: quoteText }} />
+          : <div style={{ ...quoteStyle, whiteSpace: 'pre-wrap' }}>{quoteText}</div>
       )}
     </div>
+  )
+}
+
+/** Email body block: prefers the HTML part (quoted history collapsed), falls back to plain text. */
+function MessageBody({ body, bodyHtml, color }: { body: string; bodyHtml?: string | null; color: string }) {
+  if (bodyHtml) {
+    const { main, quoted } = splitQuotedHtml(sanitizeHtml(bodyHtml))
+    return (
+      <>
+        <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color }} dangerouslySetInnerHTML={{ __html: main }} />
+        {quoted && <QuoteToggle quoteText={quoted} isHtml />}
+      </>
+    )
+  }
+  const { main, quoted } = splitQuoted(body)
+  return (
+    <>
+      {isHtmlBody(main)
+        ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(main) }} />
+        : <p style={{ fontSize: 14, lineHeight: 1.7, color, margin: 0, whiteSpace: 'pre-wrap' }}>{main}</p>
+      }
+      {quoted && <QuoteToggle quoteText={quoted} />}
+    </>
   )
 }
 
@@ -128,7 +132,6 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
 
   // Bot-generated reply — render with Sparkles avatar + AI badge
   if (authorBotName && type === 'REPLY' && !isInternal) {
-    const { main, quoted } = splitQuoted(body)
     return (
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
@@ -144,14 +147,8 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
             </div>
             <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0, marginLeft: 12 }}>{fmtDate(createdAt)}</span>
           </div>
-          <div style={{ padding: '12px 14px' }}>
-            {bodyHtml
-              ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(bodyHtml) }} />
-              : isHtmlBody(main)
-                ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(main) }} />
-                : <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{main}</p>
-            }
-            {!bodyHtml && quoted && <QuoteToggle quoteText={quoted} />}
+          <div data-testid="message-body" style={{ padding: '12px 14px' }}>
+            <MessageBody body={body} bodyHtml={bodyHtml} color="var(--d-text-2)" />
           </div>
           {isLast && <ReplyActions onReply={onReply} onNote={onNote} />}
         </div>
@@ -196,7 +193,7 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
             </div>
             <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0, marginLeft: 12 }}>{fmtDate(createdAt)}</span>
           </div>
-          <div style={{ padding: '12px 14px' }}>
+          <div data-testid="message-body" style={{ padding: '12px 14px' }}>
             {isHtmlBody(body)
               ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-note-text)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(body) }} />
               : <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-note-text)', margin: 0, whiteSpace: 'pre-wrap' }}>{body}</p>
@@ -225,8 +222,6 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
     )
   }
 
-  const { main, quoted } = splitQuoted(body)
-
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarBg, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>
@@ -241,12 +236,8 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
           </div>
           <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0, marginLeft: 12 }}>{fmtDate(createdAt)}</span>
         </div>
-        <div style={{ padding: '12px 14px' }}>
-          {isHtmlBody(main)
-            ? <div className="msg-html" style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(main) }} />
-            : <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--d-text-2)', margin: 0, whiteSpace: 'pre-wrap' }}>{main}</p>
-          }
-          {quoted && <QuoteToggle quoteText={quoted} />}
+        <div data-testid="message-body" style={{ padding: '12px 14px' }}>
+          <MessageBody body={body} bodyHtml={bodyHtml} color="var(--d-text-2)" />
         </div>
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 14px 12px' }}>

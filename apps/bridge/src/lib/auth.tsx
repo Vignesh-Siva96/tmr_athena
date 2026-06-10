@@ -33,7 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const t = localStorage.getItem(TOKEN_KEY)
     const a = localStorage.getItem(AGENT_KEY)
-    if (t && a) { setToken(t); setAgent(JSON.parse(a) as AgentUser) }
+    if (t && a) {
+      try { setToken(t); setAgent(JSON.parse(a) as AgentUser) } catch { /* stale/corrupt entry — ignore, user stays signed out */ }
+    }
     setIsLoading(false)
   }, [])
 

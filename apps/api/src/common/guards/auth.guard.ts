@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import * as crypto from 'crypto'
 import { PrismaService } from '../../modules/database/prisma.service'
+import { getJwtSecret } from '../auth/jwt-secret'
 
 export interface JwtPayload {
   sub: string
@@ -28,6 +29,15 @@ function base64UrlDecode(str: string): string {
   return Buffer.from(base64, 'base64').toString('utf-8')
 }
 
+/** Constant-time string comparison — `===` short-circuits on the first differing byte,
+ *  letting an attacker recover a secret/signature one byte at a time via response timing. */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  if (bufA.length !== bufB.length) return false
+  return crypto.timingSafeEqual(bufA, bufB)
+}
+
 function verifyJwt(token: string, secret: string): JwtPayload {
   const parts = token.split('.')
   if (parts.length !== 3) throw new UnauthorizedException('Invalid token format')
@@ -39,7 +49,7 @@ function verifyJwt(token: string, secret: string): JwtPayload {
     .update(signingInput)
     .digest('base64url')
 
-  if (expectedSig !== signature) throw new UnauthorizedException('Invalid token signature')
+  if (!timingSafeEqualString(expectedSig, signature)) throw new UnauthorizedException('Invalid token signature')
 
   const decoded = JSON.parse(base64UrlDecode(payload)) as JwtPayload
   if (decoded.exp < Math.floor(Date.now() / 1000)) {
@@ -64,7 +74,7 @@ export class AuthGuard implements CanActivate {
     }
 
     const token = authHeader.slice(7)
-    const secret = this.config.get<string>('BETTER_AUTH_SECRET') ?? ''
+    const secret = getJwtSecret(this.config)
 
     const payload = verifyJwt(token, secret)
     request.jwtPayload = payload

@@ -59,7 +59,7 @@ export default async function globalSetup(_: FullConfig): Promise<void> {
   // Implementation note: this would call the API once it's up, or run a Prisma
   // script directly. Keeping it as a marker for now — the API's seed script can
   // be wrapped here.
-  execSync('pnpm --filter @tmr/db exec prisma db seed || true', {
+  execSync('pnpm --filter @tmr/db exec prisma db seed', {
     cwd: REPO_ROOT,
     env: { ...process.env, DATABASE_URL: databaseUrl },
     stdio: 'inherit',

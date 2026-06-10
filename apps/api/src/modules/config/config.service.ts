@@ -2,6 +2,24 @@ import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import type { AppConfig } from '@tmr/db'
 import { z } from 'zod'
+import { fetchPublic, readBodyCapped } from '../../common/net/assert-public-url'
+import { encrypt } from '../../common/crypto/credentials-cipher'
+
+/** Fields callers may write via PATCH /config — keeps `update()` from passing an
+ * unbounded DTO straight to Prisma (e.g. internal-only columns like the OAuth token fields). */
+const UPDATABLE_FIELDS = [
+  'appName', 'logoUrl', 'portalTagline', 'primaryColor', 'accentColor', 'emailDisplayName',
+  'supportEmail', 'portalAuthLayout', 'portalHeroHeadline', 'portalHeroSubheadline',
+  'portalFeatures', 'botProvider', 'botApiKeyEnc', 'botFallbackAgentId', 'kbRootUrl', 'timezone',
+  'field1Label', 'field1Options', 'field2Label', 'field2Options',
+  'mirrorPortalRepliesToEmail',
+] as const satisfies readonly (keyof UpdateAppConfigDto)[]
+
+const dropdownOptionSchema = z.object({
+  value: z.string().min(1),
+  label: z.string().min(1),
+  icon: z.string().optional(),
+})
 
 export const updateAppConfigSchema = z.object({
   appName: z.string().min(1).optional(),
@@ -24,6 +42,12 @@ export const updateAppConfigSchema = z.object({
   kbRootUrl: z.string().url().nullable().optional(),
   // Timezone
   timezone: z.string().optional(),
+  // Configurable portal dropdowns
+  field1Label: z.string().nullable().optional(),
+  field1Options: z.array(dropdownOptionSchema).optional(),
+  field2Label: z.string().nullable().optional(),
+  field2Options: z.array(dropdownOptionSchema).optional(),
+  mirrorPortalRepliesToEmail: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.portalAuthLayout === 'BRANDED') {
     if (!data.portalHeroHeadline?.trim()) {
@@ -72,7 +96,21 @@ export class AppConfigService {
 
   async update(dto: UpdateAppConfigDto): Promise<AppConfig> {
     const config = await this.get()
-    const updated = await this.db.appConfig.update({ where: { id: config.id }, data: dto })
+
+    // Whitelist: only forward known-updatable fields to Prisma (never the whole DTO —
+    // a future field addition to the Zod schema shouldn't silently become writable here).
+    const data: Record<string, unknown> = {}
+    for (const key of UPDATABLE_FIELDS) {
+      if (key in dto) data[key] = dto[key]
+    }
+    // Encrypt the bot API key at rest — it was previously stored as plaintext despite
+    // the `Enc` suffix implying it already was. Empty string clears the key (stored as null).
+    if ('botApiKeyEnc' in data) {
+      const raw = data['botApiKeyEnc'] as string | null
+      data['botApiKeyEnc'] = raw ? encrypt(raw) : null
+    }
+
+    const updated = await this.db.appConfig.update({ where: { id: config.id }, data })
     return updated
   }
 
@@ -103,11 +141,11 @@ export class AppConfigService {
   async extractBrand(url: string): Promise<{ colors: { hex: string; source: string; label: string }[] }> {
     let html: string
     try {
-      const res = await fetch(url, {
+      const res = await fetchPublic(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TMRBrandBot/1.0)' },
         signal: AbortSignal.timeout(8000),
       })
-      html = await res.text()
+      html = await readBodyCapped(res)
     } catch {
       return { colors: [] }
     }

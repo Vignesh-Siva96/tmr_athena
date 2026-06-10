@@ -4,10 +4,11 @@ import { AppConfigModule } from '../config/config.module'
 import { EmailOAuthModule } from '../email-oauth/email-oauth.module'
 import { DatabaseModule } from '../database/database.module'
 import { SendReplyWorker } from './workers/send-reply.worker'
+import { SendConfirmationWorker } from './workers/send-confirmation.worker'
 
 @Module({
   imports: [AppConfigModule, EmailOAuthModule, DatabaseModule],
-  providers: [EmailService, SendReplyWorker],
+  providers: [EmailService, SendReplyWorker, SendConfirmationWorker],
   exports: [EmailService],
 })
 export class EmailModule {}

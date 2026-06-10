@@ -21,7 +21,8 @@ export class AnalyticsService {
       byStatus,
       byCategory,
       byPriority,
-      connectorGroups,
+      field1Groups,
+      field2Groups,
       resolutionMessages,
       topCustomersRaw,
       agents,
@@ -54,8 +55,11 @@ export class AnalyticsService {
       // By priority
       this.db.ticket.groupBy({ by: ['priority'], where: { deletedAt: null }, _count: { id: true } }),
 
-      // By connector (non-null)
-      this.db.ticket.groupBy({ by: ['connector'], where: { deletedAt: null, connector: { not: null } }, _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 10 }),
+      // By field1 (non-null)
+      this.db.ticket.groupBy({ by: ['field1'], where: { deletedAt: null, field1: { not: null } }, _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 10 }),
+
+      // By field2 (non-null)
+      this.db.ticket.groupBy({ by: ['field2'], where: { deletedAt: null, field2: { not: null } }, _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 10 }),
 
       // System event messages for resolution time
       this.db.message.findMany({
@@ -176,9 +180,12 @@ export class AnalyticsService {
       byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count.id])) as Record<string, number>,
       byCategory: Object.fromEntries(byCategory.map((r) => [r.category, r._count.id])) as Record<string, number>,
       byPriority: Object.fromEntries(byPriority.map((r) => [r.priority, r._count.id])) as Record<string, number>,
-      byConnector: connectorGroups
-        .filter((r) => r.connector)
-        .map((r) => ({ connector: r.connector as string, count: r._count.id })),
+      byField1: field1Groups
+        .filter((r) => r.field1)
+        .map((r) => ({ value: r.field1 as string, count: r._count.id })),
+      byField2: field2Groups
+        .filter((r) => r.field2)
+        .map((r) => ({ value: r.field2 as string, count: r._count.id })),
       topCustomers,
       agentPerformance,
     }

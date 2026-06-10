@@ -2,7 +2,7 @@
 title: Email
 stack: [Gmail REST API, Microsoft Graph REST API, nodemailer, NestJS Schedule, Postgres, AES-256-GCM, Google OAuth2, Microsoft OAuth2]
 status: working
-last-reviewed: 2026-05-31
+last-reviewed: 2026-06-10
 ---
 
 # Email
@@ -46,7 +46,7 @@ sequenceDiagram
     Cron->>Ingestion: fetchAndUpsertThread(provider, threadId)
     Ingestion->>Provider: fetchThread(threadId)
     Provider-->>Ingestion: ParsedThread
-    Ingestion->>DB: upsert User (source=EMAIL), upsert Ticket (externalThreadId @unique), upsert Messages (externalMessageId @unique)
+    Ingestion->>DB: upsert User (source=EMAIL, category=PROMOTIONAL|CUSTOMER on first email only), create Ticket (ref=7char, isTicket=false, status=NEW), upsert Messages
     Ingestion->>SSE: broadcast ticket-created / message-created
   end
   Cron->>DB: persist nextCheckpoint AFTER processing (at-least-once)
@@ -85,7 +85,9 @@ sequenceDiagram
 
 ## Outbound flow (retried via queue)
 
-Agent replies go through the `email:send-reply` pg-boss queue (`SendReplyWorker`), retried up to 3 times with exponential backoff. On permanent failure a `email_delivery_failed:` SYSTEM_EVENT appears in the ticket thread.
+Agent replies and portal-copy confirmations all go through pg-boss queues, retried up to 3× with exponential backoff. On permanent failure an `email_delivery_failed:` SYSTEM_EVENT appears in the ticket thread.
+
+### Agent reply (`email:send-reply`)
 
 ```mermaid
 sequenceDiagram
@@ -115,14 +117,61 @@ sequenceDiagram
   SMTP-->>Customer: delivers email
 ```
 
-### Inbound email — NEW status flow
+### Portal reply mirror (`email:send-reply`, `kind: 'portal-copy'`, G1)
 
-When `ThreadIngestionService` creates a **new** ticket from an inbound email, it lands in the Inbox tab as `status = NEW`:
+When a customer posts a reply via the portal and `AppConfig.mirrorPortalRepliesToEmail = true`, `MessagesService` enqueues an additional job with `kind: 'portal-copy'`. `SendReplyWorker` branches on the `kind` field and calls `EmailService.sendPortalReplyCopy()` instead of `sendAgentReply()`. The copy:
+- Is sent **From** and **To** the support address (self-addressed so the poller skips it)
+- Sets `Reply-To` to the customer's address
+- Prefixes the body with `[Portal reply from <customer>]`
+- Stores the returned Message-ID on the `Message` row for RFC dedup
 
-- `isBulk = true` if the message is detected as automated/bulk (newsletters, no-reply senders, list-unsubscribe headers, RFC 3834 `Auto-Submitted`, Exchange suppression) — renders a **Promotional** pill in the Inbox.
-- `isBulk = false` for normal customer mail.
+The poller's RFC-messageId dedup filter (`messageId @unique`) drops the self-addressed copy on the next poll cycle, so the portal reply never appears twice in the ticket thread.
 
-**No** confirmation email and **no** bot response are sent on ingest. The agent reviews the Inbox (`/inbox?view=inbox`) and clicks **Convert** to activate the ticket — that fires `TicketsService.activateTicket()` which sends the confirmation and enqueues the bot. Clicking **Dismiss** sets `status = DISMISSED` and stamps `dismissedAt`/`dismissedById` without contacting the customer.
+### Ticket confirmation (`email:send-confirmation`, G2)
+
+When `TicketsService.activateTicket()` fires (portal ticket creation, or **Convert** on an inbound email conversation), a job is enqueued in `email:send-confirmation`. `SendConfirmationWorker` sends the confirmation:
+
+1. **Idempotency check** — looks for an existing `confirmation_sent:` SYSTEM_EVENT on the ticket; skips if found.
+2. **Send** — calls `EmailService.sendTicketConfirmation(ticket, appConfig)`.
+3. **Marker** — creates `confirmation_sent:{email}` SYSTEM_EVENT on success.
+4. **Final-failure marker** — after all retries exhausted, writes `email_delivery_failed:Confirmation…` SYSTEM_EVENT.
+
+Retry profile: 3 attempts, 30 s delay, exponential backoff (same as `email:send-reply`).
+
+## Bounce detection (G4)
+
+`ThreadIngestionService.fetchAndUpsertThread()` runs a pre-ingest check on the first message's `fromEmail`:
+
+```
+BOUNCE_PATTERN = /^(mailer-daemon|postmaster)(@|$)/i
+```
+
+On a match, `handleBouncedThread()` is called and the normal ingest path is **skipped** (no User upsert, no Ticket created for the DSN thread). The method:
+
+1. Collects all `<messageId@...>` tokens from the body text and looks them up in `Message.messageId` (Pattern 1 — matches our sent Message-IDs).
+2. Falls back to scanning for `ticket-{emailThreadId}@` tokens and looking up `Ticket.emailThreadId` (Pattern 2 — synthetic confirmation Message-ID root).
+3. On match: calls `writeBounceEvent(ticketId, userId)` which:
+   - Creates an `email_delivery_failed:bounce` SYSTEM_EVENT on the ticket
+   - Sets `User.emailStatus = 'BOUNCING'`
+4. No match: logs a warning and falls through to normal ingest (DSN from an unrelated sender).
+
+Bridge shows a "email bouncing" / "email blocked" chip next to the customer email in the ticket sidebar when `emailStatus` ≠ `ACTIVE`.
+
+### Inbound email — conversation vs ticket
+
+When `ThreadIngestionService` creates a new row from an inbound email it is a **conversation** (`isTicket = false`, `status = NEW`):
+
+- Every row (conversation and real ticket) gets a **`ref`** — a 7-char Crockford base32 unique code generated on insert. The code is always present in the DB but **not rendered** in the UI unless `isTicket = true`.
+- `isBulk = true` if the message is bulk/automated — no functional change; the same `isBulkSender()` signal now sets `User.category = 'PROMOTIONAL'` on first email.
+
+**User.category** is set **once** at user creation (from the first email):
+- `PROMOTIONAL` if `isBulk = true`; `CUSTOMER` otherwise
+- Agents can manually set it to `CUSTOMER`, `MARKETING`, or `PROMOTIONAL` via `PATCH /users/:id`
+- The category is **never overwritten** by subsequent emails
+
+**No** confirmation email and **no** bot response are sent on ingest. The agent opens the conversation in Bridge and clicks **Convert to ticket** in the sidebar to activate it — that sets `isTicket=true`, `status=OPEN` and fires `TicketsService.activateTicket()` (sends confirmation + enqueues bot). Clicking **Dismiss** sets `status = DISMISSED` without contacting the customer.
+
+**Unified Inbox** — agents see all conversations and real tickets in one list (`/inbox`), grouped **Domain → conversations** (2-level; the sender is shown inline on each row, clustered by consecutive sender). Dismissed rows are excluded from the list. Conversations show no code badge; real tickets show the `ref` badge.
 
 #### Bulk detection signals (`isBulkSender`)
 
@@ -182,7 +231,11 @@ Attachment fetch runs **outside** the DB transaction (HTTP calls must not run in
 Safety bounds:
 - Attachments larger than **25 MB** are skipped with a warning log.
 - A failure on one attachment logs an error and continues — it never fails the whole ingest.
-- Graph provider (Microsoft) does not yet implement attachment extraction. The capability check is via duck-typing: `'fetchAttachmentBytes' in provider`.
+- Both providers now implement `fetchAttachmentBytes`. The capability check is via duck-typing: `'fetchAttachmentBytes' in provider`.
+
+### Microsoft Graph attachments (G5)
+
+`GraphProvider.fetchThread()` selects `hasAttachments` per message. When `hasAttachments = true`, it fetches the attachment list via `GET /me/messages/{id}/attachments?$select=id,name,contentType,size,contentBytes` and maps each to a `ParsedAttachment`. `fetchAttachmentBytes(messageId, attachmentId)` decodes the `contentBytes` base64 field from that endpoint. The `gmailMessageId` / `gmailAttachmentId` fields in `ParsedAttachment` are repurposed as provider-opaque IDs (Graph message and attachment IDs are stored there for the Graph path).
 
 ## At-least-once semantics
 
@@ -236,9 +289,9 @@ Checkpoint (historyId / deltaLink / archivePageToken) is persisted to DB **after
 
 ## Data model touched
 
-**`AppConfig`**: `oauthProvider`, `oauthEmail`, `oauthAccessTokenEnc`, `oauthRefreshTokenEnc`, `oauthTokenExpiresAt`, `oauthScopes`, `oauthAliases[]`, `gmailHistoryId`, `graphDeltaLink`, `archivePageToken`, `archiveStatus`, `archiveTotalSeen`, `archiveTotalEstimate`.
+**`AppConfig`**: `oauthProvider`, `oauthEmail`, `oauthAccessTokenEnc`, `oauthRefreshTokenEnc`, `oauthTokenExpiresAt`, `oauthScopes`, `oauthAliases[]`, `gmailHistoryId`, `graphDeltaLink`, `archivePageToken`, `archiveStatus`, `archiveTotalSeen`, `archiveTotalEstimate`, `mirrorPortalRepliesToEmail` (G1, default `true`).
 
-**`Ticket`**: `externalThreadId @unique`, `externalProvider` (GMAIL/GRAPH), `source = EMAIL`. **`Message`**: `externalMessageId @unique`, `messageId`, `inReplyTo`, `bodyRaw`. **`User`**: `source = EMAIL`.
+**`Ticket`**: `externalThreadId @unique`, `externalProvider` (GMAIL/GRAPH), `source = EMAIL`. **`Message`**: `externalMessageId @unique`, `messageId`, `inReplyTo`, `bodyRaw`. **`User`**: `source = EMAIL`, `emailStatus` (ACTIVE / BOUNCING / BLOCKED — set to BOUNCING by `writeBounceEvent()`, G4).
 
 See [_generated/erd.md](_generated/erd.md) for the full ERD.
 
@@ -294,10 +347,14 @@ When email is not configured (`!oauthConnected`), Bridge shows a full-page gate 
 - **Concurrent user upsert — P2002 fallback** — `user.upsert()` outside the transaction can still race when 5 threads process the same customer email simultaneously. Fix: catch `P2002` (`PrismaClientKnownRequestError`) and fall back to `findUnique` — the winning thread already inserted the row.
 - **DISMISSED → NEW resurface on customer reply** — `ThreadIngestionService` checks the current ticket status inside the `!wasCreated` update block. If the status is `DISMISSED` and the new message is from a customer (non-agent, `newMessageId` is set), it flips `status = 'NEW'` in the same `tx.ticket.update()` call. This returns the thread to the agent Inbox for re-triage without sending any customer email (ticket is still pre-activation).
 - **No AI on backfill messages** — prevents cost spikes on thousands of historical messages. "Run AI on imported emails" gives explicit control back to the admin.
+- **Portal reply mirror dedup via self-addressed copy (G1)** — customer portal replies are mirrored to email (self-addressed From/To=support, Reply-To=customer) so the email thread stays in sync. Storing the returned Message-ID on the portal `Message` row means the poller's `messageId @unique` guard skips the copy on the next poll — no duplicate in the ticket thread.
+- **Confirmation email via queue, not direct call (G2)** — moved `sendTicketConfirmation()` from a direct awaited call in `activateTicket()` to a pg-boss job. Benefit: the HTTP response to the portal user is no longer blocked by SMTP latency. Idempotency via `confirmation_sent:` SYSTEM_EVENT prevents double-send on retry.
+- **Bounce detection skips user upsert (G4)** — `handleBouncedThread()` fires before the `user.upsert()` block; a bounce from mailer-daemon never creates a phantom User row for the delivery system sender.
+- **Graph attachment IDs stored in Gmail-named fields (G5)** — `ParsedAttachment.gmailMessageId` / `gmailAttachmentId` are repurposed as provider-opaque IDs to avoid adding a new interface field. Graph message and attachment IDs are stored there for the Graph path; GmailProvider continues to use them for Gmail IDs. Both providers now implement `fetchAttachmentBytes`.
 - **TokenRefresher dedupes concurrent refreshes** — `refreshLocks: Map<string, Promise<string>>` ensures two concurrent sends don't both try to refresh the token, causing one to store a stale token.
 
 ## Known gaps
 
-- Attachments not yet extracted from inbound email → MinIO.
-- Outbound threading headers (`In-Reply-To`, `References`) not yet built for email-originated tickets (no confirmation email was sent as thread root).
 - `OAUTH_CALLBACK_BASE` and `BRIDGE_URL` env vars must be set correctly in production; defaults only work for local dev.
+- `User.emailStatus` has `BLOCKED` as a third state (Prisma enum) but nothing sets it to `BLOCKED` yet — reserved for a future manual block action.
+- Portal reply mirror (`mirrorPortalRepliesToEmail`) stores the returned Message-ID on the portal Message row for RFC dedup, but the poller still sees and skips the copy on the next cycle. If the poller runs very quickly after the send-reply worker, there is a small window where the copy hasn't been committed yet. In practice this is benign: the idempotent `messageId @unique` constraint prevents duplicate Message rows.

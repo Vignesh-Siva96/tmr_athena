@@ -222,6 +222,10 @@ function parsePrismaSchema(source: string): { models: PrismaModel[]; enums: { na
   const models: PrismaModel[] = []
   const enums: { name: string; values: string[] }[] = []
 
+  // Pre-scan enum names so enum-typed fields are emitted as columns, not skipped as relations
+  const enumNames = new Set<string>()
+  for (const m of source.matchAll(/^enum\s+(\w+)\s*\{/gm)) enumNames.add(m[1])
+
   const lines = source.split('\n')
   let i = 0
   while (i < lines.length) {
@@ -247,7 +251,7 @@ function parsePrismaSchema(source: string): { models: PrismaModel[]; enums: { na
             const isRelation = /^[A-Z]/.test(baseType[0] ?? '')
             fields.push({
               name: fname, type: baseType, isOptional, isList,
-              isRelation: isRelation && !['Boolean', 'String', 'Int', 'BigInt', 'Float', 'Decimal', 'DateTime', 'Json', 'Bytes'].includes(baseType),
+              isRelation: isRelation && !enumNames.has(baseType) && !['Boolean', 'String', 'Int', 'BigInt', 'Float', 'Decimal', 'DateTime', 'Json', 'Bytes'].includes(baseType),
               attributes: rest.trim(),
             })
           }

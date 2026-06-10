@@ -2,7 +2,7 @@
 title: Files
 stack: [MinIO (S3 API), AWS SDK v3, presigned URLs]
 status: working
-last-reviewed: 2026-05-21
+last-reviewed: 2026-06-10
 ---
 
 # Files
@@ -31,6 +31,8 @@ sequenceDiagram
 
 `Attachment.ticketId` is **optional** — files are uploaded before the ticket exists, then linked at create-time via the `attachmentIds: string[]` field on `CreateTicketDto`.
 
+Uploads are capped at **10 MB server-side** — `FilesController` passes `limits: { fileSize: 10 * 1024 * 1024 }` to the `FileInterceptor`, so oversized files are rejected before reaching `FilesService`. Inbound **email attachments** are also ingested: `ThreadIngestionService` fetches attachment bytes from the provider after the DB transaction and stores them via `FilesService.storeBuffer()` (25 MB cap per attachment).
+
 ## Key files
 
 | File | Role |
@@ -56,6 +58,4 @@ See `FilesController` in [_generated/api-routes.md](_generated/api-routes.md#fil
 ## Known gaps
 
 - No virus scanning. Untrusted attachments could host malware.
-- No size limit enforced server-side; UI says max 10 MB but server doesn't reject.
-- Inbound email attachments aren't extracted yet — see [email.md](email.md).
 - No file attach in reply composer (portal side has the paperclip icon but no handler).

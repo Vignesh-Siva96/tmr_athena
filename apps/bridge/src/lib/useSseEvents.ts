@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import { sseEventBus, type SseEvent } from './sseEventBus'
+import { api } from './api'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -22,14 +23,37 @@ export function useSseEvents(token: string | null): void {
 
     let retryTimeout: ReturnType<typeof setTimeout> | null = null
     let retryCount = 0
+    let cancelled = false
 
-    function connect() {
+    function scheduleRetry() {
+      // Exponential backoff: 2s, 4s, 8s … capped at 30s
+      const delay = Math.min(2000 * 2 ** retryCount, 30_000)
+      retryCount++
+      retryTimeout = setTimeout(() => {
+        if (tokenRef.current) void connect()
+      }, delay)
+    }
+
+    async function connect() {
       if (esRef.current) {
         esRef.current.close()
         esRef.current = null
       }
 
-      const url = `${API_BASE}/api/v1/events?token=${encodeURIComponent(token!)}`
+      // EventSource can't send an Authorization header, so the JWT never travels
+      // in the URL (logs/referrers/history). Exchange it for a short-lived,
+      // single-use ticket via an authenticated POST first.
+      let ticket: string
+      try {
+        const res = await api.post<{ ticket: string }>('/events/ticket', {}, tokenRef.current)
+        ticket = res.ticket
+      } catch {
+        if (!cancelled) scheduleRetry()
+        return
+      }
+      if (cancelled) return
+
+      const url = `${API_BASE}/api/v1/events?ticket=${encodeURIComponent(ticket)}`
       const es = new EventSource(url)
       esRef.current = es
 
@@ -47,18 +71,14 @@ export function useSseEvents(token: string | null): void {
       es.onerror = () => {
         es.close()
         esRef.current = null
-        // Exponential backoff: 2s, 4s, 8s … capped at 30s
-        const delay = Math.min(2000 * 2 ** retryCount, 30_000)
-        retryCount++
-        retryTimeout = setTimeout(() => {
-          if (tokenRef.current) connect()
-        }, delay)
+        if (!cancelled) scheduleRetry()
       }
     }
 
-    connect()
+    void connect()
 
     return () => {
+      cancelled = true
       if (retryTimeout) clearTimeout(retryTimeout)
       if (esRef.current) {
         esRef.current.close()

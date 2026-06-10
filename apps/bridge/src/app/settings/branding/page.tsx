@@ -7,6 +7,12 @@ import AuthPagePreview from '@/components/settings/branding/AuthPagePreview'
 
 type AuthLayout = 'MINIMAL' | 'BRANDED'
 
+interface DropdownOption {
+  value: string
+  label: string
+  icon?: string
+}
+
 interface AppConfig {
   appName: string
   logoUrl: string | null
@@ -18,6 +24,10 @@ interface AppConfig {
   portalHeroHeadline: string | null
   portalHeroSubheadline: string | null
   portalFeatures: string[]
+  field1Label: string | null
+  field1Options: DropdownOption[]
+  field2Label: string | null
+  field2Options: DropdownOption[]
 }
 
 interface ExtractedColor {
@@ -146,6 +156,10 @@ export default function BrandingPage() {
     portalHeroHeadline: '',
     portalHeroSubheadline: '',
     portalFeatures: [''] as string[],
+    field1Label: '',
+    field1Options: [] as DropdownOption[],
+    field2Label: '',
+    field2Options: [] as DropdownOption[],
   })
   const [isSaved, setIsSaved] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -181,6 +195,10 @@ export default function BrandingPage() {
           portalHeroHeadline: res.portalHeroHeadline ?? '',
           portalHeroSubheadline: res.portalHeroSubheadline ?? '',
           portalFeatures: features,
+          field1Label: res.field1Label ?? '',
+          field1Options: (res.field1Options as DropdownOption[]) ?? [],
+          field2Label: res.field2Label ?? '',
+          field2Options: (res.field2Options as DropdownOption[]) ?? [],
         })
         if (res.logoUrl) setLogoPreview(res.logoUrl)
       }).catch(console.error)
@@ -218,6 +236,10 @@ export default function BrandingPage() {
         portalHeroHeadline: form.portalHeroHeadline || null,
         portalHeroSubheadline: form.portalHeroSubheadline || null,
         portalFeatures: form.portalFeatures.filter(f => f.trim()),
+        field1Label: form.field1Label || null,
+        field1Options: form.field1Options,
+        field2Label: form.field2Label || null,
+        field2Options: form.field2Options,
       }, token)
       setIsSaved(true)
       setTimeout(() => setIsSaved(false), 3000)
@@ -552,6 +574,90 @@ export default function BrandingPage() {
                 Open portal auth page <ExternalLink size={11} />
               </a>
             </div>
+          </div>
+
+          {/* ── Configurable dropdowns ── */}
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ticket Dropdowns</h3>
+            <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: '0 0 16px' }}>
+              Define up to two custom dropdowns shown on the portal ticket submission form. Leave a label blank to hide that dropdown.
+            </p>
+
+            {([1, 2] as const).map((n) => {
+              const labelKey = `field${n}Label` as 'field1Label' | 'field2Label'
+              const optionsKey = `field${n}Options` as 'field1Options' | 'field2Options'
+              const options = form[optionsKey]
+              return (
+                <div key={n} style={{ marginBottom: n === 1 ? 20 : 0 }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)', marginBottom: 6 }}>
+                      Dropdown {n} label
+                    </label>
+                    <input
+                      value={form[labelKey] ?? ''}
+                      onChange={(e) => setForm(f => ({ ...f, [labelKey]: e.target.value }))}
+                      placeholder={`e.g. ${n === 1 ? 'Product' : 'Category'}`}
+                      style={{ ...inputStyle, width: '100%' }}
+                    />
+                  </div>
+
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--d-text-3)', marginBottom: 6 }}>
+                    Options
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {options.map((opt, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          value={opt.value}
+                          onChange={(e) => {
+                            const next = [...options]
+                            next[idx] = { ...next[idx], value: e.target.value }
+                            setForm(f => ({ ...f, [optionsKey]: next }))
+                          }}
+                          placeholder="value"
+                          style={{ ...inputStyle, flex: '0 0 90px' }}
+                        />
+                        <input
+                          value={opt.label}
+                          onChange={(e) => {
+                            const next = [...options]
+                            next[idx] = { ...next[idx], label: e.target.value }
+                            setForm(f => ({ ...f, [optionsKey]: next }))
+                          }}
+                          placeholder="label"
+                          style={{ ...inputStyle, flex: 1 }}
+                        />
+                        <input
+                          value={opt.icon ?? ''}
+                          onChange={(e) => {
+                            const next = [...options]
+                            next[idx] = { ...next[idx], icon: e.target.value || undefined }
+                            setForm(f => ({ ...f, [optionsKey]: next }))
+                          }}
+                          placeholder="icon (optional)"
+                          style={{ ...inputStyle, flex: '0 0 120px' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, [optionsKey]: f[optionsKey].filter((_, i) => i !== idx) }))}
+                          style={{ width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', color: 'var(--d-danger)', cursor: 'pointer', flexShrink: 0 }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, [optionsKey]: [...f[optionsKey], { value: '', label: '' }] }))}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', background: 'none', border: '1px dashed var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      <Plus size={12} /> Add option
+                    </button>
+                  </div>
+                  {n === 1 && <div style={{ marginTop: 20, borderTop: '1px solid var(--d-border)' }} />}
+                </div>
+              )
+            })}
           </div>
 
           {/* ── Theme extraction ── */}

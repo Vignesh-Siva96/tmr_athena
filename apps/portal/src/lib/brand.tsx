@@ -3,6 +3,12 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from '
 
 export type AuthLayout = 'MINIMAL' | 'BRANDED'
 
+export interface DropdownOption {
+  value: string
+  label: string
+  icon?: string
+}
+
 export interface AppConfig {
   id: string
   appName: string
@@ -15,6 +21,10 @@ export interface AppConfig {
   portalHeroHeadline: string | null
   portalHeroSubheadline: string | null
   portalFeatures: string[]
+  field1Label: string | null
+  field1Options: DropdownOption[]
+  field2Label: string | null
+  field2Options: DropdownOption[]
 }
 
 const defaultConfig: AppConfig = {
@@ -29,6 +39,10 @@ const defaultConfig: AppConfig = {
   portalHeroHeadline: null,
   portalHeroSubheadline: null,
   portalFeatures: [],
+  field1Label: null,
+  field1Options: [],
+  field2Label: null,
+  field2Options: [],
 }
 
 const ConfigContext = createContext<AppConfig>(defaultConfig)

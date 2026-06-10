@@ -8,6 +8,7 @@
     "type-check": "turbo run type-check",
     "clean": "turbo run clean",
     "atlas:gen": "tsx scripts/atlas-gen.ts",
+    "qa:new": "node scripts/new-delivery-report.mjs",
     "test": "pnpm test:unit && pnpm test:contract && pnpm test:integration && pnpm test:e2e",
     "test:unit": "vitest run --config tests/vitest.unit.config.ts",
     "test:integration": "jest --config tests/jest.integration.config.js",

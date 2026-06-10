@@ -28,7 +28,8 @@ interface AnalyticsData {
   byStatus: Record<string, number>
   byCategory: Record<string, number>
   byPriority: Record<string, number>
-  byConnector: { connector: string; count: number }[]
+  byField1: { value: string; count: number }[]
+  byField2: { value: string; count: number }[]
   topCustomers: {
     id: string; name: string; email: string
     total: number; open: number; lastTicket: string | null
@@ -203,8 +204,10 @@ export default function AnalyticsPage() {
     .map(([k, v]) => ({ name: CATEGORY_LABELS[k].label, value: v, color: CATEGORY_LABELS[k].color }))
     .sort((a, b) => b.value - a.value)
 
-  const connectorData = (data?.byConnector ?? []).slice(0, 8)
-    .map((c) => ({ name: c.connector, value: c.count, color: '#3B82F6' }))
+  const field1Data = (data?.byField1 ?? []).slice(0, 8)
+    .map((c) => ({ name: c.value, value: c.count, color: '#3B82F6' }))
+  const field2Data = (data?.byField2 ?? []).slice(0, 8)
+    .map((c) => ({ name: c.value, value: c.count, color: '#3B82F6' }))
 
   const priorityData = Object.entries(data?.byPriority ?? {})
     .filter(([k]) => PRIORITY_LABELS[k])
@@ -323,12 +326,10 @@ export default function AnalyticsPage() {
               )}
             </Card>
 
-            <Card title="Top connectors" subtitle="Which integrations generate the most tickets">
-              {loading ? <Skeleton h={140} /> : connectorData.length === 0 ? (
-                <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: 0 }}>No connector data yet</p>
-              ) : (
+            {field1Data.length > 0 && (
+              <Card title="Top by field 1" subtitle="Breakdown by first configurable dropdown">
                 <ResponsiveContainer width="100%" height={140}>
-                  <BarChart data={connectorData} layout="vertical" margin={{ top: 0, right: 40, bottom: 0, left: 10 }}>
+                  <BarChart data={field1Data} layout="vertical" margin={{ top: 0, right: 40, bottom: 0, left: 10 }}>
                     <XAxis type="number" tick={axisStyle} tickLine={false} axisLine={false} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={axisStyle} tickLine={false} axisLine={false} width={80} />
                     <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
@@ -337,8 +338,22 @@ export default function AnalyticsPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              )}
-            </Card>
+              </Card>
+            )}
+            {field2Data.length > 0 && (
+              <Card title="Top by field 2" subtitle="Breakdown by second configurable dropdown">
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={field2Data} layout="vertical" margin={{ top: 0, right: 40, bottom: 0, left: 10 }}>
+                    <XAxis type="number" tick={axisStyle} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" tick={axisStyle} tickLine={false} axisLine={false} width={80} />
+                    <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={14}>
+                      <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: 'var(--d-text-4)' }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            )}
 
             <Card title="Priority mix" subtitle="Urgency distribution">
               {loading ? <Skeleton h={140} /> : (

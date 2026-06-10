@@ -2,7 +2,10 @@ import { z } from 'zod'
 
 export const signupSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string()
+    .min(8)
+    .regex(/[0-9]/, 'Must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
   name: z.string().optional(),
 })
 export type SignupDto = z.infer<typeof signupSchema>
@@ -23,12 +26,6 @@ export const guestSchema = z.object({
   email: z.string().email(),
 })
 export type GuestDto = z.infer<typeof guestSchema>
-
-export const magicLinkSchema = z.object({
-  email: z.string().email(),
-  ticketId: z.string(),
-})
-export type MagicLinkDto = z.infer<typeof magicLinkSchema>
 
 export const agentSigninSchema = z.object({
   email: z.string().email(),

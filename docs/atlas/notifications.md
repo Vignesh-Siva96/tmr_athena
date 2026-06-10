@@ -2,14 +2,17 @@
 title: Notifications
 stack: [NestJS, Prisma, 30s polling]
 status: working
-last-reviewed: 2026-05-21
+last-reviewed: 2026-06-10
 ---
 
 # Notifications
 
 ## What it does
 
-In-app notifications for agents. Currently scoped to GitHub `fix-deployed` events — when a linked issue gets the `fix-deployed` label, every agent sees it in the sidebar bell + the GitHub "Action Needed" page.
+In-app notifications for agents. Two kinds exist today:
+
+- **`GITHUB_FIX_DEPLOYED`** — when a linked issue gets the `fix-deployed` label, every agent sees it in the sidebar bell + the GitHub "Action Needed" page.
+- **`CHURN_RISK_DETECTED`** — created by `AnalyzeMessageWorker` ([ai.md](ai.md)) when Gemini detects a churn signal in a customer message (alongside the `CustomerSignal` row and a NORMAL → HIGH priority bump).
 
 ## Model
 
@@ -33,6 +36,6 @@ See `NotificationsController` in [_generated/api-routes.md](_generated/api-route
 
 ## Known gaps
 
-- Only one notification kind (`GITHUB_FIX_DEPLOYED`) — no notifications yet for new tickets, assignments, mentions, SLA breaches.
+- Only two notification kinds (`GITHUB_FIX_DEPLOYED`, `CHURN_RISK_DETECTED`) — no notifications yet for new tickets, assignments, mentions, SLA breaches.
 - Polling, not push. Should move to SSE when we want sub-second latency.
 - No per-agent scoping (assignment isn't access control).

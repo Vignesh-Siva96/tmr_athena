@@ -1,7 +1,18 @@
 # CLAUDE.md — TMR Support Platform
 
-You are building **TMR Support Platform** — a multi-tenant customer support ticketing system
-for Two Minute Reports (TMR). Read this file fully before doing anything else.
+**TMR Support Platform** is a self-hosted, **single-tenant** customer support ticketing system for
+Two Minute Reports (TMR), with AI assistance (first-responder bot, ticket analysis, customer
+intelligence). Two frontends — Customer **Portal** (`apps/portal`, light theme) and Agent
+**Dashboard** (`apps/bridge`, dark theme; the directory is `bridge`). Backend is NestJS (`apps/api`).
+
+Because it is single-tenant there is **no `Org` model and no `orgId`** on records — instance-wide
+settings, branding, and integration credentials live in a single-row **`AppConfig`**
+(`apps/api/src/modules/config`). Multi-tenancy was deliberately dropped (see the Decisions table in
+[`STATE.md`](STATE.md)). A dead `apps/api/src/modules/orgs` directory still exists but is **not**
+wired into `app.module.ts` — ignore it.
+
+Authoritative references: [`docs/atlas/`](docs/atlas/) for per-feature detail (current) and
+[`STATE.md`](STATE.md) for decision history.
 
 ---
 
@@ -36,9 +47,10 @@ Two docs travel with the code. Keep both current as part of shipping a change.
 2. **Added/renamed a controller endpoint, NestJS module, or Prisma model?** → Run `pnpm atlas:gen` to refresh `docs/atlas/_generated/`.
 3. **Made an architecture decision or hit a non-obvious gotcha?** → Add a row to the Decisions table in STATE.md.
 4. **About to say "done" or end the session?** → Append a Session Log entry to STATE.md summarizing what changed.
-5. **Touched any service method, controller route, or schema field?** → Add or update the matching test in `tests/integration/`, `tests/e2e/`, or `tests/unit/`. If you fixed a bug, add a row to `tests/regression-catalogue.md` and a named test that fails on the pre-fix code. Coverage drop > 0.5% blocks merge. See [tests/README.md](tests/README.md) for the framework.
+5. **Touched any service method, controller route, or schema field?** → Add or update the matching test in `tests/integration/`, `tests/e2e/`, or `tests/unit/`. If you fixed a bug, add a row to `tests/regression-catalogue.md` and a named test that fails on the pre-fix code. See [tests/README.md](tests/README.md) for the framework.
+6. **Changed a `package.json` script, a port, or added/removed a top-level dir or module?** → Update §4 Commands / §5 Project Structure in this file.
 
-If none of the five apply, say "no docs/tests needed" explicitly so it's clear you checked.
+If none apply, say "no docs/tests needed" explicitly so it's clear you checked.
 
 ### What counts as a "material change" to a feature
 
@@ -55,165 +67,130 @@ If none of the five apply, say "no docs/tests needed" explicitly so it's clear y
 
 `docs/atlas/_generated/` is never edited by hand — only `pnpm atlas:gen` writes there.
 
-This is a culture rule, not a CI gate. **The user has explicitly asked not to have to remind us.** Be the diligent author.
+Keeping the hand-written docs (atlas feature pages + STATE.md) current is a discipline, not a
+gate — **the user has explicitly asked not to have to remind us.** Note that two pieces of this
+*are* enforced in CI (`.github/workflows/test.yml`): the generated atlas (`_generated/`) via an
+atlas-drift check, and test coverage via a `coverage-gate` job that fails on a line-coverage drop
+> 0.5% vs `master`. Run `pnpm atlas:gen` and add tests before pushing, or the build breaks.
 
 ---
 
-## 1. What You Are Building
+## 1. Always Read These First
 
-A self-hosted, white-label support platform with two surfaces:
-- **Customer Portal** — where TMR customers submit and track tickets (light theme)
-- **Agent Dashboard** — where TMR support agents manage tickets (dark theme)
+For "how it works now," trust this order: **(1) the code, (2) `docs/atlas/` + `_generated/`,
+(3) `STATE.md` decisions.** Start at [`docs/atlas/README.md`](docs/atlas/README.md). `.claude/`
+now holds only `conventions.md` + `design-system.md` (both current); the stale build-era specs
+were deleted — architecture lives in `docs/atlas/architecture.md`.
 
-This is a multi-tenant SaaS platform. Every data record belongs to an `org`.
-TMR is the first and only org for now, but the architecture must support multiple orgs.
-
-**Phase 1 scope only.** Do not build anything outside Phase 1. See checkpoint list below.
-
----
-
-## 2. Always Read These First
-
-Before writing any code for a feature, read the relevant spec file:
-
-| What you need | Read this file |
-|---|---|
-| Tech stack, dependencies, why each was chosen | `.claude/stack.md` |
-| Database schema, all tables and relationships | `.claude/data-model.md` |
-| All API endpoints, request/response shapes | `.claude/api-contracts.md` |
-| Folder structure, naming, code style rules | `.claude/conventions.md` |
-| Design tokens, colors, fonts, spacing | `.claude/design-system.md` |
-| Architecture, how services connect | `.claude/architecture.md` |
-| Portal page specs (all 4 pages) | `apps/portal/SPECS.md` |
-| Dashboard page specs (all 4 pages) | `apps/dashboard/SPECS.md` |
-| Design reference screens | `design/screens/` (JSX files) |
-| Design tokens source of truth | `design/tokens.css` |
+| What you need | Read this file | Status |
+|---|---|---|
+| System overview (services, request flows, modules) | `docs/atlas/architecture.md` | ✅ current |
+| Authoritative per-feature reference (stack, flow, key files) | `docs/atlas/<feature>.md` | ✅ current |
+| All API endpoints (auto-generated) | `docs/atlas/_generated/api-routes.md` | ✅ current |
+| Database schema / ERD (auto-generated) | `docs/atlas/_generated/erd.md` | ✅ current |
+| Module import graph (auto-generated) | `docs/atlas/_generated/module-graph.md` | ✅ current |
+| Folder structure, naming, code style rules | `.claude/conventions.md` | mostly accurate |
+| Design tokens, colors, fonts, spacing | each app's `src/globals.css` + `.claude/design-system.md` | accurate |
+| Portal / Dashboard page specs | `apps/portal/SPECS.md`, `apps/bridge/SPECS.md` | reference |
 
 ---
 
-## 3. Non-Negotiable Rules
+## 2. Non-Negotiable Rules
 
-- **Never invent dependencies.** Only use packages listed in `.claude/stack.md`.
-- **Never invent colors or fonts.** Only use tokens from `design/tokens.css`.
-- **Never build Phase 2 features.** If something is marked Phase 2, skip it entirely.
-- **Always check the data model** before creating any database query or migration.
-- **Always check the API contract** before creating any endpoint or API call.
-- **Always use shared UI components** from `packages/ui` — never duplicate components.
-- **Never hardcode org-specific values.** Everything org-related comes from the org config.
+- **Never invent dependencies.** Use packages already in the relevant `package.json`; confirm one
+  exists before importing it (confirm against the relevant `package.json`).
+- **Never invent colors or fonts.** Only use the token variables defined in each app's
+  `src/globals.css` (documented in `.claude/design-system.md`).
+- **Always check the actual schema** (`packages/db/prisma/schema.prisma` / `_generated/erd.md`)
+  before writing any query or migration.
+- **Always check the actual routes** (`_generated/api-routes.md`) before adding or calling an endpoint.
+- **Prefer shared UI components** from `packages/ui` where they exist (Badge, Button, Input,
+  Textarea today). Most app UI is built locally in each app — match the patterns already there
+  rather than duplicating.
+- **Instance-wide settings come from `AppConfig`**, never hardcode them (single-tenant — see top of file).
 - **Write TypeScript strictly.** No `any` types. No ts-ignore unless absolutely necessary with comment.
-- **Follow the checkpoint system.** Mark checkpoints complete in `PROGRESS.md` as you finish them.
+- **Keep the docs current** — see the Documentation rule above.
 
 ---
 
-## 4. Checkpoint System
+## 3. Working Rhythm
 
-Work is divided into checkpoints. Each checkpoint is a self-contained unit of work
-that can be completed in one Claude Code session.
+**Start of session:** read this `CLAUDE.md`, read the relevant `docs/atlas/<feature>.md`, and
+skim recent `STATE.md` entries + its Decisions table for context.
 
-**At the start of every session:**
-1. Read `PROGRESS.md` to see which checkpoints are done
-2. Read this `CLAUDE.md` fully
-3. Read the spec files relevant to your current checkpoint
-4. Start from the first incomplete checkpoint
+**End of session:** run the Documentation checklist above (atlas + STATE.md + tests), append a
+`STATE.md` Session Log entry, and record any new known gaps (STATE.md) or test scaffolds
+(`tests/regression-catalogue.md`).
 
-**At the end of every session:**
-1. Update `PROGRESS.md` — mark completed checkpoints with ✅
-2. Write a brief note about what was done and any decisions made
-3. Note any blockers or questions for the next session
-
-**If you hit an ambiguity not covered in the spec files:**
-- If minor: make the most logical decision and note it in `PROGRESS.md`
-- If major: stop, write the question in `PROGRESS.md` under "QUESTIONS", and wait
+**Ambiguity:** if minor, decide and record it in the `STATE.md` Decisions table; if major, stop and ask.
 
 ---
 
-## 5. Phase 1 Checkpoints — Master List
+## 4. Commands
 
-### FOUNDATION
-- [ ] **CP-01** — Monorepo scaffold (Turborepo + pnpm workspaces, all apps and packages created)
-- [ ] **CP-02** — Shared config packages (TypeScript, ESLint, Tailwind configs)
-- [ ] **CP-03** — Database setup (PostgreSQL connection, Prisma schema from data-model.md, first migration)
-- [ ] **CP-04** — Shared UI package scaffold (install shadcn/ui base, import tokens.css, verify design tokens load)
+Run from the repo root unless noted. Package manager is **pnpm** (Node ≥20); workspaces are
+`@tmr/api`, `@tmr/portal`, `@tmr/bridge`, `@tmr/db`, `@tmr/ui`.
 
-### BACKEND — CORE
-- [ ] **CP-05** — NestJS app scaffold (modules structure, global config, health check endpoint)
-- [ ] **CP-06** — Auth module (Better Auth, Google OAuth + email/password, JWT sessions, multi-tenant middleware)
-- [ ] **CP-07** — Org module (CRUD, brand config, org middleware that injects org into every request)
-- [ ] **CP-08** — Tickets module (create, read, update, list — all endpoints from api-contracts.md)
-- [ ] **CP-09** — Messages module (thread messages, internal notes, system events)
-- [ ] **CP-10** — File upload module (MinIO integration, presigned URLs, attachment records)
-- [ ] **CP-11** — Email module (Nodemailer + Gmail SMTP outbound, inbound webhook parser, reply-to-ticket routing)
-- [ ] **CP-12** — GitHub module (OAuth connect, create issue, link issue to ticket)
-- [ ] **CP-13** — Agents module (invite, list, assign, roles)
+| Task | Command |
+|---|---|
+| Run all apps (turbo) | `pnpm dev` |
+| Run one app | `pnpm --filter @tmr/api dev` (API → :3001) · `@tmr/portal` (→ :3000) · `@tmr/bridge` (→ :3002) |
+| Lint / type-check (all) | `pnpm lint` · `pnpm type-check` |
+| Build (all) | `pnpm build` |
+| Tests — all layers | `pnpm test` |
+| Tests — one layer | `pnpm test:unit` · `test:contract` · `test:integration` · `test:e2e` · `test:coverage` |
+| Regenerate atlas | `pnpm atlas:gen` |
+| New release QA report (manual test checklist) | `pnpm qa:new "<release-name>" [--features a,b]` → `tests/manual/reports/<date>_<slug>/` (checklist composed from `tests/manual/_catalog/catalog.json`; see [tests/manual/README.md](tests/manual/README.md)) |
+| DB migrate / push / seed / studio | `pnpm --filter @tmr/db db:migrate` · `db:push` · `db:seed` · `db:studio` |
 
-### CUSTOMER PORTAL
-- [ ] **CP-14** — Portal Next.js app scaffold (routing structure, layout, nav, brand config loading)
-- [ ] **CP-15** — Page 1: Submit Ticket (form, guest flow, category selector, file upload, confirmation state)
-- [ ] **CP-16** — Page 2: Sign In / Sign Up (Google SSO, email+password, guest continue flow)
-- [ ] **CP-17** — Page 3: My Tickets list (filter tabs, search, ticket rows, empty states)
-- [ ] **CP-18** — Page 4: Single Ticket View — customer (thread, reply composer, metadata sidebar, all states)
-
-### AGENT DASHBOARD
-- [ ] **CP-19** — Dashboard Next.js app scaffold (routing, dark theme layout, persistent sidebar nav)
-- [ ] **CP-20** — Page 5: Inbox (ticket list table, filters, quick preview panel, bulk actions)
-- [ ] **CP-21** — Page 6: Ticket Detail — agent (thread, internal notes, reply composer, GitHub sidebar)
-- [ ] **CP-22** — Page 7: Customer Profile slide-over panel (account overview, ticket history, internal notes)
-- [ ] **CP-23** — Page 8: Settings (General, Branding with live preview, Agents, GitHub integration)
-
-### INTEGRATION & POLISH
-- [ ] **CP-24** — Wire portal to API (all portal pages fully connected to real backend data)
-- [ ] **CP-25** — Wire dashboard to API (all dashboard pages fully connected to real backend data)
-- [ ] **CP-26** — Email flow end-to-end test (submit ticket → email sent → reply → appears in thread)
-- [ ] **CP-27** — Multi-tenancy smoke test (two orgs, verify data isolation, brand config switching)
-- [ ] **CP-28** — Docker Compose setup (all services: api, portal, dashboard, postgres, minio, nginx)
-- [ ] **CP-29** — Seed data script (create default org, admin agent, sample tickets for dev)
+Local infra (Postgres + MinIO): `cd docker && docker compose up postgres minio -d`.
+Dev URLs — Portal http://localhost:3000 · API http://localhost:3001 · Bridge http://localhost:3002
+· MinIO console http://localhost:9001. Seeded logins and full env details live in
+`STATE.md` → Quick Reference.
 
 ---
 
-## 6. Project Structure
+## 5. Project Structure
 
 ```
 /
 ├── CLAUDE.md                  ← You are here
-├── PROGRESS.md                ← Checkpoint tracking (create this on CP-01)
-├── .claude/
-│   ├── stack.md
-│   ├── data-model.md
-│   ├── api-contracts.md
-│   ├── conventions.md
-│   ├── design-system.md
-│   └── architecture.md
+├── PROGRESS.md                ← Phase 1 checkpoint history (all complete)
+├── STATE.md                   ← Decision history + session log (read for "why")
+├── .claude/                   ← conventions.md + design-system.md (current)
+├── docs/atlas/                ← ✅ authoritative per-feature reference (start at README.md)
+│   └── _generated/            ← never hand-edit; run `pnpm atlas:gen` (api-routes, erd, module-graph)
 ├── apps/
-│   ├── portal/                ← Customer portal (Next.js)
-│   │   └── SPECS.md
-│   ├── dashboard/             ← Agent dashboard (Next.js)
-│   │   └── SPECS.md
-│   └── api/                   ← Backend (NestJS)
+│   ├── portal/                ← Customer portal (Next.js, light theme) + SPECS.md
+│   ├── bridge/                ← Agent dashboard (Next.js, dark theme) + SPECS.md
+│   └── api/                   ← Backend (NestJS); 23 modules under src/modules/
+│                                (see docs/atlas/_generated/module-graph.md; orgs/ is DEAD — not imported)
 ├── packages/
-│   ├── ui/                    ← Shared React components
-│   ├── db/                    ← Prisma schema + client
+│   ├── ui/                    ← Shared React components (Badge, Button, Input, Textarea)
+│   ├── db/                    ← Prisma schema + client + migrations + seed
 │   ├── types/                 ← Shared TypeScript types
 │   ├── email/                 ← Email templates (React Email)
 │   └── config/                ← Shared ESLint, TS, Tailwind configs
-├── design/
-│   ├── tokens.css             ← Source of truth for all design tokens
-│   └── screens/               ← Reference JSX from Claude Design
-│       ├── 01-Submit.jsx
-│       ├── 02-Auth.jsx
-│       ├── 03-MyTickets.jsx
-│       ├── 04-TicketCustomer.jsx
-│       ├── 05-AgentInbox.jsx
-│       ├── 06-AgentTicket.jsx
-│       ├── 07-CustomerProfile.jsx
-│       └── 08-Settings.jsx
-└── docker/
-    ├── docker-compose.yml
-    └── nginx.conf
+├── scripts/                   ← atlas-gen.ts (`pnpm atlas:gen`), backfill-ai-analytics.ts
+├── tests/                     ← unit / integration / e2e + regression-catalogue.md (see tests/README.md)
+└── docker/                    ← docker-compose.yml, nginx.conf
 ```
+
+Design tokens live in each app's `src/globals.css` (the original `design/` reference folder was removed).
 
 ---
 
-## 7. Current Phase
+## 6. Current State
 
-**Phase 1** — Core ticketing platform with email + GitHub integration.
-No AI features. No customer analysis. No churn detection. Those are Phase 2.
+Everything below is built and wired:
+
+- **Core ticketing** — tickets, messages/notes, file attachments, customers, agents, GitHub
+  issue linking, in-app notifications, SSE real-time updates, settings/branding.
+- **Email** — 2-way sync via Gmail REST + Microsoft Graph (polling, not SMTP), VERP reply-to
+  threading, outbound via Nodemailer/Graph.
+- **Bot** (`bot`, `knowledge-base`, `shifts`) — Athena first-responder: hybrid RAG retrieval
+  (pgvector + Postgres FTS, RRF fusion) over a crawled knowledge base, shift-based escalation.
+- **Ticket analysis** (`ai`) — Gemini sentiment, topic classification, CSAT, customer signals.
+- **Analytics** (`analytics`) — operations dashboard + customer-intelligence dashboard.
+
+Per-feature detail lives in `docs/atlas/`; the rationale for each major choice is in `STATE.md`.

@@ -1,17 +1,20 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { X, Edit2, Plus, Trash2, Check } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { UserCategoryControl, STATUS_CLS, STATUS_LABEL } from './TicketPreviewPanel'
+import type { UserCategory } from './TicketPreviewPanel'
 
-type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 
 interface UserProfile {
   id: string; email: string; name: string | null; avatarUrl: string | null
-  isGuest: boolean; lastActiveAt: string | null; createdAt: string
+  isGuest: boolean; category: UserCategory; lastActiveAt: string | null; createdAt: string
 }
 interface TicketRow {
-  id: string; displayId: string; title: string; status: TicketStatus; updatedAt: string
+  id: string; displayId: string; title: string; status: TicketStatus; isTicket: boolean; updatedAt: string
 }
 interface CustomerNote { id: string; body: string; createdAt: string; agent: { id: string; name: string; avatarUrl: string | null } }
 interface ProfileData {
@@ -21,9 +24,6 @@ interface ProfileData {
   notes: CustomerNote[]
 }
 
-const STATUS_CLS: Record<TicketStatus, string> = { OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-res' }
-const STATUS_LABEL: Record<TicketStatus, string> = { OPEN: 'Open', IN_PROGRESS: 'In Progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CLOSED: 'Closed' }
-
 function initials(name: string | null, email: string): string {
   if (name) { const p = name.trim().split(' '); return p.length >= 2 ? `${p[0]![0]}${p[1]![0]}`.toUpperCase() : p[0]!.slice(0, 2).toUpperCase() }
   return email.slice(0, 2).toUpperCase()
@@ -32,6 +32,7 @@ function initials(name: string | null, email: string): string {
 interface Props { userId: string; onClose: () => void; currentTicketId?: string }
 
 export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props) {
+  const router = useRouter()
   const { agent, token } = useAuth()
   const [profile, setProfile] = useState<ProfileData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -114,7 +115,10 @@ export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props
                   {initials(profile.user.name, profile.user.email)}
                 </div>
                 <div>
-                  <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--d-text)', margin: '0 0 4px', fontFamily: 'var(--font-display)' }}>{profile.user.name ?? 'Guest'}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--d-text)', margin: 0, fontFamily: 'var(--font-display)' }}>{profile.user.name ?? 'Guest'}</p>
+                    <UserCategoryControl userId={profile.user.id} category={profile.user.category ?? 'CUSTOMER'} />
+                  </div>
                   <p style={{ fontSize: 13, color: 'var(--d-text-3)', margin: 0 }}>{profile.user.email}</p>
                 </div>
               </div>
@@ -142,21 +146,31 @@ export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props
               )}
             </div>
 
-            {/* Ticket history */}
+            {/* Conversation & ticket history */}
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--d-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Ticket History</p>
-                <span style={{ fontSize: 12, color: 'var(--d-text-4)' }}>Show all {profile.stats.totalTickets} →</span>
+                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Conversations &amp; Tickets</p>
+                <span style={{ fontSize: 12, color: 'var(--d-text-4)' }}>{profile.recentTickets.length} shown</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {profile.recentTickets.slice(0, 6).map((t) => (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--r-sm)', background: t.id === currentTicketId ? 'rgba(59,130,246,0.08)' : 'transparent' }}>
-                    <span className="mono" style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0 }}>{t.displayId}</span>
-                    {t.id === currentTicketId && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 999, background: 'rgba(59,130,246,0.2)', color: 'var(--d-accent)' }}>CURRENT</span>}
-                    <span style={{ flex: 1, fontSize: 12, color: 'var(--d-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                    <span className={`pill ${STATUS_CLS[t.status]}`} style={{ flexShrink: 0 }}><span className="dot" />{STATUS_LABEL[t.status]}</span>
-                  </div>
-                ))}
+                {profile.recentTickets.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--d-text-4)', fontStyle: 'italic', margin: 0 }}>No conversations yet.</p>
+                ) : profile.recentTickets.map((t) => {
+                  const isCurrent = t.id === currentTicketId
+                  return (
+                    <div key={t.id}
+                      onClick={() => router.push(`/tickets/${t.id}`)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', background: isCurrent ? 'rgba(59,130,246,0.08)' : 'transparent', transition: 'background 80ms' }}
+                      onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = 'var(--d-raised)' }}
+                      onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = 'transparent' }}
+                    >
+                      {t.isTicket && <span className="mono" style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0 }}>{t.displayId}</span>}
+                      {isCurrent && <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 999, background: 'rgba(59,130,246,0.2)', color: 'var(--d-accent)', flexShrink: 0 }}>CURRENT</span>}
+                      <span style={{ flex: 1, fontSize: 12, color: 'var(--d-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                      <span className={`pill ${STATUS_CLS[t.status]}`} style={{ flexShrink: 0 }}><span className="dot" />{STATUS_LABEL[t.status]}</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 

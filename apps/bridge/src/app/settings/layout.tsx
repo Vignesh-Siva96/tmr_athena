@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { DashboardSidebar } from '@/components/dashboard/Sidebar'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { useEmailConfig } from '@/lib/useEmailConfig'
 
 interface NavItem {
   href: string
@@ -34,16 +35,13 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const pathname = usePathname()
   const { token } = useAuth()
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null)
-  const [emailConnected, setEmailConnected] = useState<boolean | null>(null)
+  const { isConnected: emailConnected } = useEmailConfig(token)
 
   useEffect(() => {
     if (!token) return
     api.get<{ connected: boolean }>('/github/status', token)
       .then((res) => setGithubConnected(res.connected))
       .catch(() => setGithubConnected(false))
-    api.get<{ oauthConnected: boolean }>('/config', token)
-      .then((res) => setEmailConnected(!!(res.oauthConnected)))
-      .catch(() => setEmailConnected(false))
   }, [token])
 
   // Build nav items with live integration status
@@ -53,7 +51,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       if (item.href === '/settings/github' && githubConnected !== null) {
         return { ...item, badge: githubConnected ? 'Connected' : null, badgeColor: 'var(--d-success)' }
       }
-      if (item.href === '/settings/email' && emailConnected !== null) {
+      if (item.href === '/settings/email') {
         return { ...item, badge: emailConnected ? 'Connected' : null, badgeColor: 'var(--d-success)' }
       }
       return item

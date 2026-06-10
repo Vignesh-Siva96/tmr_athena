@@ -5,6 +5,9 @@ const REPO_ROOT = resolve(__dirname, '..')
 /** @type {import('jest').Config} */
 module.exports = {
   displayName: 'integration',
+  // Node 18 doesn't expose `File` as a global; polyfill from `buffer` so that
+  // undici (used by cheerio v1) can load without "File is not defined".
+  setupFiles: ['<rootDir>/tests/integration/polyfills.js'],
   rootDir: REPO_ROOT,
   testEnvironment: 'node',
   testMatch: ['<rootDir>/tests/integration/**/*.spec.ts', '<rootDir>/tests/concurrency/**/*.spec.ts'],
@@ -20,7 +23,10 @@ module.exports = {
   // pnpm stores packages at node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/.
   // The transformIgnorePatterns must match both layouts.
   transformIgnorePatterns: [
-    '/node_modules/(?!(\\.pnpm/)?(msw|@mswjs|@bundled-es-modules|rettime|until-async|outvariant|strict-event-emitter|@open-draft|headers-polyfill|is-node-process|@inquirer|chalk|graphql|tough-cookie|psl)(@[^/]+)?/)',
+    // pnpm encodes scoped packages as `@scope+pkg@version` in the .pnpm dir, so
+    // `@open-draft` becomes `@open-draft+deferred-promise@3.0.0`. Use `[^/]*` to
+    // match any pnpm-encoded suffix so the negative lookahead fires correctly.
+    '/node_modules/(?!(\\.pnpm/)?(msw|@mswjs|@bundled-es-modules|rettime|until-async|outvariant|strict-event-emitter|@open-draft[^/]*|headers-polyfill|is-node-process|@inquirer|chalk|graphql|tough-cookie|psl)(@[^/]+)?/)',
   ],
   extensionsToTreatAsEsm: [],
   moduleNameMapper: {

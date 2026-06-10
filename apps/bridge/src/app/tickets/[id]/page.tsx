@@ -18,14 +18,15 @@ type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 type MessageType = 'REPLY' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT'
 
-interface Author { id: string; name: string | null; email: string; avatarUrl: string | null }
+type EmailStatus = 'ACTIVE' | 'BOUNCING' | 'BLOCKED'
+interface Author { id: string; name: string | null; email: string; avatarUrl: string | null; emailStatus?: EmailStatus }
 interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean }
 interface Message { id: string; type: MessageType; body: string; bodyHtml?: string | null; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; authorBotName?: string | null; attachments: Attachment[]; createdAt: string }
 interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; reviewers: number; daysOpen: number }
 interface AiRating { aiRating: number | null; aiEffortScore: number | null; aiSummary: string | null }
 interface TicketDetail {
-  id: string; number: number; displayId: string; title: string; status: TicketStatus; priority: TicketPriority; category: TicketCategory
-  product?: string | null; connector?: string | null; source: string
+  id: string; ref: string; displayId: string; isTicket: boolean; title: string; status: TicketStatus; priority: TicketPriority; category: TicketCategory
+  field1?: string | null; field2?: string | null; source: string
   user: Author; assignee?: Author | null; messages: Message[]; attachments: Attachment[]
   githubIssue?: GithubIssue | null; rating?: AiRating | null; createdAt: string; updatedAt: string
 }
@@ -245,6 +246,11 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
   const [hasReplied, setHasReplied] = useState(false)
   const [isMarkingPending, setIsMarkingPending] = useState(false)
   const [supportEmail, setSupportEmail] = useState<string>('')
+  const [isConverting, setIsConverting] = useState(false)
+  const [isDismissing, setIsDismissing] = useState(false)
+  const [replyAttachments, setReplyAttachments] = useState<Array<{ id: string; filename: string }>>([])
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { if (!authLoading && !agent) router.push('/auth') }, [authLoading, agent, router])
 
@@ -305,22 +311,52 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     setHasReplied(agentReplied)
   }, [ticket, agent])
 
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !token || !ticket) return
+    setIsUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001'
+      const res = await fetch(`${apiUrl}/api/v1/files/upload?ticketId=${ticket.id}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (res.ok) {
+        const json = await res.json() as { data: { attachment: { id: string; filename: string } } }
+        setReplyAttachments((prev) => [...prev, json.data.attachment])
+      }
+    } catch (err) {
+      console.error('Upload failed:', err)
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [token, ticket])
+
   const sendMessage = useCallback(async () => {
     const textContent = editorRef.current?.textContent?.trim() ?? ''
     if (!textContent || !token || !ticket) return
     const htmlBody = editorRef.current?.innerHTML ?? ''
     setIsSending(true)
     try {
-      const res = await api.post<{ message: Message }>(`/tickets/${ticket.id}/messages`, {
-        body: htmlBody, type: composeTab === 'note' ? 'INTERNAL_NOTE' : 'REPLY', isInternal: composeTab === 'note',
-      }, token)
+      const payload: Record<string, unknown> = {
+        body: htmlBody,
+        type: composeTab === 'note' ? 'INTERNAL_NOTE' : 'REPLY',
+        isInternal: composeTab === 'note',
+      }
+      if (replyAttachments.length > 0) payload.attachmentIds = replyAttachments.map((a) => a.id)
+      const res = await api.post<{ message: Message }>(`/tickets/${ticket.id}/messages`, payload, token)
       setTicket((prev) => prev ? { ...prev, messages: [...prev.messages, res.message] } : prev)
       setBody('')
+      setReplyAttachments([])
       if (editorRef.current) editorRef.current.innerHTML = ''
       setShowCompose(false)
       if (composeTab !== 'note') setHasReplied(true)
     } catch (err) { console.error(err) } finally { setIsSending(false) }
-  }, [token, ticket, composeTab])
+  }, [token, ticket, composeTab, replyAttachments])
 
   const applyFormat = (type: 'bold' | 'italic' | 'code' | 'link' | 'list') => {
     const editor = editorRef.current
@@ -389,6 +425,26 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     }
   }, [showCompose])
 
+  const handleConvert = async () => {
+    if (!token || !ticket) return
+    setIsConverting(true)
+    try {
+      const res = await api.post<{ ticket: TicketDetail }>(`/tickets/${ticket.id}/convert`, {}, token)
+      setTicket(res.ticket)
+    } catch (err) { console.error(err) }
+    finally { setIsConverting(false) }
+  }
+
+  const handleDiscard = async () => {
+    if (!token || !ticket) return
+    setIsDismissing(true)
+    try {
+      await api.post(`/tickets/${ticket.id}/discard`, {}, token)
+      router.push('/inbox')
+    } catch (err) { console.error(err) }
+    finally { setIsDismissing(false) }
+  }
+
   const updateStatus = async (status: TicketStatus) => {
     if (!token || !ticket) return
     try {
@@ -441,7 +497,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
               <ArrowLeft size={14} /> Inbox
             </Link>
             <span style={{ color: 'var(--d-text-4)' }}>/</span>
-            <span className="mono" style={{ fontSize: 13, color: 'var(--d-text-3)' }}>{ticket.displayId}</span>
+            <span className="mono" style={{ fontSize: 13, color: 'var(--d-text-3)' }}>{ticket.isTicket ? ticket.displayId : 'Conversation'}</span>
           </div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--d-text)', margin: '0 0 12px', lineHeight: 1.2, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>{ticket.title}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -514,7 +570,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
         {/* Messages */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 32px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {(() => {
-            const lastIdx = ticket.messages.reduce((acc, msg, i) => msg.type !== 'SYSTEM_EVENT' ? i : acc, -1)
+            const lastIdx = (ticket.messages ?? []).reduce((acc, msg, i) => msg.type !== 'SYSTEM_EVENT' ? i : acc, -1)
             return ticket.messages.map((msg, i) => (
               <MessageCard
                 key={msg.id}
@@ -579,6 +635,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   contentEditable
                   suppressContentEditableWarning
                   className="rt-editor"
+                  data-testid="reply-editor"
                   data-placeholder={composeTab === 'note' ? 'Write an internal note…' : 'Write a reply…'}
                   onInput={(e) => setBody((e.currentTarget as HTMLDivElement).innerHTML)}
                   onKeyDown={(e) => {
@@ -587,6 +644,21 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   }}
                   style={{ width: '100%', minHeight: 130, padding: '12px 14px', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.7, color: 'var(--d-text)', background: 'transparent', display: 'block', boxSizing: 'border-box', overflowY: 'auto', wordBreak: 'break-word' }}
                 />
+                {/* Attachment chips */}
+                {replyAttachments.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 14px 0', borderTop: '1px solid var(--d-border-2)' }}>
+                    {replyAttachments.map((a) => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 4, fontSize: 11, color: 'var(--d-text-3)' }}>
+                        <Paperclip size={10} />
+                        <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.filename}</span>
+                        <button type="button" onClick={() => setReplyAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--d-text-4)', display: 'flex', padding: 0, marginLeft: 2 }}>
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {/* Toolbar + send */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderTop: composeTab === 'note' ? '1px solid rgba(245,158,11,0.15)' : '1px solid var(--d-border-2)' }}>
                   <div style={{ display: 'flex', gap: 1 }}>
@@ -595,16 +667,18 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                       { Icon: Italic,     action: () => applyFormat('italic'), title: 'Italic (⌘I)' },
                       { Icon: LinkIcon,   action: () => applyFormat('link'),   title: 'Insert link' },
                       { Icon: List,       action: () => applyFormat('list'),   title: 'Bullet list' },
-                      { Icon: Paperclip,  action: undefined,                   title: 'Attach file (coming soon)' },
+                      { Icon: Paperclip,  action: () => fileInputRef.current?.click(),  title: 'Attach file' },
                     ] as { Icon: React.ElementType; action?: () => void; title: string }[]).map(({ Icon, action, title }, i) => (
-                      <button key={i} type="button" title={title} onClick={action}
-                        style={{ width: 26, height: 26, borderRadius: 4, color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: action ? 'pointer' : 'not-allowed', opacity: action ? 1 : 0.4 }}
+                      <button key={i} type="button" title={title} onClick={action} disabled={i === 3 && isUploading}
+                        style={{ width: 26, height: 26, borderRadius: 4, color: 'var(--d-text-4)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: action ? 'pointer' : 'not-allowed', opacity: (action && !(i === 3 && isUploading)) ? 1 : 0.4 }}
                         onMouseEnter={(e) => { if (action) e.currentTarget.style.color = 'var(--d-text-2)' }}
                         onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--d-text-4)' }}
                       >
                         <Icon size={13} />
                       </button>
                     ))}
+                    {/* Hidden file input for Paperclip */}
+                    <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={(e) => void handleFileSelect(e)} />
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     {/* Send & Resolve — only shown when there's content */}
@@ -619,7 +693,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                     {(() => {
                       const hasText = body.replace(/<[^>]*>/g, '').trim().length > 0
                       return (
-                        <button type="button" disabled={!hasText || isSending} onClick={() => void sendMessage()}
+                        <button type="button" data-testid="reply-send" disabled={!hasText || isSending} onClick={() => void sendMessage()}
                           style={{ height: 32, padding: '0 16px', background: 'var(--d-accent)', color: '#fff', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 'var(--r-sm)', cursor: hasText ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6, opacity: hasText ? (isSending ? 0.7 : 1) : 0.35, fontFamily: 'inherit' }}>
                           <Send size={13} />{isSending ? 'Sending…' : 'Send'}
                         </button>
@@ -647,7 +721,14 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--d-text)', margin: 0 }}>{ticket.user.name ?? 'Guest'}</p>
-              <p style={{ fontSize: 11, color: 'var(--d-text-3)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ticket.user.email}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <p style={{ fontSize: 11, color: 'var(--d-text-3)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{ticket.user.email}</p>
+                {ticket.user.emailStatus && ticket.user.emailStatus !== 'ACTIVE' && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: '#EF4444', flexShrink: 0 }}>
+                    {ticket.user.emailStatus === 'BOUNCING' ? 'email bouncing' : 'email blocked'}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -658,8 +739,8 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
           {[
             ['Created', fmtDate(ticket.createdAt)],
             ['Updated', fmtDate(ticket.updatedAt)],
-            ...(ticket.product ? [['Product', ticket.product]] : []),
-            ...(ticket.connector ? [['Connector', ticket.connector]] : []),
+            ...(ticket.field1 ? [['Field 1', ticket.field1]] : []),
+            ...(ticket.field2 ? [['Field 2', ticket.field2]] : []),
             ['Source', ticket.source],
           ].map(([label, value]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -735,31 +816,46 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
         <div>
           <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Actions</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {ticket.status === 'RESOLVED' || ticket.status === 'CLOSED' ? (
-              <div style={{ height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--d-success-bg)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, opacity: 0.6 }}>
-                ✓ Resolved
-              </div>
+            {!ticket.isTicket ? (
+              <>
+                <button type="button" data-testid="convert-ticket" onClick={() => { void handleConvert() }} disabled={isConverting}
+                  style={{ height: 34, background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: isConverting ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: isConverting ? 0.6 : 1 }}>
+                  {isConverting ? 'Converting…' : '✓ Convert to ticket'}
+                </button>
+                <button type="button" data-testid="dismiss-ticket" onClick={() => { void handleDiscard() }} disabled={isDismissing}
+                  style={{ height: 34, background: 'transparent', color: 'var(--d-text-4)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: isDismissing ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: isDismissing ? 0.6 : 1 }}>
+                  {isDismissing ? 'Dismissing…' : 'Dismiss'}
+                </button>
+              </>
             ) : (
-              <button type="button" onClick={() => { void updateStatus('RESOLVED') }}
-                style={{ height: 34, background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                ✓ Resolve ticket
-              </button>
-            )}
-            <button type="button" style={{ height: 34, background: 'var(--d-raised)', color: 'var(--d-text-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-              ✉ Send to customer
-            </button>
-            {agent?.role === 'ADMIN' && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!token || !ticket) return
-                  void api.delete(`/tickets/${ticket.id}`, token)
-                    .then(() => router.push('/inbox'))
-                    .catch(console.error)
-                }}
-                style={{ height: 34, background: 'transparent', color: 'var(--d-text-4)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-                🗑 Archive ticket
-              </button>
+              <>
+                {ticket.status === 'RESOLVED' || ticket.status === 'CLOSED' ? (
+                  <div style={{ height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--d-success-bg)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, opacity: 0.6 }}>
+                    ✓ Resolved
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => { void updateStatus('RESOLVED') }}
+                    style={{ height: 34, background: 'rgba(34,197,94,0.1)', color: 'var(--d-success)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 'var(--r-sm)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    ✓ Resolve ticket
+                  </button>
+                )}
+                <button type="button" style={{ height: 34, background: 'var(--d-raised)', color: 'var(--d-text-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  ✉ Send to customer
+                </button>
+                {agent?.role === 'ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!token || !ticket) return
+                      void api.delete(`/tickets/${ticket.id}`, token)
+                        .then(() => router.push('/inbox'))
+                        .catch(console.error)
+                    }}
+                    style={{ height: 34, background: 'transparent', color: 'var(--d-text-4)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    🗑 Archive ticket
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

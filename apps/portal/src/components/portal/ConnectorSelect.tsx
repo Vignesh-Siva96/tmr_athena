@@ -3,58 +3,36 @@ import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { ChevronDown, Search } from 'lucide-react'
 
-interface Connector {
-  key: string
+export interface DropdownOption {
+  value: string
   label: string
+  icon?: string
 }
-// Todo rempove color and initials
-const CONNECTORS: Connector[] = [
-  { key: 'amazonseller', label: 'Amazon Seller',       },
-  { key: 'amazonads',  label: 'Amazon Ads',            },
-  { key: 'appleads',  label: 'Apple Search Ads',       },
-  { key: 'fads',      label: 'Facebook Ads',           },
-  { key: 'fins',      label: 'Facebook Insights',      },
-  { key: 'ga4',       label: 'Google Analytics 4',     },
-  { key: 'gadw',      label: 'Google Ads',             },
-  { key: 'gmb',       label: 'Google My Business',     },
-  { key: 'gsc',       label: 'Google Search Console',  },
-  { key: 'hubspot',   label: 'HubSpot',                },
-  { key: 'ins',       label: 'Instagram Insights',     },
-  { key: 'klaviyo',   label: 'Klaviyo',                },
-  { key: 'lads',      label: 'LinkedIn Ads',           },
-  { key: 'lps',       label: 'LinkedIn Pages',         },
-  { key: 'msads',     label: 'Microsoft Ads',          },
-  { key: 'pinads',    label: 'Pinterest Ads',          },
-  { key: 'redditads', label: 'Reddit Ads',             },
-  { key: 'shopify',   label: 'Shopify',                },
-  { key: 'snapads',   label: 'Snapchat Ads',           },
-  { key: 'ttads',     label: 'TikTok Ads',             },
-  { key: 'twitterads',label: 'Twitter Ads',            },
-  { key: 'wc',        label: 'WooCommerce',            },
-  { key: 'ya',        label: 'Youtube Analytics',      },
-]
 
-interface ConnectorSelectProps {
+interface OptionSelectProps {
   value: string
   onChange: (value: string) => void
+  options: DropdownOption[]
+  placeholder?: string
 }
 
-function ConnectorIcon({ connector }: { connector: Connector }) {
-  const url = `${process.env.NEXT_PUBLIC_ASSETS_URL}/${connector.key}.png`;
-  return <Image src={url} alt={connector.label} width={16} height={16} />;
+function OptionIcon({ icon, label }: { icon: string; label: string }) {
+  const assetsUrl = process.env.NEXT_PUBLIC_ASSETS_URL ?? ''
+  const src = icon.startsWith('http') ? icon : `${assetsUrl}/${icon}.png`
+  return <Image src={src} alt={label} width={16} height={16} />
 }
 
-export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
+export function OptionSelect({ value, onChange, options, placeholder = 'Select an option…' }: OptionSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const selected = CONNECTORS.find((c) => c.label === value) ?? null
+  const selected = options.find((c) => c.value === value) ?? null
 
   const filtered = search
-    ? CONNECTORS.filter((c) => c.label.toLowerCase().includes(search.toLowerCase()))
-    : CONNECTORS
+    ? options.filter((c) => c.label.toLowerCase().includes(search.toLowerCase()))
+    : options
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -70,7 +48,6 @@ export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      {/* Trigger */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -84,16 +61,15 @@ export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
       >
         {selected ? (
           <>
-            <ConnectorIcon connector={selected}/>
+            {selected.icon && <OptionIcon icon={selected.icon} label={selected.label} />}
             <span style={{ flex: 1, fontSize: 14, color: 'var(--p-text)' }}>{selected.label}</span>
           </>
         ) : (
-          <span style={{ flex: 1, fontSize: 14, color: 'var(--p-text-4)' }}>Select a connector…</span>
+          <span style={{ flex: 1, fontSize: 14, color: 'var(--p-text-4)' }}>{placeholder}</span>
         )}
         <ChevronDown size={15} style={{ color: 'var(--p-text-3)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
@@ -101,7 +77,6 @@ export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
           boxShadow: '0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06)',
           overflow: 'hidden',
         }}>
-          {/* Search */}
           <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--p-border-2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 10px', border: '1px solid var(--p-border)', borderRadius: 'var(--r-sm)', background: 'var(--p-surface)' }}>
               <Search size={13} style={{ color: 'var(--p-text-4)', flexShrink: 0 }} />
@@ -110,39 +85,37 @@ export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search connectors…"
+                placeholder="Search…"
                 style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--p-text)', fontFamily: 'inherit' }}
               />
             </div>
           </div>
 
-          {/* Options */}
           <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-            {/* Clear option */}
             {value && (
               <button type="button" onClick={() => { onChange(''); setOpen(false); setSearch('') }}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', borderBottom: '1px solid var(--p-border-2)' }}>
-                <span style={{ fontSize: 13, color: 'var(--p-text-3)' }}>— No connector</span>
+                <span style={{ fontSize: 13, color: 'var(--p-text-3)' }}>— Clear selection</span>
               </button>
             )}
             {filtered.length === 0 ? (
-              <p style={{ padding: '16px 12px', fontSize: 13, color: 'var(--p-text-4)', textAlign: 'center', margin: 0 }}>No connectors found</p>
+              <p style={{ padding: '16px 12px', fontSize: 13, color: 'var(--p-text-4)', textAlign: 'center', margin: 0 }}>No options found</p>
             ) : (
-              filtered.map((c) => (
+              filtered.map((opt) => (
                 <button
-                  key={c.key}
+                  key={opt.value}
                   type="button"
-                  onClick={() => { onChange(c.label); setOpen(false); setSearch('') }}
+                  onClick={() => { onChange(opt.value); setOpen(false); setSearch('') }}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
                     border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                    background: value === c.label ? 'var(--p-accent-bg)' : 'transparent',
-                    borderLeft: value === c.label ? '2px solid var(--p-accent)' : '2px solid transparent',
+                    background: value === opt.value ? 'var(--p-accent-bg)' : 'transparent',
+                    borderLeft: value === opt.value ? '2px solid var(--p-accent)' : '2px solid transparent',
                   }}
                 >
-                  <ConnectorIcon connector={c}/>
-                  <span style={{ fontSize: 14, color: value === c.label ? 'var(--p-accent)' : 'var(--p-text)', fontWeight: value === c.label ? 500 : 400 }}>
-                    {c.label}
+                  {opt.icon && <OptionIcon icon={opt.icon} label={opt.label} />}
+                  <span style={{ fontSize: 14, color: value === opt.value ? 'var(--p-accent)' : 'var(--p-text)', fontWeight: value === opt.value ? 500 : 400 }}>
+                    {opt.label}
                   </span>
                 </button>
               ))
@@ -152,4 +125,9 @@ export function ConnectorSelect({ value, onChange }: ConnectorSelectProps) {
       )}
     </div>
   )
+}
+
+/** @deprecated Use OptionSelect with options array instead */
+export function ConnectorSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return <OptionSelect value={value} onChange={onChange} options={[]} placeholder="Select a connector…" />
 }

@@ -1,10 +1,30 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
-import { EmailService } from '../email/email.service'
 import { QueueService } from '../queue/queue.service'
 import { SseService } from '../events/sse.service'
 import type { ListTicketsQuery, CreateTicketDto, UpdateTicketDto } from './tickets.dto'
 import type { Prisma, TicketStatus, TicketPriority, TicketCategory } from '@tmr/db'
+import { generateUniqueRef, formatRef } from './util/generate-ref'
+
+// Full agent-visibility shape returned by findById, convert, and update so the
+// Bridge ticket page never receives a partial payload and crashes on .messages.
+const TICKET_DETAIL_INCLUDE = {
+  user: { select: { id: true, name: true, email: true, avatarUrl: true, category: true, emailStatus: true } },
+  assignee: { select: { id: true, name: true, avatarUrl: true } },
+  tags: true,
+  githubIssue: true,
+  rating: { select: { aiRating: true, aiEffortScore: true, aiSummary: true } },
+  messages: {
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'asc' as const },
+    include: {
+      authorUser: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      authorAgent: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      attachments: true,
+    },
+  },
+  attachments: true,
+} satisfies Prisma.TicketInclude
 
 interface CallerContext {
   id: string
@@ -20,7 +40,6 @@ export interface TicketListResult {
 export class TicketsService {
   constructor(
     private readonly db: PrismaService,
-    private readonly emailService: EmailService,
     private readonly queueService: QueueService,
     private readonly sse: SseService,
   ) {}
@@ -28,34 +47,22 @@ export class TicketsService {
   // ─── Shared activation (confirmation + bot) ───────────────────────────────
 
   private async activateTicket(ticketId: string): Promise<void> {
-    const appConfig = await this.db.appConfig.findFirst()
-    if (appConfig) {
-      const fullTicket = await this.db.ticket.findUnique({
-        where: { id: ticketId },
-        include: { user: true },
-      })
-      if (fullTicket) {
-        this.emailService
-          .sendTicketConfirmation(
-            fullTicket as Parameters<typeof this.emailService.sendTicketConfirmation>[0],
-            appConfig,
-          )
-          .catch((err: unknown) => console.error('Confirmation email failed:', err))
-      }
-    }
+    // Enqueue confirmation email with retry (G2: was fire-and-forget).
+    this.queueService.enqueueEmailConfirmation({ ticketId }).catch(() => {})
     this.queueService.enqueueBotRespond({ ticketId }).catch(() => {})
   }
 
   // ─── Stats ────────────────────────────────────────────────────────────────
 
   async stats(): Promise<unknown> {
-    const excluded: TicketStatus[] = ['NEW', 'DISMISSED']
-    const liveFilter = { deletedAt: null, status: { notIn: excluded } }
+    const excluded: TicketStatus[] = ['DISMISSED']
+    const liveFilter = { deletedAt: null, isTicket: true, status: { notIn: excluded } }
     const [byStatus, byCategory, unassigned, newCount] = await Promise.all([
       this.db.ticket.groupBy({ by: ['status'], where: liveFilter, _count: { _all: true } }),
       this.db.ticket.groupBy({ by: ['category'], where: liveFilter, _count: { _all: true } }),
       this.db.ticket.count({ where: { ...liveFilter, assigneeId: null } }),
-      this.db.ticket.count({ where: { deletedAt: null, status: 'NEW' } }),
+      // newCount = conversations awaiting triage (isTicket=false, status=NEW)
+      this.db.ticket.count({ where: { deletedAt: null, isTicket: false, status: 'NEW' } }),
     ])
     return {
       byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
@@ -68,40 +75,39 @@ export class TicketsService {
   // ─── List ─────────────────────────────────────────────────────────────────
 
   async list(query: ListTicketsQuery, caller: CallerContext): Promise<TicketListResult> {
-    // Determine status scope from view + caller
-    const excludedStatuses: TicketStatus[] = ['NEW', 'DISMISSED']
-    let statusScope: Prisma.TicketWhereInput['status'] | undefined
-    if (caller.role === 'user') {
-      statusScope = { notIn: excludedStatuses }
-    } else if (query.view === 'inbox') {
-      statusScope = undefined
-    } else {
-      statusScope = { notIn: excludedStatuses }
-    }
-
     const where: Prisma.TicketWhereInput = {
       deletedAt: null,
-      ...(query.view === 'inbox' && caller.role === 'agent' && { source: 'EMAIL' }),
-      ...(query.status ? { status: query.status as TicketStatus } : (statusScope ? { status: statusScope } : {})),
-      ...(query.category && { category: query.category as TicketCategory }),
-      ...(query.assigneeId && { assigneeId: query.assigneeId }),
-      ...(caller.role === 'user' && { userId: caller.id }),
-      ...(query.search && {
-        OR: [
-          { title: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
-          { user: { name: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } } },
-          { user: { email: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } } },
-          { connector: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
-          { product: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
-        ],
-      }),
+    }
+
+    if (caller.role === 'user') {
+      // Portal: only own real tickets
+      where.isTicket = true
+      where.userId = caller.id
+      where.status = { notIn: ['DISMISSED'] as TicketStatus[] }
+    } else {
+      // Agent unified inbox: all non-deleted, non-dismissed (both conversations and tickets)
+      where.status = { notIn: ['DISMISSED'] as TicketStatus[] }
+      if (query.isTicket !== undefined) where.isTicket = query.isTicket
+      if (query.status) where.status = query.status as TicketStatus
+    }
+
+    if (query.category) where.category = query.category as TicketCategory
+    if (query.assigneeId) where.assigneeId = query.assigneeId
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
+        { user: { name: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } } },
+        { user: { email: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } } },
+        { field2: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
+        { field1: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
+      ]
     }
 
     const [tickets, total] = await Promise.all([
       this.db.ticket.findMany({
         where,
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, email: true, category: true } },
           assignee: { select: { id: true, name: true, avatarUrl: true } },
           dismissedBy: { select: { id: true, name: true } },
           tags: true,
@@ -122,7 +128,7 @@ export class TicketsService {
     return {
       data: tickets.map((t) => ({
         ...t,
-        displayId: `TMR-${t.number}`,
+        displayId: formatRef(t.ref),
         lastMessage: t.messages[0] ?? null,
         hasUnreadReply: false,
       })),
@@ -133,13 +139,19 @@ export class TicketsService {
   // ─── Create ───────────────────────────────────────────────────────────────
 
   async create(dto: CreateTicketDto, caller: CallerContext): Promise<{ ticket: unknown; displayId: string }> {
+    const ref = await generateUniqueRef((r) =>
+      this.db.ticket.findUnique({ where: { ref: r } }).then((t) => t !== null),
+    )
+
     const ticketResult = await this.db.$transaction(async (tx) => {
       const t = await tx.ticket.create({
         data: {
+          ref,
+          isTicket: true,
           title: dto.title,
           category: dto.category as TicketCategory,
-          product: dto.product,
-          connector: dto.connector,
+          field1: dto.field1,
+          field2: dto.field2,
           userId: caller.id,
           source: 'PORTAL',
         },
@@ -155,8 +167,11 @@ export class TicketsService {
         descriptionMessageId = msg.id
       }
       if (dto.attachmentIds?.length) {
+        // IDOR guard: only claim attachments that are still unclaimed (freshly uploaded
+        // by this caller, not yet attached to any ticket/message). Without `ticketId: null`
+        // a caller could pass an arbitrary attachment id and steal another user's upload.
         await tx.attachment.updateMany({
-          where: { id: { in: dto.attachmentIds } },
+          where: { id: { in: dto.attachmentIds }, ticketId: null, messageId: null },
           data: {
             ticketId: t.id,
             ...(descriptionMessageId ? { messageId: descriptionMessageId } : {}),
@@ -178,7 +193,7 @@ export class TicketsService {
       this.queueService.enqueueAnalyzeMessage({ messageId: descriptionMessageId, ticketId: ticket.id }).catch(() => {})
     }
 
-    return { ticket, displayId: `TMR-${ticket.number}` }
+    return { ticket, displayId: formatRef(ticket.ref) }
   }
 
   // ─── Find by ID ───────────────────────────────────────────────────────────
@@ -187,11 +202,7 @@ export class TicketsService {
     const ticket = await this.db.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        user: { select: { id: true, name: true, email: true, avatarUrl: true } },
-        assignee: { select: { id: true, name: true, avatarUrl: true } },
-        tags: true,
-        githubIssue: true,
-        rating: { select: { aiRating: true, aiEffortScore: true, aiSummary: true } },
+        ...TICKET_DETAIL_INCLUDE,
         messages: {
           where: { deletedAt: null, ...(caller.role === 'user' && { isInternal: false }) },
           orderBy: { createdAt: 'asc' },
@@ -201,14 +212,15 @@ export class TicketsService {
             attachments: true,
           },
         },
-        attachments: true,
       },
     })
 
     if (!ticket) throw new NotFoundException('Ticket not found')
     if (caller.role === 'user' && ticket.userId !== caller.id) throw new ForbiddenException('Not authorized')
+    // Portal must not deep-link pre-triage conversation threads
+    if (caller.role === 'user' && !ticket.isTicket) throw new NotFoundException('Ticket not found')
 
-    return { ticket: { ...ticket, displayId: `TMR-${ticket.number}` } }
+    return { ticket: { ...ticket, displayId: formatRef(ticket.ref) } }
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
@@ -217,23 +229,18 @@ export class TicketsService {
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
     if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
 
-    const updated = await this.db.$transaction(async (tx) => {
-      const result = await tx.ticket.update({
+    await this.db.$transaction(async (tx) => {
+      await tx.ticket.update({
         where: { id: ticketId },
         data: {
           ...(dto.title && { title: dto.title }),
           ...(dto.status && { status: dto.status as TicketStatus }),
           ...(dto.priority && { priority: dto.priority as TicketPriority }),
           ...(dto.category && { category: dto.category as TicketCategory }),
-          ...(dto.product !== undefined && { product: dto.product }),
-          ...(dto.connector !== undefined && { connector: dto.connector }),
+          ...(dto.field1 !== undefined && { field1: dto.field1 }),
+          ...(dto.field2 !== undefined && { field2: dto.field2 }),
           ...(dto.assigneeId !== undefined && { assigneeId: dto.assigneeId }),
           ...(dto.tagIds && { tags: { set: dto.tagIds.map((id) => ({ id })) } }),
-        },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          assignee: { select: { id: true, name: true, avatarUrl: true } },
-          tags: true,
         },
       })
       if (dto.status && dto.status !== ticket.status) {
@@ -247,7 +254,6 @@ export class TicketsService {
       if (dto.assigneeId !== undefined && dto.assigneeId !== ticket.assigneeId) {
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `assigned:${dto.assigneeId ?? 'unassigned'}` } })
       }
-      return result
     })
 
     // Broadcast SSE event so the agent dashboard updates in real time
@@ -259,37 +265,29 @@ export class TicketsService {
       this.queueService.enqueueRequestCsat({ ticketId }).catch(() => {})
     }
 
-    return { ticket: { ...updated, displayId: `TMR-${updated.number}` } }
+    // Re-fetch with full detail include so response always contains messages + attachments
+    const fullTicket = await this.db.ticket.findUnique({ where: { id: ticketId }, include: TICKET_DETAIL_INCLUDE })
+    return { ticket: { ...fullTicket!, displayId: formatRef(fullTicket!.ref) } }
   }
 
-  // ─── Convert (NEW → OPEN) ─────────────────────────────────────────────────
+  // ─── Convert (conversation → real ticket) ────────────────────────────────
 
   async convert(ticketId: string): Promise<{ ticket: unknown }> {
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
     if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
-    // Idempotent — already a real ticket, no-op
-    if (ticket.status !== 'NEW' && ticket.status !== 'DISMISSED') {
-      return { ticket: { ...ticket, displayId: `TMR-${ticket.number}` } }
+
+    if (!ticket.isTicket) {
+      await this.db.ticket.update({
+        where: { id: ticketId },
+        data: { isTicket: true, status: 'OPEN', dismissedAt: null, dismissedById: null },
+      })
+      await this.activateTicket(ticketId)
+      this.sse.broadcast({ type: 'ticket-updated', ticketId })
     }
 
-    const updated = await this.db.ticket.update({
-      where: { id: ticketId },
-      data: {
-        status: 'OPEN',
-        dismissedAt: null,
-        dismissedById: null,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, avatarUrl: true } },
-        tags: true,
-      },
-    })
-
-    await this.activateTicket(ticketId)
-    this.sse.broadcast({ type: 'ticket-updated', ticketId })
-
-    return { ticket: { ...updated, displayId: `TMR-${updated.number}` } }
+    // Both branches return full shape so the Bridge page never receives a partial payload
+    const fullTicket = await this.db.ticket.findUnique({ where: { id: ticketId }, include: TICKET_DETAIL_INCLUDE })
+    return { ticket: { ...fullTicket!, displayId: formatRef(fullTicket!.ref) } }
   }
 
   // ─── Discard (NEW → DISMISSED) ────────────────────────────────────────────
@@ -297,9 +295,9 @@ export class TicketsService {
   async discard(ticketId: string, agentId: string): Promise<{ success: boolean }> {
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
     if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
-    // Guard: only NEW tickets can be dismissed (idempotent on DISMISSED)
+    // Guard: only NEW conversations can be dismissed (idempotent on DISMISSED)
     if (ticket.status === 'DISMISSED') return { success: true }
-    if (ticket.status !== 'NEW') throw new BadRequestException('Only NEW tickets can be dismissed')
+    if (ticket.status !== 'NEW') throw new BadRequestException('Only NEW conversations can be dismissed')
 
     await this.db.ticket.update({
       where: { id: ticketId },

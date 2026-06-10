@@ -11,6 +11,7 @@ import { SseService } from '../events/sse.service'
 import { BotService } from '../bot/bot.service'
 import type { CreateMessageDto, UpdateMessageDto } from './messages.dto'
 import type { MessageType, MessageSentVia, TicketStatus } from '@tmr/db'
+import { applyReplyTransition } from '../tickets/util/apply-reply-transition'
 
 interface CallerContext {
   id: string
@@ -18,8 +19,6 @@ interface CallerContext {
 }
 
 const MESSAGE_EDIT_WINDOW_MS = 5 * 60 * 1000
-
-const REOPENABLE_STATUSES: TicketStatus[] = ['RESOLVED', 'CLOSED']
 
 @Injectable()
 export class MessagesService {
@@ -87,30 +86,12 @@ export class MessagesService {
         })
       }
 
-      let newStatus: TicketStatus | null = null
-      if (!isInternal && !shouldAutoEscalate) {
-        if (caller.role === 'agent' && ticket.status === 'OPEN') newStatus = 'IN_PROGRESS'
-        else if (caller.role === 'agent' && ticket.status === 'IN_PROGRESS') newStatus = 'WAITING'
-        else if (caller.role === 'user' && ticket.status === 'WAITING') newStatus = 'IN_PROGRESS'
-      }
-
-      // Reopen tracking: customer replied on a resolved/closed ticket
-      if (!isInternal && caller.role === 'user' && REOPENABLE_STATUSES.includes(ticket.status as TicketStatus)) {
-        newStatus = 'IN_PROGRESS'
-        await tx.ticket.update({
-          where: { id: ticketId },
-          data: {
-            reopenCount: { increment: 1 },
-            reopenedAt: new Date(),
-          },
-        })
-      }
-
-      if (newStatus) {
-        await tx.ticket.update({ where: { id: ticketId }, data: { status: newStatus } })
-        await tx.message.create({
-          data: { ticketId, type: 'SYSTEM_EVENT', body: `status_changed:${ticket.status}:${newStatus}` },
-        })
+      if (!isInternal && !shouldAutoEscalate && ticket.isTicket) {
+        await applyReplyTransition(
+          tx,
+          { id: ticketId, status: ticket.status as TicketStatus },
+          caller.role === 'agent' ? 'agent' : 'customer',
+        )
       }
 
       return tx.message.findUniqueOrThrow({
@@ -135,6 +116,13 @@ export class MessagesService {
       this.queueService
         .enqueueEmailSendReply({ ticketId, messageId: message.id })
         .catch((err: unknown) => console.error('Failed to enqueue reply email:', err))
+    }
+
+    // G1: Mirror customer portal REPLY into the support mailbox so the inbox thread stays complete.
+    if (caller.role === 'user' && !isInternal && dto.type === 'REPLY') {
+      this.queueService
+        .enqueueEmailSendReply({ ticketId, messageId: message.id, kind: 'portal-copy' })
+        .catch((err: unknown) => console.error('Failed to enqueue portal reply copy:', err))
     }
 
     // Broadcast SSE event so the agent dashboard updates in real time

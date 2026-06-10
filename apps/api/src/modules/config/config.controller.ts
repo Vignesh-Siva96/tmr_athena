@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Patch, Body, UseGuards, ForbiddenException, Post,
+  Controller, Get, Patch, Body, UseGuards, Post,
   UploadedFile, UseInterceptors, Query, BadRequestException,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
@@ -11,14 +11,15 @@ import {
 } from './config.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
-import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
+import { AdminGuard } from '../../common/guards/admin.guard'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
-import type { Agent } from '@tmr/db'
+import { FilesService } from '../files/files.service'
 
 @Controller('config')
 export class ConfigController {
   constructor(
     private readonly configService: AppConfigService,
+    private readonly filesService: FilesService,
   ) {}
 
   @Get()
@@ -34,25 +35,29 @@ export class ConfigController {
   }
 
   @Patch()
-  @UseGuards(AuthGuard, AgentGuard)
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
   async update(
-    @CurrentAgent() agent: Agent,
     @Body(new ZodValidationPipe(updateAppConfigSchema)) dto: UpdateAppConfigDto,
   ) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
     await this.configService.update(dto)
     return this.configService.getSafe()
   }
 
   @Post('logo')
-  @UseGuards(AuthGuard, AgentGuard)
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
   @UseInterceptors(FileInterceptor('logo', { storage: memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } }))
-  async uploadLogo(
-    @CurrentAgent() agent: Agent,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
-    const logoUrl = `/uploads/${file.originalname}`
-    return this.configService.updateLogo(logoUrl)
+  async uploadLogo(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('logo file is required')
+
+    // Was building a path to nowhere — `memoryStorage` holds the bytes only in
+    // memory and nothing ever wrote them anywhere, so `/uploads/${originalname}`
+    // 404'd on every request. Persist to MinIO (same object store every other
+    // upload in the app uses) and store the URL it actually returns.
+    const stored = await this.filesService.storeBuffer(file.buffer, {
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+    })
+    return this.configService.updateLogo(stored.url)
   }
 }

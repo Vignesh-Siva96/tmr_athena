@@ -1,0 +1,191 @@
+{
+  "version": 2,
+  "schema": "Each feature belongs to a journey phase (1-6). Cases are user-facing only: `action` = what the user does in the UI, `see` = what the user should observe. type = DO (should work) | DONT (should fail gracefully).",
+  "phases": {
+    "1": "Setup & configuration (admin, first run)",
+    "2": "Customer · Portal",
+    "3": "Agent · Dashboard",
+    "4": "Email channel",
+    "5": "Bot & automation",
+    "6": "Analytics & insights"
+  },
+  "features": [
+    {
+      "key": "admin-access", "title": "Sign in to the dashboard", "phase": 1,
+      "cases": [
+        { "id": "admin-access.signin", "type": "DO", "action": "Open the agent Dashboard (Bridge) and sign in as the admin", "see": "You land on the dashboard with your name shown", "tags": ["bridge"] },
+        { "id": "admin-access.wrong-password", "type": "DONT", "action": "Try to sign in with the wrong password", "see": "A clear error; you stay on the sign-in page", "tags": ["bridge", "negative"] }
+      ]
+    },
+    {
+      "key": "branding", "title": "Branding & general settings", "phase": 1,
+      "cases": [
+        { "id": "branding.identity", "type": "DO", "action": "In Settings → Branding/General, change the app name, colours, and the sign-in page layout, then save", "see": "The portal and the sign-in page reflect your changes", "tags": ["bridge", "settings"] },
+        { "id": "branding.logo", "type": "DO", "action": "Upload a logo image", "see": "The logo shows on the portal / sign-in page and is not broken", "tags": ["bridge", "settings"] }
+      ]
+    },
+    {
+      "key": "email-setup", "title": "Connect the support inbox", "phase": 1,
+      "cases": [
+        { "id": "email-setup.connect", "type": "DO", "action": "Settings → Email → connect your mailbox via Google or Microsoft", "see": "Shows ‘Connected’ with the provider and email address", "tags": ["bridge", "settings", "email"] },
+        { "id": "email-setup.backfill", "type": "DO", "action": "Start (or let it auto-run) the archive/backfill of past mail", "see": "A progress bar advances and completes", "tags": ["bridge", "email"] },
+        { "id": "email-setup.reconnect", "type": "DO", "action": "Disconnect, then reconnect the mailbox", "see": "State flips to disconnected, then back to connected", "tags": ["bridge", "email"] }
+      ]
+    },
+    {
+      "key": "github-setup", "title": "Connect GitHub (optional)", "phase": 1,
+      "cases": [
+        { "id": "github-setup.connect", "type": "DO", "action": "Settings → GitHub → connect with a token", "see": "Shows ‘Connected’; your repositories load in the dropdown", "tags": ["bridge", "settings", "optional"] }
+      ]
+    },
+    {
+      "key": "knowledge-base", "title": "Build the knowledge base", "phase": 1,
+      "cases": [
+        { "id": "knowledge-base.crawl", "type": "DO", "action": "Settings → AI Assistant → start a crawl/scan of your docs site URL", "see": "Progress advances and pages/sources appear", "tags": ["bridge", "kb"] },
+        { "id": "knowledge-base.embed", "type": "DO", "action": "Confirm/approve embedding of the scanned pages", "see": "Sources show as indexed / ready", "tags": ["bridge", "kb"] },
+        { "id": "knowledge-base.manual-add", "type": "DO", "action": "Add a single page by URL", "see": "That page gets indexed", "tags": ["bridge", "kb"] },
+        { "id": "knowledge-base.bad-url", "type": "DONT", "action": "Enter an invalid or unreachable URL", "see": "A clear error; the app doesn’t hang or freeze", "tags": ["bridge", "kb", "negative"] },
+        { "id": "knowledge-base.manage", "type": "DO", "action": "Reindex a source, then delete one", "see": "The source list updates accordingly", "tags": ["bridge", "kb"] }
+      ]
+    },
+    {
+      "key": "bot-setup", "title": "Configure Athena (the bot)", "phase": 1,
+      "cases": [
+        { "id": "bot-setup.enable", "type": "DO", "action": "Enable the first-responder bot and set its behaviour in AI Assistant", "see": "Settings save and show the bot as enabled", "tags": ["bridge", "bot"] }
+      ]
+    },
+    {
+      "key": "shifts-team", "title": "Shifts & team", "phase": 1,
+      "cases": [
+        { "id": "shifts-team.create-shift", "type": "DO", "action": "Settings → Shifts → add a shift with a primary agent and timezone", "see": "The shift is listed", "tags": ["bridge", "shifts"] },
+        { "id": "shifts-team.invite-agent", "type": "DO", "action": "Settings → Agents → invite an agent and set their role", "see": "The agent appears in the list (pending/accepted)", "tags": ["bridge"] },
+        { "id": "shifts-team.deactivate-agent", "type": "DO", "action": "Deactivate, then reactivate an agent", "see": "Their status toggles", "tags": ["bridge"] },
+        { "id": "shifts-team.non-admin-restricted", "type": "DONT", "action": "Sign in as a non-admin agent and look for admin Settings/actions", "see": "Admin-only settings/actions are hidden or blocked", "tags": ["bridge", "negative"] }
+      ]
+    },
+
+    {
+      "key": "portal-auth", "title": "Sign up / sign in (portal)", "phase": 2,
+      "cases": [
+        { "id": "portal-auth.signup", "type": "DO", "action": "On the customer portal, sign up with a new email + password", "see": "You’re signed in and land on the portal", "tags": ["portal"] },
+        { "id": "portal-auth.signin", "type": "DO", "action": "Sign out, then sign back in", "see": "You’re signed in; your tickets show", "tags": ["portal"] },
+        { "id": "portal-auth.wrong-password", "type": "DONT", "action": "Sign in with the wrong password", "see": "An error message; you stay signed out", "tags": ["portal", "negative"] },
+        { "id": "portal-auth.google", "type": "DO", "action": "Sign in with Google (if configured)", "see": "You’re signed in (otherwise skip / mark N/A)", "tags": ["portal", "optional"] },
+        { "id": "portal-auth.guest", "type": "DO", "action": "Without an account, start a ticket as a guest", "see": "You can submit without signing up", "tags": ["portal"] }
+      ]
+    },
+    {
+      "key": "portal-submit", "title": "Submit a ticket (portal)", "phase": 2,
+      "cases": [
+        { "id": "portal-submit.create", "type": "DO", "action": "Fill in title, category, description and submit", "see": "Confirmation screen; the ticket appears in ‘My tickets’; a confirmation email arrives", "tags": ["portal", "email"] },
+        { "id": "portal-submit.attachment", "type": "DO", "action": "Attach one or more files and submit", "see": "The files show on the ticket", "tags": ["portal", "files"] },
+        { "id": "portal-submit.missing-fields", "type": "DONT", "action": "Submit with the title or description empty", "see": "Inline validation; nothing is submitted", "tags": ["portal", "negative"] },
+        { "id": "portal-submit.oversize-file", "type": "DONT", "action": "Attach a very large file (over the limit)", "see": "It’s rejected with a clear message", "tags": ["portal", "files", "negative"] }
+      ]
+    },
+    {
+      "key": "portal-tickets", "title": "View & reply (portal)", "phase": 2,
+      "cases": [
+        { "id": "portal-tickets.list", "type": "DO", "action": "Open ‘My tickets’", "see": "Your tickets are listed with their status", "tags": ["portal"] },
+        { "id": "portal-tickets.search", "type": "DO", "action": "Search your tickets", "see": "The list filters to matches", "tags": ["portal"] },
+        { "id": "portal-tickets.detail", "type": "DO", "action": "Open a ticket", "see": "The full conversation is shown", "tags": ["portal"] },
+        { "id": "portal-tickets.reply", "type": "DO", "action": "Post a reply", "see": "Your reply appears in the thread", "tags": ["portal"] },
+        { "id": "portal-tickets.receive-reply", "type": "DO", "action": "After an agent replies, refresh / return to the ticket", "see": "The agent’s reply appears (and/or arrives by email)", "tags": ["portal", "email"] }
+      ]
+    },
+
+    {
+      "key": "agent-inbox", "title": "Inbox & ticket detail", "phase": 3,
+      "cases": [
+        { "id": "agent-inbox.new-arrives", "type": "DO", "action": "Watch the Inbox after a customer submits a ticket", "see": "The new ticket/conversation appears", "tags": ["bridge"] },
+        { "id": "agent-inbox.detail", "type": "DO", "action": "Open a ticket", "see": "Conversation, customer profile, and AI analysis (sentiment/topic) are shown", "tags": ["bridge"] },
+        { "id": "agent-inbox.filter", "type": "DO", "action": "Filter / search the ticket list", "see": "The list narrows correctly", "tags": ["bridge"] }
+      ]
+    },
+    {
+      "key": "agent-reply", "title": "Reply & internal notes", "phase": 3,
+      "cases": [
+        { "id": "agent-reply.public", "type": "DO", "action": "Send a public reply to the customer", "see": "It appears in the thread and the customer receives it", "tags": ["bridge", "email"] },
+        { "id": "agent-reply.internal-note", "type": "DONT", "action": "Add an internal note", "see": "It’s clearly marked internal and is NOT shown to the customer / not emailed", "tags": ["bridge", "negative"] },
+        { "id": "agent-reply.empty", "type": "DONT", "action": "Try to send an empty message", "see": "It’s blocked", "tags": ["bridge", "negative"] },
+        { "id": "agent-reply.safe-html", "type": "DONT", "action": "Paste a message containing script-like HTML and send", "see": "It renders as plain text — nothing pops up or runs", "tags": ["bridge", "negative"] }
+      ]
+    },
+    {
+      "key": "ticket-handling", "title": "Status, priority, assignment", "phase": 3,
+      "cases": [
+        { "id": "ticket-handling.status", "type": "DO", "action": "Move a ticket through Open → In progress → Waiting → Resolved", "see": "The status badge updates each time", "tags": ["bridge"] },
+        { "id": "ticket-handling.priority", "type": "DO", "action": "Change the priority", "see": "It updates (and reorders the list if relevant)", "tags": ["bridge"] },
+        { "id": "ticket-handling.assign", "type": "DO", "action": "Assign / unassign an agent", "see": "The assignee updates", "tags": ["bridge"] },
+        { "id": "ticket-handling.tags", "type": "DO", "action": "Add and remove tags", "see": "Tags update", "tags": ["bridge"] },
+        { "id": "ticket-handling.resolve", "type": "DO", "action": "Resolve a ticket", "see": "It’s marked resolved; the customer receives a rating (CSAT) email", "tags": ["bridge", "email"] },
+        { "id": "ticket-handling.reopen", "type": "DO", "action": "Reopen a resolved ticket (or have the customer reply)", "see": "It returns to an open state", "tags": ["bridge"] },
+        { "id": "ticket-handling.delete", "type": "DO", "action": "Delete a ticket", "see": "It disappears from the lists", "tags": ["bridge"] },
+        { "id": "ticket-handling.triage", "type": "DO", "action": "Convert a NEW item into a ticket, and discard another", "see": "They move between Inbox and Tickets / get dismissed", "tags": ["bridge"] }
+      ]
+    },
+    {
+      "key": "csat", "title": "Customer rates the resolution (CSAT)", "phase": 3,
+      "cases": [
+        { "id": "csat.open", "type": "DO", "action": "Open the rating link from the CSAT email", "see": "A rating form loads", "tags": ["portal", "email"] },
+        { "id": "csat.submit", "type": "DO", "action": "Submit a rating and comment", "see": "A thank-you screen; the rating shows on the ticket", "tags": ["portal"] },
+        { "id": "csat.invalid", "type": "DONT", "action": "Open an invalid or expired rating link", "see": "A graceful error, no crash", "tags": ["portal", "negative"] }
+      ]
+    },
+    {
+      "key": "notifications", "title": "Notifications (real-time)", "phase": 3,
+      "cases": [
+        { "id": "notifications.live", "type": "DO", "action": "With the dashboard open, trigger an event (new ticket / reply)", "see": "The bell count goes up live, without refreshing", "tags": ["bridge"] },
+        { "id": "notifications.read", "type": "DO", "action": "Mark one notification read, then ‘mark all read’", "see": "The count decrements, then goes to zero", "tags": ["bridge"] }
+      ]
+    },
+    {
+      "key": "customers", "title": "Customers", "phase": 3,
+      "cases": [
+        { "id": "customers.list", "type": "DO", "action": "Open Customers and page through the list", "see": "Customers with ticket counts; page 2 loads", "tags": ["bridge"] },
+        { "id": "customers.profile", "type": "DO", "action": "Open a customer", "see": "Their tickets, notes, category, and signals are shown", "tags": ["bridge"] },
+        { "id": "customers.category", "type": "DO", "action": "Change a customer’s category", "see": "It updates and filtering by category works", "tags": ["bridge"] },
+        { "id": "customers.notes", "type": "DO", "action": "Add, edit, and delete a customer note", "see": "The note changes are reflected", "tags": ["bridge"] }
+      ]
+    },
+    {
+      "key": "github", "title": "GitHub issues from tickets", "phase": 3,
+      "cases": [
+        { "id": "github.create-issue", "type": "DO", "action": "From a ticket, create a GitHub issue", "see": "The issue is created on GitHub and linked on the ticket", "tags": ["bridge", "optional"] },
+        { "id": "github.link-unlink", "type": "DO", "action": "Link an existing issue number, then unlink it", "see": "The link appears, then is removed", "tags": ["bridge", "optional"] },
+        { "id": "github.webhook-sync", "type": "DO", "action": "Change the issue’s state on GitHub", "see": "The linked ticket reflects the change", "tags": ["bridge", "optional"] }
+      ]
+    },
+
+    {
+      "key": "email-channel", "title": "Email in & out", "phase": 4,
+      "cases": [
+        { "id": "email-channel.inbound", "type": "DO", "action": "Send an email to the support address", "see": "A ticket/conversation appears in the dashboard", "tags": ["email"] },
+        { "id": "email-channel.threading", "type": "DO", "action": "Reply to that email thread from your mail client", "see": "It’s added to the SAME ticket, not a new one", "tags": ["email"] },
+        { "id": "email-channel.outbound", "type": "DO", "action": "Have an agent reply from the dashboard", "see": "It arrives in the customer’s mailbox, in the same thread", "tags": ["email"] },
+        { "id": "email-channel.archive", "type": "DO", "action": "Run a full archive pull, then cancel one mid-way", "see": "Past emails import with a progress bar; cancel stops it", "tags": ["email"] },
+        { "id": "email-channel.bulk-sender", "type": "DONT", "action": "Have a no-reply / bulk sender email in", "see": "It isn’t turned into a normal support ticket", "tags": ["email", "negative"] }
+      ]
+    },
+
+    {
+      "key": "bot", "title": "Athena first-responder", "phase": 5,
+      "cases": [
+        { "id": "bot.answers-from-kb", "type": "DO", "action": "Submit a ticket whose answer is in your knowledge base", "see": "Athena auto-replies with a relevant, cited answer", "tags": ["bot"] },
+        { "id": "bot.escalates", "type": "DONT", "action": "Submit a question the knowledge base can’t answer", "see": "Athena does NOT invent an answer — it escalates to an agent", "tags": ["bot", "negative"] },
+        { "id": "bot.off-topic", "type": "DONT", "action": "Ask something off-topic or adversarial", "see": "It declines or escalates rather than guessing", "tags": ["bot", "negative"] },
+        { "id": "bot.shift-routing", "type": "DO", "action": "With shifts configured, trigger escalations", "see": "They route to the on-shift agent; multiple escalations rotate", "tags": ["bot", "shifts"] },
+        { "id": "bot.no-active-shift", "type": "DONT", "action": "Trigger an escalation when no shift is active", "see": "It falls back sensibly — no crash", "tags": ["bot", "negative"] }
+      ]
+    },
+
+    {
+      "key": "analytics", "title": "Dashboards & insights", "phase": 6,
+      "cases": [
+        { "id": "analytics.operations", "type": "DO", "action": "Open Analytics → Operations", "see": "Charts render with numbers that match what you’ve done", "tags": ["bridge"] },
+        { "id": "analytics.customers", "type": "DO", "action": "Open Analytics → Customer insights", "see": "Health scores, at-risk, and churn signals render", "tags": ["bridge"] },
+        { "id": "analytics.ai-usage", "type": "DO", "action": "Open Settings → AI Usage", "see": "Token / cost totals are shown", "tags": ["bridge"] }
+      ]
+    }
+  ]
+}

@@ -9,7 +9,7 @@ last-reviewed: 2026-05-31
 
 ## What it does
 
-Background AI analysis on support tickets and messages using **Gemini 2.0 Flash**. Two combined Gemini calls extract all signals in one shot per trigger event:
+Background AI analysis on support tickets and messages using **Gemini 2.5 Flash-Lite**. Two combined Gemini calls extract all signals in one shot per trigger event:
 
 | Call | Method | Trigger | Output |
 |---|---|---|---|
@@ -47,14 +47,14 @@ Advocacy signals are passive — insert `CustomerSignal(type=ADVOCACY)` only. No
 
 CSAT delays the first send by 30 minutes so the customer isn't pinged the instant the agent clicks Resolve.
 
-## Pricing constants (Flash 2.0)
+## Pricing constants (gemini-2.5-flash-lite)
 
 ```
-input:  $0.075 / 1M tokens
-output: $0.30  / 1M tokens
+input:  $0.10 / 1M tokens
+output: $0.40 / 1M tokens
 ```
 
-Stored in `gemini.service.ts` → `PRICES` constant. Update there if Google changes pricing.
+Stored in `gemini.service.ts` → `PRICES` (duplicated in `bot/generator.service.ts`). Update there if Google changes pricing.
 
 ## Key files
 

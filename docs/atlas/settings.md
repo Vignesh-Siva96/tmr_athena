@@ -43,7 +43,7 @@ sequenceDiagram
 | [`apps/api/src/common/events/app-events.service.ts`](../../apps/api/src/common/events/app-events.service.ts) | Node `EventEmitter` wrapper exposed as `@Global()` Nest service |
 | [`apps/bridge/src/app/settings/layout.tsx`](../../apps/bridge/src/app/settings/layout.tsx) | Settings shell + live "Connected" badges for GitHub and Email |
 | [`apps/bridge/src/app/settings/general/page.tsx`](../../apps/bridge/src/app/settings/general/page.tsx) | App identity + theme |
-| [`apps/bridge/src/app/settings/branding/page.tsx`](../../apps/bridge/src/app/settings/branding/page.tsx) | Colors + logo + brand extraction |
+| [`apps/bridge/src/app/settings/branding/page.tsx`](../../apps/bridge/src/app/settings/branding/page.tsx) | Colors + logo + brand extraction + configurable portal dropdowns |
 | [`apps/bridge/src/app/settings/agents/page.tsx`](../../apps/bridge/src/app/settings/agents/page.tsx) | Agent management |
 | [`apps/bridge/src/app/settings/email/page.tsx`](../../apps/bridge/src/app/settings/email/page.tsx) | Email connection (OAuth only — Google or Microsoft) |
 | [`apps/bridge/src/app/settings/github/page.tsx`](../../apps/bridge/src/app/settings/github/page.tsx) | GitHub OAuth + webhook |
@@ -91,6 +91,21 @@ Operators can choose between two layouts for the customer sign-in page, set in B
 `AuthPagePreview` component (`apps/bridge/src/components/settings/branding/AuthPagePreview.tsx`) renders a miniature mockup of the auth page in the right column of the branding page. It reads unsaved `form` state directly — no API call. Switches between MINIMAL and BRANDED in real time. Also reflects `primaryColor`, `accentColor`, and `logoUrl` live.
 
 "Open full preview ↗" link in the card footer opens `/auth` in a new tab (reads saved config, not live form state).
+
+## Configurable portal dropdowns
+
+Operators can define up to two generic dropdowns shown on the portal ticket submission form. Configured in Bridge → Settings → Branding → **Ticket Dropdowns** card.
+
+| AppConfig field | Type | Notes |
+|---|---|---|
+| `field1Label` | `String?` | Label for the first dropdown; hidden when null/blank |
+| `field1Options` | `Json` (`DropdownOption[]`) | Array of `{value, label, icon?}` objects |
+| `field2Label` | `String?` | Label for the second dropdown |
+| `field2Options` | `Json` (`DropdownOption[]`) | Same shape |
+
+`icon` is optional: an absolute URL is used as-is; a bare key is resolved to `{ASSETS_URL}/{key}.png` on the portal.
+
+The portal submit page renders an `OptionSelect` for each dropdown when the options array is non-empty. Ticket rows store the selected values in `Ticket.field1` and `Ticket.field2` (formerly `product`/`connector`, renamed in migration).
 
 ## Known gaps
 

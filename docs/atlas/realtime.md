@@ -2,7 +2,7 @@
 title: Real-time (SSE)
 stack: [NestJS @Sse, RxJS Subject, EventSource API, React custom hooks]
 status: working
-last-reviewed: 2026-05-27
+last-reviewed: 2026-06-10
 ---
 
 # Real-time (SSE)
@@ -23,16 +23,16 @@ API (NestJS)                    Bridge (Next.js)
 ───────────────────────────────────────────────────
 EventsModule (@Global)          layout.tsx
   SseService (RxJS Subject)  ←─── SseProvider (mounts useSseEvents once)
-  SseController (@Sse)         ←─── EventSource(?token=...)
+  SseController              ←─── ① POST /events/ticket (JWT in header)
+    (@Post + @Sse)           ←─── ② EventSource(?ticket=...)
                                        │
                                   sseEventBus (in-process pub/sub)
                                        │
-                              ┌────────┼─────────────────────┐
-                              ▼        ▼                     ▼
-                          inbox    tickets/[id]    useBackfillStatus
-                         (ticket-  (message-       (archive-progress)
-                         created/  created)
-                         updated)
+                                  ┌────┴──────────────┐
+                                  ▼                   ▼
+                            tickets/[id]      useBackfillStatus
+                            (message-         (archive-progress)
+                             created)
 ```
 
 ## API side
@@ -49,10 +49,12 @@ asObservable(): Observable<{data: string}>  // serialised JSON frames
 ### SseController (`apps/api/src/modules/events/sse.controller.ts`)
 
 ```
-GET /api/v1/events?token=<JWT>
+POST /api/v1/events/ticket          (AuthGuard — JWT in Authorization header)
+  → { ticket: "<short-lived single-use ticket>" }
+GET  /api/v1/events?ticket=<ticket> (@Sse)
 ```
 
-EventSource API cannot send custom HTTP headers, so the JWT is passed as a query param. The controller verifies it inline (same logic as `AuthGuard`). Merges a `{type:'hello',ts:...}` frame on connect before the main observable.
+Two-phase auth: the `EventSource` API cannot send custom HTTP headers, and putting the JWT in the URL would leak it into logs/history. So the client first exchanges its JWT for a short-lived, **single-use** ticket via an authenticated `POST /events/ticket` (`SseService.issueTicket()`), then opens the EventSource with `?ticket=...`. The SSE endpoint consumes the ticket (`SseService.consumeTicket()`) — an invalid/expired/reused ticket gets a 401. On connect the stream merges a `{type:'hello',ts:...}` frame before the main observable.
 
 ### EventsModule (`apps/api/src/modules/events/events.module.ts`)
 
@@ -100,8 +102,8 @@ In-process pub/sub. Components call `sseEventBus.on(type, handler)` to subscribe
 
 | Location | Subscribed events | Action |
 |---|---|---|
-| `apps/bridge/src/app/inbox/page.tsx` | `ticket-created`, `ticket-updated` | Reload ticket list |
 | `apps/bridge/src/app/tickets/[id]/page.tsx` | `message-created` (for this ticket only) | Reload full ticket |
+| `apps/bridge/src/app/inbox/page.tsx` | `ticket-created`, `ticket-updated`, `message-created` | Debounced (~300 ms) background refetch of the ticket list (G6) |
 | `apps/bridge/src/lib/useBackfillStatus.ts` | `archive-progress` | Optimistic state update (no poll needed) |
 
 ## Key files
@@ -109,7 +111,7 @@ In-process pub/sub. Components call `sseEventBus.on(type, handler)` to subscribe
 | File | Role |
 |---|---|
 | `apps/api/src/modules/events/sse.service.ts` | RxJS Subject; `broadcast()` + `asObservable()` |
-| `apps/api/src/modules/events/sse.controller.ts` | `GET /api/v1/events` — @Sse, JWT via query param |
+| `apps/api/src/modules/events/sse.controller.ts` | `POST /events/ticket` (JWT → ticket) + `GET /events?ticket=...` (@Sse) |
 | `apps/api/src/modules/events/events.module.ts` | `@Global()` module; exports SseService |
 | `apps/api/src/modules/events/event.types.ts` | `SseEvent` discriminated union |
 | `apps/bridge/src/lib/sseEventBus.ts` | In-process pub/sub; typed `on()` / `emit()` |
@@ -119,10 +121,10 @@ In-process pub/sub. Components call `sseEventBus.on(type, handler)` to subscribe
 ## Notable decisions
 
 - **SSE over WebSockets** — one-directional (server → client) is all we need; SSE is simpler, HTTP/1.1 compatible, and doesn't need a separate upgrade. Browser automatically reconnects on disconnect (but we also implement manual exponential backoff on `onerror` for control).
-- **JWT in query param** — `EventSource` API doesn't support custom request headers. The token is verified immediately in the controller and never logged (NestJS logger level is `warn` on that route).
+- **Ticket exchange instead of JWT in query param** — `EventSource` doesn't support custom request headers, but a long-lived JWT in a URL leaks into server logs, browser history, and referrers. The client exchanges its JWT (sent in the `Authorization` header of an ordinary `fetch`) for a short-lived single-use ticket, and only the ticket travels in the URL.
 - **`@Global()` EventsModule** — avoids circular imports. `ThreadIngestionService` and `EmailSyncBackfillService` (in `EmailSyncModule`) need to broadcast but can't import `EventsModule` (which would create a cycle through `AppConfigModule`). They use a `setSseService()` pattern instead — set in `OnModuleInit` by `EventsModule`.
 - **sseEventBus is in-process** — no Redis pub/sub, no external broker. Works fine for a single-process NestJS app; if the app ever runs multi-process, the bus would need to be replaced with Redis.
-- **Polling kept alongside SSE** — Inbox polls every 15s; ticket detail polls every 10s. SSE makes these instant most of the time, but polling acts as a fallback if the SSE connection drops silently (some corporate proxies buffer SSE).
+- **Polling kept alongside SSE** — Inbox now subscribes to SSE (`ticket-created`, `ticket-updated`, `message-created`) with a 300 ms debounce; the `setInterval` fallback was stretched from 15 s → 60 s since SSE is the primary signal. Ticket detail still polls every 10 s *and* subscribes to `message-created`. SSE makes both views instant most of the time; polling acts as a fallback if the SSE connection drops silently (some corporate proxies buffer SSE).
 
 ## Known gaps
 

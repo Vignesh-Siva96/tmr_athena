@@ -23,6 +23,7 @@ import { TestUtilsModule } from './modules/test-utils/test-utils.module'
 import { BotModule } from './modules/bot/bot.module'
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module'
 import { ShiftsModule } from './modules/shifts/shifts.module'
+import { validateEnv } from './common/config/validate-env'
 
 const isTestEnv = process.env['NODE_ENV'] === 'test'
 
@@ -31,6 +32,7 @@ const isTestEnv = process.env['NODE_ENV'] === 'test'
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['../../.env', '.env'],
+      validate: validateEnv,
     }),
     AppEventsModule,
     DatabaseModule,

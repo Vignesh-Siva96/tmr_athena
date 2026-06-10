@@ -1,48 +1,37 @@
-import { Controller, Get, Query, Sse, UnauthorizedException } from '@nestjs/common'
+import { Controller, Post, Query, Sse, UnauthorizedException, UseGuards } from '@nestjs/common'
 import { merge, of, Observable } from 'rxjs'
-import { SseService, type SseMessageEvent } from './sse.service'
-import { ConfigService } from '@nestjs/config'
-import * as crypto from 'crypto'
-
-function base64UrlDecode(str: string): string {
-  const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
-  return Buffer.from(base64, 'base64').toString('utf-8')
-}
-
-function verifyJwtForSse(token: string, secret: string): void {
-  const parts = token.split('.')
-  if (parts.length !== 3) throw new UnauthorizedException('Invalid token format')
-
-  const [header, payload, signature] = parts as [string, string, string]
-  const signingInput = `${header}.${payload}`
-  const expectedSig = crypto
-    .createHmac('sha256', secret)
-    .update(signingInput)
-    .digest('base64url')
-
-  if (expectedSig !== signature) throw new UnauthorizedException('Invalid token signature')
-
-  const decoded = JSON.parse(base64UrlDecode(payload)) as { exp: number }
-  if (decoded.exp < Math.floor(Date.now() / 1000)) {
-    throw new UnauthorizedException('Token expired')
-  }
-}
+import { SseService, type SseMessageEvent, type SseTicketIdentity } from './sse.service'
+import { AuthGuard } from '../../common/guards/auth.guard'
+import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import type { Agent, User } from '@tmr/db'
 
 @Controller()
 export class SseController {
-  constructor(
-    private readonly sse: SseService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly sse: SseService) {}
+
+  /** Authenticated callers exchange their JWT for a short-lived, single-use ticket
+   * here (an authenticated `fetch` can set the Authorization header), then open
+   * the EventSource below with `?ticket=...` — EventSource itself cannot send headers. */
+  @Post('events/ticket')
+  @UseGuards(AuthGuard)
+  issueTicket(
+    @CurrentAgent() agent: Agent | undefined,
+    @CurrentUser() user: User | undefined,
+  ): { ticket: string } {
+    const identity: SseTicketIdentity | null = agent
+      ? { sub: agent.id, role: 'agent' }
+      : user
+        ? { sub: user.id, role: 'user' }
+        : null
+    if (!identity) throw new UnauthorizedException('Authentication required')
+    return { ticket: this.sse.issueTicket(identity) }
+  }
 
   @Sse('events')
-  events(@Query('token') token: string): Observable<SseMessageEvent> {
-    const secret = this.config.get<string>('BETTER_AUTH_SECRET') ?? ''
-    try {
-      verifyJwtForSse(token, secret)
-    } catch {
-      throw new UnauthorizedException('Invalid or missing token')
-    }
+  events(@Query('ticket') ticket: string): Observable<SseMessageEvent> {
+    const identity = this.sse.consumeTicket(ticket)
+    if (!identity) throw new UnauthorizedException('Invalid or expired ticket')
 
     const hello = of({ data: JSON.stringify({ type: 'hello', ts: Date.now() }) })
     return merge(hello, this.sse.asObservable())

@@ -149,17 +149,23 @@ export class IndexerService {
 
     const embeddings = await this.embedding.embedChunks(textsToEmbed, TaskType.RETRIEVAL_DOCUMENT)
 
-    for (let i = 0; i < rawChunks.length; i++) {
-      const vectorLiteral = `[${embeddings[i].join(',')}]`
-      await this.db.$executeRawUnsafe(
-        `UPDATE "KnowledgeChunk" SET embedding = $1::vector, "contextHeader" = $2, text = $3 WHERE id = $4`,
-        vectorLiteral,
-        contextHeader || null,
-        textsToEmbed[i],
-        rawChunks[i].id,
-      )
-      onChunkDone?.()
-    }
+    // Single batched UPDATE...FROM(VALUES...) instead of one round-trip per chunk —
+    // a source can have hundreds of chunks, and each was a separate awaited query.
+    const rows: string[] = []
+    const params: unknown[] = []
+    rawChunks.forEach((chunk, i) => {
+      const base = i * 4
+      rows.push(`($${base + 1}::uuid, $${base + 2}::vector, $${base + 3}::text, $${base + 4}::text)`)
+      params.push(chunk.id, `[${embeddings[i].join(',')}]`, contextHeader || null, textsToEmbed[i])
+    })
+    await this.db.$executeRawUnsafe(
+      `UPDATE "KnowledgeChunk" AS k
+       SET embedding = v.embedding, "contextHeader" = v."contextHeader", text = v.text
+       FROM (VALUES ${rows.join(', ')}) AS v(id, embedding, "contextHeader", text)
+       WHERE k.id = v.id`,
+      ...params,
+    )
+    rawChunks.forEach(() => onChunkDone?.())
 
     await this.db.knowledgeSource.update({
       where: { id: sourceId },

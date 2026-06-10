@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai'
 import * as cheerio from 'cheerio'
 import { PrismaService } from '../database/prisma.service'
+import { decrypt } from '../../common/crypto/credentials-cipher'
 import { Decimal } from '@prisma/client/runtime/library'
 
 const MODEL_ID = 'gemini-2.5-flash-lite'
@@ -35,7 +36,7 @@ export class ContextBuilderService {
     if (this.model) return this.model
     const cfg = await this.db.appConfig.findFirst({ select: { botApiKeyEnc: true } })
     if (!cfg?.botApiKeyEnc) return null
-    const genAI = new GoogleGenerativeAI(cfg.botApiKeyEnc)
+    const genAI = new GoogleGenerativeAI(decrypt(cfg.botApiKeyEnc))
     return genAI.getGenerativeModel({ model: MODEL_ID })
   }
 

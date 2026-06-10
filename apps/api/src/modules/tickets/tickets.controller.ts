@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Fo
 import { TicketsService } from './tickets.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
+import { NoGuests, NoGuestsGuard } from '../../common/guards/no-guests.guard'
 import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
@@ -33,6 +34,8 @@ export class TicketsController {
   }
 
   @Get()
+  @NoGuests()
+  @UseGuards(NoGuestsGuard)
   list(
     @CurrentAgent() agent: Agent,
     @CurrentUser() user: User,

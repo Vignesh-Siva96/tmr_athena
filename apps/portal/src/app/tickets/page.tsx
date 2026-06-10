@@ -12,13 +12,13 @@ type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' 
 
 interface TicketListItem {
   id: string
-  number: number
+  ref: string
   displayId: string
   title: string
   status: TicketStatus
   category: TicketCategory
-  connector?: string | null
-  product?: string | null
+  field2?: string | null
+  field1?: string | null
   tags: { id: string; name: string; color: string }[]
   lastMessage?: { body: string; createdAt: string } | null
   hasUnreadReply: boolean
@@ -100,6 +100,12 @@ export default function MyTicketsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'ALL'>('ALL')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(id)
+  }, [search])
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -119,7 +125,7 @@ export default function MyTicketsPage() {
     setIsLoading(true)
     const params = new URLSearchParams()
     if (activeFilter !== 'ALL') params.set('status', activeFilter)
-    if (search) params.set('search', search)
+    if (debouncedSearch) params.set('search', debouncedSearch)
     api
       .get<TicketsResponse>(`/tickets?${params.toString()}`, token)
       .then((res) => {
@@ -128,7 +134,7 @@ export default function MyTicketsPage() {
       })
       .catch(console.error)
       .finally(() => setIsLoading(false))
-  }, [token, activeFilter, search])
+  }, [token, activeFilter, debouncedSearch])
 
   const openCount = allTickets.filter((t) => ['OPEN', 'IN_PROGRESS', 'WAITING'].includes(t.status)).length
   const resolvedCount = allTickets.filter((t) => ['RESOLVED', 'CLOSED'].includes(t.status)).length
@@ -350,9 +356,9 @@ export default function MyTicketsPage() {
                         {ticket.lastMessage.body}
                       </span>
                     )}
-                    {!ticket.lastMessage && (ticket.product ?? ticket.connector) && (
+                    {!ticket.lastMessage && (ticket.field1 ?? ticket.field2) && (
                       <span style={{ fontSize: 12, color: 'var(--p-text-4)', display: 'block', marginTop: 2 }}>
-                        {[ticket.product, ticket.connector].filter(Boolean).join(' · ')}
+                        {[ticket.field1, ticket.field2].filter(Boolean).join(' · ')}
                       </span>
                     )}
                   </div>

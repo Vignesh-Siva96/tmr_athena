@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI, EmbedContentRequest, TaskType } from '@google/generative-ai'
 import { PrismaService } from '../database/prisma.service'
+import { decrypt } from '../../common/crypto/credentials-cipher'
 import { Decimal } from '@prisma/client/runtime/library'
 import {
   EMBEDDING_MODEL,
@@ -48,7 +49,7 @@ export class EmbeddingService implements OnModuleInit {
     if (!cfg?.botApiKeyEnc) {
       throw new Error('No Gemini API key configured. Set it in AI Assistant settings.')
     }
-    return new GoogleGenerativeAI(cfg.botApiKeyEnc)
+    return new GoogleGenerativeAI(decrypt(cfg.botApiKeyEnc))
   }
 
   /**

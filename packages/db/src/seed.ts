@@ -26,6 +26,22 @@ async function main() {
       primaryColor: '#2563EB',
       accentColor: '#0EA5E9',
       emailDisplayName: 'TMR Support',
+      field1Label: 'Product',
+      field1Options: [
+        { value: 'google-sheets', label: 'Google Sheets' },
+        { value: 'google-data-studio', label: 'Google Data Studio' },
+        { value: 'excel', label: 'Microsoft Excel' },
+        { value: 'power-bi', label: 'Power BI' },
+      ],
+      field2Label: 'Connector',
+      field2Options: [
+        { value: 'ga4', label: 'GA4 — Google Analytics' },
+        { value: 'facebook-ads', label: 'Facebook Ads' },
+        { value: 'google-ads', label: 'Google Ads' },
+        { value: 'pinterest-ads', label: 'Pinterest Ads' },
+        { value: 'shopify', label: 'Shopify' },
+        { value: 'hubspot', label: 'HubSpot' },
+      ],
     },
     update: {},
   })
@@ -60,9 +76,9 @@ async function main() {
 
   // Sample tickets
   const ticketSeeds = [
-    { title: 'GA4 connector failing to sync after May 12 update', category: 'BUG_REPORT' as const, status: 'IN_PROGRESS' as const, priority: 'URGENT' as const, product: 'Google Sheets', connector: 'GA4 — Google Analytics', description: 'After the May 12 deploy our scheduled GA4 → Sheets pull stops mid-way with "rate limit exceeded".', assigneeId: admin.id },
-    { title: 'Pinterest Ads connector authentication keeps expiring', category: 'BUG_REPORT' as const, status: 'OPEN' as const, priority: 'HIGH' as const, connector: 'Pinterest Ads', description: 'Every 24 hours the Pinterest Ads connector disconnects and needs re-auth.' },
-    { title: 'Add scheduled CSV exports to Google Drive', category: 'FEATURE_REQUEST' as const, status: 'WAITING' as const, priority: 'NORMAL' as const, product: 'Google Sheets', description: 'Would love automatic CSV export to a Google Drive folder.' },
+    { title: 'GA4 connector failing to sync after May 12 update', category: 'BUG_REPORT' as const, status: 'IN_PROGRESS' as const, priority: 'URGENT' as const, field1: 'google-sheets', field2: 'ga4', description: 'After the May 12 deploy our scheduled GA4 → Sheets pull stops mid-way with "rate limit exceeded".', assigneeId: admin.id },
+    { title: 'Pinterest Ads connector authentication keeps expiring', category: 'BUG_REPORT' as const, status: 'OPEN' as const, priority: 'HIGH' as const, field2: 'pinterest-ads', description: 'Every 24 hours the Pinterest Ads connector disconnects and needs re-auth.' },
+    { title: 'Add scheduled CSV exports to Google Drive', category: 'FEATURE_REQUEST' as const, status: 'WAITING' as const, priority: 'NORMAL' as const, field1: 'google-sheets', description: 'Would love automatic CSV export to a Google Drive folder.' },
   ]
 
   for (const seed of ticketSeeds) {
@@ -71,7 +87,7 @@ async function main() {
 
     const ticket = await db.$transaction(async (tx) => {
       const t = await tx.ticket.create({
-        data: { title: seed.title, category: seed.category, status: seed.status, priority: seed.priority, product: seed.product, connector: seed.connector, userId: customer.id, assigneeId: seed.assigneeId, source: 'PORTAL' },
+        data: { title: seed.title, category: seed.category, status: seed.status, priority: seed.priority, field1: seed.field1, field2: seed.field2, userId: customer.id, assigneeId: seed.assigneeId, source: 'PORTAL' },
       })
       await tx.message.create({ data: { ticketId: t.id, body: seed.description, type: 'REPLY', authorUserId: customer.id } })
       if (seed.status !== 'OPEN') {

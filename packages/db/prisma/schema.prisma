@@ -81,6 +81,15 @@ model AppConfig {
 
   // Shifts
   timezone             String        @default("UTC")
+
+  // Configurable portal dropdowns
+  field1Label    String?
+  field1Options  Json     @default("[]")
+  field2Label    String?
+  field2Options  Json     @default("[]")
+
+  // Mirror customer portal replies into support mailbox as a self-addressed copy
+  mirrorPortalRepliesToEmail Boolean @default(true)
 }
 
 enum AuthLayout {
@@ -144,9 +153,10 @@ model User {
   isGuest   Boolean  @default(false)
   googleId  String?  @unique
 
-  source      UserSource  @default(PORTAL)
-  isVerified  Boolean     @default(false)
-  emailStatus EmailStatus @default(ACTIVE)
+  source      UserSource   @default(PORTAL)
+  category    UserCategory @default(CUSTOMER)
+  isVerified  Boolean      @default(false)
+  emailStatus EmailStatus  @default(ACTIVE)
 
   lastActiveAt DateTime?
 
@@ -165,6 +175,12 @@ enum UserSource {
   PORTAL
   EMAIL
   INVITE
+}
+
+enum UserCategory {
+  CUSTOMER
+  MARKETING
+  PROMOTIONAL
 }
 
 enum EmailStatus {
@@ -250,13 +266,14 @@ model Ticket {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  number    Int            @unique @default(autoincrement())
+  ref      String         @unique
+  isTicket Boolean        @default(false)
   title     String
   status    TicketStatus   @default(OPEN)
   priority  TicketPriority @default(NORMAL)
   category  TicketCategory
-  product   String?
-  connector String?
+  field1    String?
+  field2    String?
   source      TicketSource  @default(PORTAL)
   isBulk      Boolean       @default(false)
 
@@ -294,6 +311,7 @@ model Ticket {
   botInteractions BotInteraction[]
 
   @@index([status])
+  @@index([isTicket])
   @@index([dismissedById])
   @@index([userId])
   @@index([assigneeId])

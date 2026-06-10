@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import * as cheerio from 'cheerio'
 import { PrismaService } from '../database/prisma.service'
+import { fetchPublic, readBodyCapped } from '../../common/net/assert-public-url'
 
 export interface CrawledPage {
   url: string
@@ -75,12 +76,12 @@ export class CrawlerService {
   /** Read robots.txt and return any Sitemap: directives. */
   private async fetchRobotsSitemaps(origin: string): Promise<string[]> {
     try {
-      const res = await fetch(`${origin}/robots.txt`, {
+      const res = await fetchPublic(`${origin}/robots.txt`, {
         headers: { 'User-Agent': USER_AGENT },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (!res.ok) return []
-      const text = await res.text()
+      const text = await readBodyCapped(res)
       const sitemaps: string[] = []
       for (const line of text.split('\n')) {
         const match = /^Sitemap:\s*(.+)/i.exec(line.trim())
@@ -108,7 +109,7 @@ export class CrawlerService {
       seen.add(sitemapUrl)
 
       try {
-        const res = await fetch(sitemapUrl, {
+        const res = await fetchPublic(sitemapUrl, {
           headers: { 'User-Agent': USER_AGENT },
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         })
@@ -139,7 +140,7 @@ export class CrawlerService {
             }, new Uint8Array(0)),
           )
         } else {
-          xml = await res.text()
+          xml = await readBodyCapped(res)
         }
 
         const urls: string[] = []
@@ -308,7 +309,7 @@ export class CrawlerService {
   async fetchPage(url: string): Promise<CrawledPage | null> {
     for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
       try {
-        const res = await fetch(url, {
+        const res = await fetchPublic(url, {
           headers: { 'User-Agent': USER_AGENT },
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         })
@@ -329,7 +330,7 @@ export class CrawlerService {
           return null
         }
 
-        const html = await res.text()
+        const html = await readBodyCapped(res)
 
         if (/<meta[^>]+noindex/i.test(html)) {
           this.logger.debug(`fetchPage: ${url} has noindex — skipping`)

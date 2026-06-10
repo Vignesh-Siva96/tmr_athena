@@ -1,8 +1,8 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException, InternalServerErrorException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, InternalServerErrorException, ConflictException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as crypto from 'crypto'
-import * as https from 'https'
 import { PrismaService } from '../database/prisma.service'
+import { getJwtSecret } from '../../common/auth/jwt-secret'
 import type { User, Agent } from '@tmr/db'
 import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto } from './auth.dto'
 
@@ -35,43 +35,58 @@ function base64UrlEncode(str: string): string {
     .replace(/=/g, '')
 }
 
-function httpsPost(url: string, data: string, headers: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method: 'POST',
-      headers: { ...headers, 'Content-Length': Buffer.byteLength(data) },
-    }
-    const req = https.request(options, (res) => {
-      let body = ''
-      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-      res.on('end', () => resolve(body))
-    })
-    req.on('error', reject)
-    req.write(data)
-    req.end()
-  })
+/** Strips the password hash before a User/Agent is serialized into an API response. */
+function omitPassword<T extends { password?: string | null }>(entity: T): Omit<T, 'password'> {
+  const { password, ...rest } = entity
+  return rest
 }
 
-function httpsGet(url: string, headers: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method: 'GET',
-      headers,
+const OAUTH_HTTP_TIMEOUT_MS = 10_000
+const OAUTH_HTTP_MAX_BYTES = 1024 * 1024 // 1 MB — Google token/userinfo responses are tiny; cap against a misbehaving/malicious endpoint
+
+async function readCappedJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new InternalServerErrorException(`OAuth request failed: HTTP ${res.status} — ${text.slice(0, 500)}`)
+  }
+  if (!res.body) return JSON.parse(await res.text()) as T
+
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > OAUTH_HTTP_MAX_BYTES) {
+      await reader.cancel().catch(() => {})
+      throw new InternalServerErrorException('OAuth response exceeded size limit')
     }
-    const req = https.request(options, (res) => {
-      let body = ''
-      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-      res.on('end', () => resolve(body))
-    })
-    req.on('error', reject)
-    req.end()
-  })
+    chunks.push(value)
+  }
+  const body = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf-8')
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    throw new InternalServerErrorException('OAuth response was not valid JSON')
+  }
+}
+
+function oauthPost<T>(url: string, body: string, headers: Record<string, string>): Promise<T> {
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    body,
+    signal: AbortSignal.timeout(OAUTH_HTTP_TIMEOUT_MS),
+  }).then(readCappedJson<T>)
+}
+
+function oauthGet<T>(url: string, headers: Record<string, string>): Promise<T> {
+  return fetch(url, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(OAUTH_HTTP_TIMEOUT_MS),
+  }).then(readCappedJson<T>)
 }
 
 @Injectable()
@@ -82,7 +97,7 @@ export class AuthService {
   ) {}
 
   private get jwtSecret(): string {
-    return this.config.get<string>('BETTER_AUTH_SECRET') ?? 'dev-secret'
+    return getJwtSecret(this.config)
   }
 
   private hashPassword(password: string): Promise<string> {
@@ -115,7 +130,7 @@ export class AuthService {
     return `${signingInput}.${sig}`
   }
 
-  async signup(dto: SignupDto): Promise<{ user: User; token: string }> {
+  async signup(dto: SignupDto): Promise<{ user: Omit<User, 'password'>; token: string }> {
     const existing = await this.db.user.findUnique({ where: { email: dto.email } })
     if (existing) throw new ConflictException('Email already exists')
 
@@ -125,10 +140,10 @@ export class AuthService {
     })
 
     const token = this.issueToken({ sub: user.id, role: 'user' })
-    return { user, token }
+    return { user: omitPassword(user), token }
   }
 
-  async signin(dto: SigninDto): Promise<{ user: User; token: string }> {
+  async signin(dto: SigninDto): Promise<{ user: Omit<User, 'password'>; token: string }> {
     const user = await this.db.user.findUnique({ where: { email: dto.email } })
     if (!user || !user.password) throw new UnauthorizedException('Invalid credentials')
 
@@ -137,10 +152,10 @@ export class AuthService {
 
     await this.db.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } })
     const token = this.issueToken({ sub: user.id, role: 'user' })
-    return { user, token }
+    return { user: omitPassword(user), token }
   }
 
-  async googleAuth(dto: GoogleAuthDto): Promise<{ user: User; token: string; isNew: boolean }> {
+  async googleAuth(dto: GoogleAuthDto): Promise<{ user: Omit<User, 'password'>; token: string; isNew: boolean }> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID') ?? ''
     const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET') ?? ''
     const redirectUri = dto.redirectUri ?? `${this.config.get<string>('PORTAL_URL') ?? 'http://localhost:3000'}/auth/callback`
@@ -153,21 +168,19 @@ export class AuthService {
       grant_type: 'authorization_code',
     }).toString()
 
-    const tokenRaw = await httpsPost(
+    const tokenData = await oauthPost<GoogleTokenResponse>(
       'https://oauth2.googleapis.com/token',
       tokenBody,
       { 'Content-Type': 'application/x-www-form-urlencoded' },
     )
-    const tokenData = JSON.parse(tokenRaw) as GoogleTokenResponse
     if (!tokenData.access_token) {
       throw new InternalServerErrorException(`Google token exchange failed: ${tokenData.error ?? 'unknown'} — ${tokenData.error_description ?? ''}`)
     }
 
-    const userInfoRaw = await httpsGet(
+    const googleUser = await oauthGet<GoogleUserInfo>(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { Authorization: `Bearer ${tokenData.access_token}` },
     )
-    const googleUser = JSON.parse(userInfoRaw) as GoogleUserInfo
     if (!googleUser.sub || !googleUser.email) {
       throw new InternalServerErrorException('Google userinfo response missing required fields')
     }
@@ -199,33 +212,23 @@ export class AuthService {
     }
 
     const token = this.issueToken({ sub: user.id, role: 'user' })
-    return { user, token, isNew }
+    return { user: omitPassword(user), token, isNew }
   }
 
   async guestSession(dto: GuestDto): Promise<{ guestToken: string; email: string }> {
-    let user = await this.db.user.findUnique({ where: { email: dto.email } })
-    if (!user) {
-      user = await this.db.user.create({ data: { email: dto.email, isGuest: true } })
-    }
+    const existing = await this.db.user.findUnique({ where: { email: dto.email } })
+
+    // We bind the guest token to the existing user id when the email is already registered.
+    // The token carries isGuest: true, which the AuthGuard propagates to JwtPayload. Any
+    // endpoint decorated with @NoGuests() (e.g. GET /tickets list) will reject it, so the
+    // guest can submit a ticket without gaining read access to the real account's history.
+    // We deliberately do NOT flip user.isGuest to preserve the real account's state.
+    const user = existing ?? await this.db.user.create({ data: { email: dto.email, isGuest: true } })
     const guestToken = this.issueToken({ sub: user.id, role: 'user', isGuest: true }, 3600)
     return { guestToken, email: dto.email }
   }
 
-  async sendMagicLink(email: string, ticketId: string): Promise<{ sent: boolean }> {
-    const user = await this.db.user.findUnique({ where: { email } })
-    if (!user) throw new NotFoundException('User not found')
-
-    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
-    if (!ticket) throw new NotFoundException('Ticket not found')
-
-    const token = crypto.randomBytes(32).toString('hex')
-    await this.db.magicToken.create({
-      data: { userId: user.id, token, expiresAt: new Date(Date.now() + 15 * 60 * 1000) },
-    })
-    return { sent: true }
-  }
-
-  async agentSignin(dto: AgentSigninDto): Promise<{ agent: Agent; token: string }> {
+  async agentSignin(dto: AgentSigninDto): Promise<{ agent: Omit<Agent, 'password'>; token: string }> {
     const agent = await this.db.agent.findUnique({ where: { email: dto.email } })
     if (!agent || !agent.password) throw new UnauthorizedException('Invalid credentials')
     if (!agent.isActive) throw new UnauthorizedException('Account is deactivated')
@@ -235,10 +238,10 @@ export class AuthService {
 
     await this.db.agent.update({ where: { id: agent.id }, data: { lastActiveAt: new Date() } })
     const token = this.issueToken({ sub: agent.id, role: 'agent' })
-    return { agent, token }
+    return { agent: omitPassword(agent), token }
   }
 
-  async agentGoogleAuth(dto: AgentGoogleDto): Promise<{ agent: Agent; token: string }> {
+  async agentGoogleAuth(dto: AgentGoogleDto): Promise<{ agent: Omit<Agent, 'password'>; token: string }> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID') ?? ''
     const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET') ?? ''
     const redirectUri = `${this.config.get<string>('DASHBOARD_URL') ?? 'http://localhost:3002'}/auth/callback`
@@ -251,21 +254,19 @@ export class AuthService {
       grant_type: 'authorization_code',
     }).toString()
 
-    const tokenRaw = await httpsPost(
+    const tokenData = await oauthPost<GoogleTokenResponse>(
       'https://oauth2.googleapis.com/token',
       tokenBody,
       { 'Content-Type': 'application/x-www-form-urlencoded' },
     )
-    const tokenData = JSON.parse(tokenRaw) as GoogleTokenResponse
     if (!tokenData.access_token) {
       throw new InternalServerErrorException(`Google token exchange failed: ${tokenData.error ?? 'unknown'} — ${tokenData.error_description ?? ''}`)
     }
 
-    const userInfoRaw = await httpsGet(
+    const googleUser = await oauthGet<GoogleUserInfo>(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { Authorization: `Bearer ${tokenData.access_token}` },
     )
-    const googleUser = JSON.parse(userInfoRaw) as GoogleUserInfo
     if (!googleUser.sub || !googleUser.email) {
       throw new InternalServerErrorException('Google userinfo response missing required fields')
     }
@@ -292,6 +293,6 @@ export class AuthService {
     if (!agent.isActive) throw new UnauthorizedException('Account is deactivated')
 
     const token = this.issueToken({ sub: agent.id, role: 'agent' })
-    return { agent, token }
+    return { agent: omitPassword(agent), token }
   }
 }

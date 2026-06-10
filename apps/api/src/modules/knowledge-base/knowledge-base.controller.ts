@@ -1,4 +1,3 @@
-// TODO: Add auth guard (e.g. AgentGuard) to all endpoints once auth is wired in
 import {
   Body,
   Controller,
@@ -10,12 +9,16 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  UseGuards,
   Logger,
 } from '@nestjs/common'
 import { QueueService, KbCrawlJobData, KbIndexPageJobData } from '../queue/queue.service'
 import { PrismaService } from '../database/prisma.service'
 import { IndexerService } from './indexer.service'
 import { Decimal } from '@prisma/client/runtime/library'
+import { AuthGuard } from '../../common/guards/auth.guard'
+import { AgentGuard } from '../../common/guards/agent.guard'
+import { AdminGuard } from '../../common/guards/admin.guard'
 
 interface StartCrawlDto {
   mode?: 'full' | 'incremental'
@@ -33,6 +36,7 @@ interface ListSourcesQuery {
 }
 
 @Controller('kb')
+@UseGuards(AuthGuard, AgentGuard)
 export class KnowledgeBaseController {
   private readonly logger = new Logger(KnowledgeBaseController.name)
 
@@ -46,6 +50,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/crawl/start — enqueue a full or incremental crawl */
   @Post('crawl/start')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async startCrawl(@Body() body: StartCrawlDto) {
     const appConfig = await this.getAppConfig()
@@ -76,6 +81,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/crawl/cancel — cancel the running crawl */
   @Post('crawl/cancel')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.OK)
   async cancelCrawl() {
     const appConfig = await this.getAppConfig()
@@ -90,6 +96,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/scan/start — Phase A: crawl and chunk without embedding */
   @Post('scan/start')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async startScan() {
     const appConfig = await this.getAppConfig()
@@ -117,6 +124,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/scan/cancel — discard SCANNED sources and reset to IDLE */
   @Post('scan/cancel')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.OK)
   async cancelScan() {
     const appConfig = await this.getAppConfig()
@@ -140,6 +148,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/embed/confirm — Phase B: embed all pending SCANNED chunks */
   @Post('embed/confirm')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async confirmEmbed() {
     const appConfig = await this.getAppConfig()
@@ -233,6 +242,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/sources/manual — scan a single URL into the pending SCANNED set */
   @Post('sources/manual')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async manualIndex(@Body() body: ManualIndexDto) {
     if (!body.url) {
@@ -270,6 +280,7 @@ export class KnowledgeBaseController {
 
   /** POST /kb/sources/:id/reindex — enqueue reindex of a single source */
   @Post('sources/:id/reindex')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   async reindexSource(@Param('id') id: string) {
     const source = await this.db.knowledgeSource.findUnique({ where: { id } })
@@ -283,6 +294,7 @@ export class KnowledgeBaseController {
 
   /** DELETE /kb/sources/:id — delete a single source (cascades to chunks) */
   @Delete('sources/:id')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.OK)
   async deleteSource(@Param('id') id: string) {
     const source = await this.db.knowledgeSource.findUnique({ where: { id } })
@@ -294,6 +306,7 @@ export class KnowledgeBaseController {
 
   /** DELETE /kb/index — wipe the entire knowledge base index */
   @Delete('index')
+  @UseGuards(AdminGuard)
   @HttpCode(HttpStatus.OK)
   async wipeIndex() {
     const { count: chunksDeleted } = await this.db.knowledgeChunk.deleteMany({})

@@ -6,6 +6,7 @@ node_modules/
 .next/
 dist/
 .turbo/
+coverage/
 
 # Environment
 .env
@@ -21,3 +22,7 @@ packages/db/src/generated/
 
 # API logs
 apps/api/logs/
+
+# Playwright
+.playwright-state.json
+test-results/

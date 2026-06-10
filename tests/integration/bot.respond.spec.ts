@@ -16,6 +16,8 @@ import { makeUser, makeAgent, makeTicket } from './factories'
 import './setup'
 import { http, HttpResponse } from 'msw'
 import { mswServer } from './setup'
+import { BotService } from '../../apps/api/src/modules/bot/bot.service'
+import { encrypt } from '../../apps/api/src/common/crypto/credentials-cipher'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -30,9 +32,9 @@ function mockGeminiAnswer(opts: {
 }) {
   mswServer.use(
     // Mock embedding endpoint
-    http.post(`${GEMINI_BASE}/text-embedding-004:batchEmbedContents`, () =>
+    http.post(`${GEMINI_BASE}/gemini-embedding-001:batchEmbedContents`, () =>
       HttpResponse.json({
-        embeddings: (opts.embeddings ?? [[0.1, 0.2, 0.3]]).map((values) => ({ values })),
+        embeddings: (opts.embeddings ?? [Array(768).fill(0.1)]).map((values) => ({ values })),
       }),
     ),
     // Mock chat endpoint (JSON mode)
@@ -83,23 +85,19 @@ describe('BotService (R61–R65)', () => {
   let appConfig: Awaited<ReturnType<typeof harness.prisma.appConfig.findFirst>>
 
   beforeEach(async () => {
+    // Encrypt the stub key so GeneratorService.getApiKey() can decrypt it (T1.6 fix)
+    const encryptedKey = encrypt('test-api-key')
     // Enable bot with a stub API key
     appConfig = await harness.prisma.appConfig.upsert({
       where: { id: 'singleton' },
       create: {
         id: 'singleton',
-        botEnabled: true,
-        botApiKeyEnc: 'test-api-key',
+        botApiKeyEnc: encryptedKey,
         kbRootUrl: 'https://docs.example.com/help/',
-        botRetrievalThreshold: 0.0,  // disable retrieval gate so we test LLM gates
-        botConfidenceThreshold: 0.7,
       },
       update: {
-        botEnabled: true,
-        botApiKeyEnc: 'test-api-key',
+        botApiKeyEnc: encryptedKey,
         kbRootUrl: 'https://docs.example.com/help/',
-        botRetrievalThreshold: 0.0,
-        botConfidenceThreshold: 0.7,
       },
     })
   })
@@ -120,7 +118,7 @@ describe('BotService (R61–R65)', () => {
       citations: [`${kbUrl}#step-1`],
     })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     // Bot message was created
@@ -160,7 +158,7 @@ describe('BotService (R61–R65)', () => {
       citations: [deepUrl],
     })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     const botMsg = (await harness.prisma.message.findMany({ where: { ticketId: ticket.id } }))
@@ -196,7 +194,7 @@ describe('BotService (R61–R65)', () => {
       citations: [deepUrl],
     })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     const botMsg = (await harness.prisma.message.findMany({ where: { ticketId: ticket.id } }))
@@ -226,17 +224,17 @@ describe('BotService (R61–R65)', () => {
 
     mockGeminiAnswer({ can_answer: false, confidence: 0.2, citations: [] })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     // No bot message created
     const messages = await harness.prisma.message.findMany({ where: { ticketId: ticket.id } })
     expect(messages.find((m) => m.authorBotName !== null)).toBeUndefined()
 
-    // Ticket has a SYSTEM_EVENT
+    // Ticket has a SYSTEM_EVENT with escalation prefix
     const sysEvent = messages.find((m) => m.type === 'SYSTEM_EVENT')
     expect(sysEvent).toBeDefined()
-    expect(sysEvent!.body).toContain('Athena')
+    expect(sysEvent!.body).toMatch(/^escalated:/)
 
     // BotInteraction recorded escalation
     const interaction = await harness.prisma.botInteraction.findFirst({ where: { ticketId: ticket.id } })
@@ -256,7 +254,7 @@ describe('BotService (R61–R65)', () => {
     // can_answer:true but empty citations — hallucination guard should catch this
     mockGeminiAnswer({ can_answer: true, confidence: 0.95, citations: [] })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     // No bot message created — escalated instead
@@ -284,7 +282,7 @@ describe('BotService (R61–R65)', () => {
       citations: ['https://competitor.com/their-docs'],
     })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
     // No bot message created
@@ -295,17 +293,24 @@ describe('BotService (R61–R65)', () => {
     expect(interaction!.didAnswer).toBe(false)
   })
 
-  it('R65 — bot disabled → no BotInteraction created', async () => {
-    await harness.prisma.appConfig.updateMany({ data: { botEnabled: false } })
+  it('R65 — botApiKeyEnc cleared → BotInteraction created with didAnswer=false (no API key guard removed)', async () => {
+    // Note: the original R65 tested a `botEnabled` flag that no longer exists.
+    // Current behavior: when botApiKeyEnc is null, the embedding step throws and
+    // the bot catches the error, records a BotInteraction{didAnswer:false}, and escalates.
+    // No bot message (authorBotName) is written.
+    await harness.prisma.appConfig.updateMany({ data: { botApiKeyEnc: null } })
 
     const user = await makeUser()
     const ticket = await makeTicket({ userId: user.id })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
 
+    const messages = await harness.prisma.message.findMany({ where: { ticketId: ticket.id } })
+    expect(messages.find((m) => m.authorBotName !== null)).toBeUndefined()
+    // A BotInteraction row exists but indicates no answer
     const interaction = await harness.prisma.botInteraction.findFirst({ where: { ticketId: ticket.id } })
-    expect(interaction).toBeNull()
+    expect(interaction?.didAnswer).toBe(false)
   })
 
   it('idempotency — duplicate job runs are no-ops', async () => {
@@ -320,7 +325,7 @@ describe('BotService (R61–R65)', () => {
 
     mockGeminiAnswer({ can_answer: true, confidence: 0.9, citations: [`${kbUrl}#step-1`] })
 
-    const botService = harness.app.get('BotService')
+    const botService = harness.app.get(BotService)
     await botService.respondTo(ticket.id)
     await botService.respondTo(ticket.id)  // second call should be a no-op
 

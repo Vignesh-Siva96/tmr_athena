@@ -14,7 +14,7 @@ interface GithubNotification {
   createdAt: string
   ticket: {
     id: string
-    number: number
+    ref: string
     title: string
     user: { id: string; name: string | null; email: string }
   } | null
@@ -183,7 +183,7 @@ export function NotificationsPanel({ onClose }: Props) {
                       {n.ticket && (
                         <p style={{ fontSize: 12, color: 'var(--d-text-3)', margin: 0 }}>
                           Linked to{' '}
-                          <span className="mono" style={{ color: 'var(--d-accent)' }}>TMR-{n.ticket.number}</span>
+                          <span className="mono" style={{ color: 'var(--d-accent)' }}>TMR-{n.ticket.ref}</span>
                           {' '}· {n.ticket.user.name ?? n.ticket.user.email}
                         </p>
                       )}

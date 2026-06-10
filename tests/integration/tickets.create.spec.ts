@@ -12,7 +12,9 @@ import { makeUser, makeAgent, makeTicket, signJwt } from './factories'
 import './setup'
 
 describe('POST /tickets', () => {
-  it('creates a ticket and assigns a monotonically-increasing number (R35)', async () => {
+  // R35 retired: Ticket.number replaced by ref (7-char Crockford base32 code).
+  // Portal creates must now have isTicket=true and a unique non-null ref.
+  it('portal ticket has isTicket=true and a unique 7-char ref (R35 retired)', async () => {
     const user = await makeUser({ email: 'creator@example.com' })
     const token = await signJwt({ id: user.id, role: 'user' })
 
@@ -30,9 +32,16 @@ describe('POST /tickets', () => {
 
     expect(first.status).toBe(201)
     expect(second.status).toBe(201)
-    // TicketsService.create returns { ticket, displayId } which the interceptor
-    // wraps to { data: { ticket, displayId } }.
-    expect(second.body.data.ticket.number).toBe(first.body.data.ticket.number + 1)
+
+    const t1 = first.body.data.ticket
+    const t2 = second.body.data.ticket
+
+    expect(t1.isTicket).toBe(true)
+    expect(t2.isTicket).toBe(true)
+    expect(t1.ref).toMatch(/^[0-9A-HJKMNP-TV-Z]{7}$/)
+    expect(t2.ref).toMatch(/^[0-9A-HJKMNP-TV-Z]{7}$/)
+    // Each ticket gets a unique ref
+    expect(t1.ref).not.toBe(t2.ref)
   })
 
   it('soft-deleted tickets are excluded from list and findById (R32)', async () => {

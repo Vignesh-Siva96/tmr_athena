@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai'
+import { z } from 'zod'
 import { PrismaService } from '../database/prisma.service'
 import { ANALYZE_MESSAGE_PROMPT, CLASSIFY_AND_SCORE_TICKET_PROMPT } from './gemini.prompts'
 import type { AiOperation } from '@tmr/db'
@@ -14,18 +15,32 @@ const PRICES = {
   outputPerMillion: 0.40,
 }
 
+const signalSchema = z.object({ detected: z.literal(true), quote: z.string(), reason: z.string() }).nullable()
+
+// The model is asked for `score` and `label` together (see ANALYZE_MESSAGE_PROMPT), but we
+// only validate `score` here and derive `label` ourselves in analyzeMessage() — trusting the
+// model's own label risks persisting a value outside the `SentimentLabel` Postgres enum
+// (a hard Prisma error) or one that's simply inconsistent with its own score.
+const analyzeMessageResultSchema = z.object({
+  sentiment: z.object({ score: z.number().min(-1).max(1) }),
+  churnSignal: signalSchema,
+  advocacySignal: signalSchema,
+})
+
+const classifyAndScoreResultSchema = z.object({
+  topic: z.object({ name: z.string().min(1), isNewTopic: z.boolean() }),
+  csat: z.object({ rating: z.number().int().min(1).max(5), reasoning: z.string() }),
+  effort: z.object({ score: z.number().int().min(1).max(5) }),
+  summary: z.string(),
+})
+
 export interface AnalyzeMessageResult {
   sentiment: { score: number; label: 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE' }
   churnSignal: { detected: true; quote: string; reason: string } | null
   advocacySignal: { detected: true; quote: string; reason: string } | null
 }
 
-export interface ClassifyAndScoreResult {
-  topic: { name: string; isNewTopic: boolean }
-  csat: { rating: number; reasoning: string }
-  effort: { score: number }
-  summary: string
-}
+export type ClassifyAndScoreResult = z.infer<typeof classifyAndScoreResultSchema>
 
 @Injectable()
 export class GeminiService implements OnModuleInit {
@@ -50,6 +65,7 @@ export class GeminiService implements OnModuleInit {
   private async invoke<T>(
     operation: AiOperation,
     prompt: string,
+    schema: z.ZodType<T>,
     opts?: { ticketId?: string; messageId?: string },
   ): Promise<T> {
     if (!this.model) throw new Error('GeminiService not initialized (GEMINI_API_KEY missing)')
@@ -90,7 +106,12 @@ export class GeminiService implements OnModuleInit {
 
       const text = response.text().trim()
       const json = text.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim()
-      return JSON.parse(json) as T
+      // The model can drift from the prompt's contract — wrong shape, out-of-range
+      // scores, or enum values that don't exist in our schema. `schema.parse` throws
+      // on any of that, which the catch below records as an ERROR aiUsage row and
+      // surfaces to the worker — better than persisting garbage analytics or crashing
+      // later on a Prisma enum-constraint violation.
+      return schema.parse(JSON.parse(json))
     } catch (err) {
       const durationMs = Date.now() - startMs
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -122,7 +143,18 @@ export class GeminiService implements OnModuleInit {
     body: string,
     opts?: { ticketId?: string; messageId?: string },
   ): Promise<AnalyzeMessageResult> {
-    return this.invoke<AnalyzeMessageResult>('SENTIMENT', ANALYZE_MESSAGE_PROMPT(body), opts)
+    const validated = await this.invoke(
+      'SENTIMENT',
+      ANALYZE_MESSAGE_PROMPT(body),
+      analyzeMessageResultSchema,
+      opts,
+    )
+    // Derive the label from the validated score using the same thresholds the prompt
+    // gives the model (score < -0.2 → NEGATIVE; > 0.2 → POSITIVE; else NEUTRAL), so
+    // label and score can never disagree and the value is always a valid enum member.
+    const score = validated.sentiment.score
+    const label = score < -0.2 ? 'NEGATIVE' : score > 0.2 ? 'POSITIVE' : 'NEUTRAL'
+    return { ...validated, sentiment: { score, label } }
   }
 
   async classifyAndScoreTicket(
@@ -131,9 +163,10 @@ export class GeminiService implements OnModuleInit {
     existingTopics: string[],
     opts?: { ticketId?: string },
   ): Promise<ClassifyAndScoreResult> {
-    return this.invoke<ClassifyAndScoreResult>(
+    return this.invoke(
       'CSAT',
       CLASSIFY_AND_SCORE_TICKET_PROMPT(title, messages, existingTopics),
+      classifyAndScoreResultSchema,
       opts,
     )
   }

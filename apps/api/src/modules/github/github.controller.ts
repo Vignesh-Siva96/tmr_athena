@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Delete, Patch, Body, Param, UseGuards, ForbiddenException, Headers, Req, HttpCode } from '@nestjs/common'
+import { Controller, Get, Post, Delete, Patch, Body, Param, UseGuards, Headers, Req, HttpCode } from '@nestjs/common'
 import type { RawBodyRequest } from '@nestjs/common'
 import type { Request } from 'express'
 import { GithubService } from './github.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
-import { CurrentAgent } from '../../common/decorators/current-agent.decorator'
+import { AdminGuard } from '../../common/guards/admin.guard'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
 import {
   connectGithubSchema,
@@ -16,7 +16,6 @@ import {
   type CreateIssueDto,
   type LinkIssueDto,
 } from './github.dto'
-import type { Agent } from '@tmr/db'
 
 @Controller()
 export class GithubController {
@@ -49,29 +48,24 @@ export class GithubController {
   }
 
   @Post('github/connect')
-  @UseGuards(AuthGuard, AgentGuard)
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
   connect(
-    @CurrentAgent() agent: Agent,
     @Body(new ZodValidationPipe(connectGithubSchema)) dto: ConnectGithubDto,
   ) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
     return this.githubService.connect(dto)
   }
 
   @Delete('github/connect')
-  @UseGuards(AuthGuard, AgentGuard)
-  disconnect(@CurrentAgent() agent: Agent) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
+  disconnect() {
     return this.githubService.disconnect()
   }
 
   @Patch('github/config')
-  @UseGuards(AuthGuard, AgentGuard)
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
   updateConfig(
-    @CurrentAgent() agent: Agent,
     @Body(new ZodValidationPipe(updateGithubConfigSchema)) dto: UpdateGithubConfigDto,
   ) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
     return this.githubService.updateConfig(dto)
   }
 
@@ -84,19 +78,16 @@ export class GithubController {
   }
 
   @Post('github/webhook-secret')
-  @UseGuards(AuthGuard, AgentGuard)
-  regenWebhookSecret(@CurrentAgent() agent: Agent) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
+  regenWebhookSecret() {
     return this.githubService.generateWebhookSecret()
   }
 
   @Patch('github/webhook-config')
-  @UseGuards(AuthGuard, AgentGuard)
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
   updateWebhookConfig(
-    @CurrentAgent() agent: Agent,
     @Body() dto: { fixDeployedLabel?: string; pendingConfirmationLabel?: string },
   ) {
-    if (agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
     return this.githubService.updateWebhookConfig(dto)
   }
 

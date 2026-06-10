@@ -23,12 +23,20 @@ export class SendReplyWorker implements OnModuleInit {
       EMAIL_SEND_REPLY_QUEUE,
       async (job) => {
         const meta = job as unknown as PgBoss.JobWithMetadata<EmailSendReplyJobData>
-        const { ticketId, messageId } = job.data
-        this.logger.debug(`Sending reply email for message ${messageId} on ticket ${ticketId} (attempt ${meta.retrycount + 1}/${meta.retrylimit + 1})`)
+        const { ticketId, messageId, kind } = job.data
+        this.logger.debug(
+          `Sending ${kind === 'portal-copy' ? 'portal copy' : 'reply'} email for message ${messageId} on ticket ${ticketId} (attempt ${meta.retrycount + 1}/${meta.retrylimit + 1})`,
+        )
 
         const appConfig = await this.db.appConfig.findFirst()
         if (!appConfig) {
           this.logger.warn(`No AppConfig found — skipping reply email for message ${messageId}`)
+          return
+        }
+
+        // G1: portal-copy is only sent when the AppConfig toggle is enabled
+        if (kind === 'portal-copy' && !appConfig.mirrorPortalRepliesToEmail) {
+          this.logger.debug(`mirrorPortalRepliesToEmail disabled — skipping portal copy for message ${messageId}`)
           return
         }
 
@@ -50,15 +58,33 @@ export class SendReplyWorker implements OnModuleInit {
           return
         }
 
+        // Defense in depth: the enqueue site (messages.service.ts) already filters to
+        // agent-authored, non-internal `REPLY` messages, but the worker is the thing that
+        // actually puts the content on the wire to the customer — it must not blindly trust
+        // the queue. A bad enqueue (future call site, retry/replay tooling, bug) sending an
+        // INTERNAL_NOTE here would leak internal triage discussion straight to the customer.
+        if (message.type !== 'REPLY' || message.isInternal) {
+          this.logger.warn(
+            `Message ${messageId} is not a customer-facing reply (type=${message.type}, isInternal=${message.isInternal}) — refusing to email it`,
+          )
+          return
+        }
+
         try {
-          const msgId = await this.email.sendAgentReply(ticket, message, appConfig)
+          let msgId: string | null = null
+          if (kind === 'portal-copy') {
+            // G1: self-addressed mirror — From/To=support, Reply-To=customer, threaded in inbox
+            msgId = await this.email.sendPortalReplyCopy(ticket, message, appConfig)
+          } else {
+            msgId = await this.email.sendAgentReply(ticket, message, appConfig)
+          }
           if (msgId) {
+            // Store the returned Message-ID on the Message row so the poller deduplicates the copy
             await this.db.message.update({ where: { id: messageId }, data: { messageId: msgId } })
           }
         } catch (err) {
           const isFinalAttempt = meta.retrycount >= meta.retrylimit
           if (isFinalAttempt) {
-            // Write a visible SYSTEM_EVENT so agents see the delivery failure in the thread
             try {
               await this.db.message.create({
                 data: {

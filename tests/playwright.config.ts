@@ -60,8 +60,9 @@ export default defineConfig({
         // before the webServer is spawned. We intentionally do NOT hardcode them
         // here — a hardcoded value would override the dynamic Testcontainers URL.
         EMAIL_CREDS_KEY: '0'.repeat(64),
-        BETTER_AUTH_SECRET: 'test-secret-for-playwright',
+        BETTER_AUTH_SECRET: 'test-secret-for-playwright-0123456',
         EMAIL_SYNC_LIVE_POLL: '0', // Tests drive the poller manually via /sync/poll/now
+        GEMINI_API_KEY: '', // already-set env wins over .env — keeps the real key out of E2E (bot/AI disabled, bot escalates)
       },
     },
     {

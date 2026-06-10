@@ -38,8 +38,8 @@ export const ticketSchema = z.object({
   status: z.nativeEnum(TicketStatus),
   priority: z.nativeEnum(TicketPriority),
   category: z.nativeEnum(TicketCategory),
-  product: z.string().nullable(),
-  connector: z.string().nullable(),
+  field1: z.string().nullable(),
+  field2: z.string().nullable(),
   source: z.nativeEnum(TicketSource),
   userId: z.string(),
   assigneeId: z.string().nullable(),
@@ -52,8 +52,8 @@ export const ticketSchema = z.object({
 export const createTicketSchema = z.object({
   title: z.string().min(1).max(120),
   category: z.nativeEnum(TicketCategory),
-  product: z.string().optional(),
-  connector: z.string().optional(),
+  field1: z.string().optional(),
+  field2: z.string().optional(),
   description: z.string().optional(),
 })
 

@@ -11,14 +11,17 @@
 // Globals (beforeAll / beforeEach / afterAll) come from the test runner — works
 // under both Jest and Vitest with no import.
 import { Logger } from '@nestjs/common'
+import { setupServer } from 'msw/node'
 import { harness } from './harness'
+import { allHandlers } from './msw/handlers'
 
-// MSW is initialized lazily by tests that need it via `tests/integration/msw/server.ts`.
-// Keeping it out of the global setup file avoids ESM/CJS friction in suites that
-// don't touch external services (e.g. the health smoke test).
+// MSW server — intercepts outbound HTTP (Gemini, Gmail, Graph, GitHub).
+// Exported so per-test overrides can call mswServer.use(...).
+export const mswServer = setupServer(...allHandlers)
 
 beforeAll(async () => {
   Logger.overrideLogger(['error'])
+  mswServer.listen({ onUnhandledRequest: 'bypass' })
   await harness.boot()
 })
 
@@ -48,6 +51,11 @@ beforeEach(async () => {
   }
 })
 
+afterEach(() => {
+  mswServer.resetHandlers()
+})
+
 afterAll(async () => {
+  mswServer.close()
   await harness.shutdown()
 })

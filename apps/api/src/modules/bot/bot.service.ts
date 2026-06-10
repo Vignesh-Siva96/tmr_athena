@@ -281,26 +281,27 @@ export class BotService {
   /** Shared escalation logic — assigns on-duty agent, writes SYSTEM_EVENT, notifies customer. */
   async escalateToHuman(
     ticketId: string,
-    ticket: { id: string; title: string; number: number; assigneeId: string | null; userId: string; user: { id: string; email: string; name: string | null } },
+    ticket: { id: string; title: string; ref: string; assigneeId: string | null; userId: string; user: { id: string; email: string; name: string | null } },
     reason: string,
     opts: { notifyCustomer?: boolean } = {},
   ): Promise<void> {
-    // Guard: don't re-escalate if already assigned
-    if (ticket.assigneeId) {
-      this.logger.debug(`Ticket ${ticketId} already assigned — skipping escalation`)
-      return
-    }
-
     const agent = await this.shiftResolver.currentPrimaryAgent(new Date())
 
-    await this.db.$transaction(async (tx) => {
-      await tx.ticket.update({
-        where: { id: ticketId },
+    // The `ticket.assigneeId` the caller passed in can be stale by the time this
+    // runs (it's invoked fire-and-forget from createMessage with a snapshot taken
+    // before that message's own transaction). Two near-simultaneous escalations
+    // (e.g. two rapid customer replies) would both pass a check on that snapshot,
+    // both assign agents, and clobber each other. Re-check and act atomically
+    // inside the transaction via a conditional updateMany instead.
+    const escalated = await this.db.$transaction(async (tx) => {
+      const { count } = await tx.ticket.updateMany({
+        where: { id: ticketId, assigneeId: null },
         data: {
           status: 'OPEN',
           ...(agent ? { assigneeId: agent.id } : {}),
         },
       })
+      if (count === 0) return false
 
       const sysMsg = await tx.message.create({
         data: {
@@ -315,7 +316,13 @@ export class BotService {
 
       // Broadcast the SYSTEM_EVENT message so the bridge refreshes immediately
       this.sse.broadcast({ type: 'message-created', ticketId, messageId: sysMsg.id })
+      return true
     })
+
+    if (!escalated) {
+      this.logger.debug(`Ticket ${ticketId} already assigned — skipping escalation`)
+      return
+    }
 
     if (agent) {
       this.logger.log(`Ticket ${ticketId} escalated to agent ${agent.id} (${agent.name}): ${reason}`)
@@ -339,7 +346,7 @@ export class BotService {
 
   private async escalate(
     ticketId: string,
-    ticket: { id: string; title: string; number: number; assigneeId: string | null; userId: string; user: { id: string; email: string; name: string | null } },
+    ticket: { id: string; title: string; ref: string; assigneeId: string | null; userId: string; user: { id: string; email: string; name: string | null } },
     reason: string,
   ): Promise<void> {
     await this.escalateToHuman(ticketId, ticket, reason, { notifyCustomer: false })

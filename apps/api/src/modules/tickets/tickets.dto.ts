@@ -9,7 +9,7 @@ export const listTicketsSchema = z.object({
   category: TicketCategory.optional(),
   assigneeId: z.string().optional(),
   search: z.string().optional(),
-  view: z.enum(['inbox', 'tickets']).optional(),
+  isTicket: z.preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean().optional()),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).default(0),
   sortBy: z.enum(['createdAt', 'updatedAt']).default('updatedAt'),
@@ -20,8 +20,8 @@ export type ListTicketsQuery = z.infer<typeof listTicketsSchema>
 export const createTicketSchema = z.object({
   title: z.string().min(1).max(120),
   category: TicketCategory,
-  product: z.string().optional(),
-  connector: z.string().optional(),
+  field1: z.string().optional(),
+  field2: z.string().optional(),
   description: z.string().optional(),
   attachmentIds: z.array(z.string()).optional(),
   linkUrl: z.string().url().optional(),
@@ -38,8 +38,8 @@ export const updateTicketSchema = z.object({
   priority: TicketPriority.optional(),
   assigneeId: z.string().nullable().optional(),
   category: TicketCategory.optional(),
-  product: z.string().optional(),
-  connector: z.string().optional(),
+  field1: z.string().optional(),
+  field2: z.string().optional(),
   tagIds: z.array(z.string()).optional(),
 })
 export type UpdateTicketDto = z.infer<typeof updateTicketSchema>

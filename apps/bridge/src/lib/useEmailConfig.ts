@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface EmailConfig {
   oauthConnected?: boolean
@@ -8,6 +8,7 @@ interface EmailConfig {
 }
 
 let cachedPromise: Promise<EmailConfig> | null = null
+const listeners = new Set<() => void>()
 
 function fetchConfig(token: string): Promise<EmailConfig> {
   if (!cachedPromise) {
@@ -22,27 +23,32 @@ function fetchConfig(token: string): Promise<EmailConfig> {
   return cachedPromise
 }
 
+/** Clears the shared cache and notifies all active useEmailConfig instances to re-fetch. */
 export function invalidateEmailConfigCache() {
   cachedPromise = null
+  listeners.forEach((fn) => fn())
 }
 
 export function useEmailConfig(token: string | null) {
   const [isConnected, setIsConnected] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(true)
 
-  const load = (fresh = false) => {
+  const reload = useCallback(() => {
     if (!token) { setIsLoading(false); return }
-    if (fresh) cachedPromise = null
     setIsLoading(true)
     fetchConfig(token).then((cfg) => {
       setIsConnected(!!(cfg.oauthConnected))
       setIsLoading(false)
     })
-  }
+  }, [token])
 
-  useEffect(() => { load() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    reload()
+    listeners.add(reload)
+    return () => { listeners.delete(reload) }
+  }, [reload])
 
-  const refresh = () => load(true)
+  const refresh = () => { invalidateEmailConfigCache() }
 
   return { isConnected, isLoading, refresh }
 }

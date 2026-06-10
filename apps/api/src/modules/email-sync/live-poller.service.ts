@@ -70,17 +70,32 @@ export class LivePollerService {
     const uniqueThreadIds = [...new Set(delta.changedThreadIds)]
     this.logger.log(`Poll result: ${uniqueThreadIds.length} changed threads, newCheckpoint=${delta.newCheckpoint}`)
 
+    const failedThreadIds: string[] = []
     for (const threadId of uniqueThreadIds) {
       this.logger.log(`Processing thread ${threadId}`)
       try {
         await this.ingestion.fetchAndUpsertThread(provider, threadId, { isBackfill: false })
       } catch (err) {
-        // Log and continue — a single bad thread must not block the checkpoint update
+        // Keep going — one bad thread shouldn't block the rest of this batch — but
+        // remember it so we don't move the checkpoint past it (see below).
+        failedThreadIds.push(threadId)
         this.logger.warn(`Failed to ingest thread ${threadId}: ${String(err)}`)
       }
     }
 
-    // Always persist checkpoint so we don't retry the same threads on every poll
+    if (failedThreadIds.length > 0) {
+      // The provider checkpoint is an opaque cursor (Gmail historyId / Graph delta link) —
+      // there's no way to "partially" advance it past only the threads that succeeded.
+      // Advancing it here would permanently skip the failed threads (they fall outside the
+      // next poll's delta range). Leave the checkpoint where it is; the next poll re-fetches
+      // this same range and retries them. `recoverFromStaleCheckpoint` still handles the case
+      // where the provider rejects a too-old cursor.
+      this.logger.warn(
+        `Not advancing checkpoint for ${cfg.id} — ${failedThreadIds.length} thread(s) failed to ingest: ${failedThreadIds.join(', ')}`,
+      )
+      return
+    }
+
     await this.appConfig.setCheckpoint(
       cfg.id,
       delta.newCheckpoint,

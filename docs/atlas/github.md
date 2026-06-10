@@ -88,7 +88,11 @@ flowchart LR
   Agent -->|or: 'Link existing'| LinkAPI[POST /tickets/:id/github/link]
   LinkAPI --> Parse[parse owner/repo#N or URL]
   Parse --> DB
+  Agent -->|or: 'Unlink'| UnlinkAPI[DELETE /tickets/:id/github/link]
+  UnlinkAPI --> DB
 ```
+
+A linked issue can be removed again via `DELETE /tickets/:id/github/link` (`GithubService.unlinkIssue()`), and `POST /tickets/:id/github/pending` marks the linked issue as pending-customer-confirmation (applies the configured pending label).
 
 ## Key files
 

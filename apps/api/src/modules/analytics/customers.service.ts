@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
+import { formatRef } from '../tickets/util/generate-ref'
 
 @Injectable()
 export class CustomersService {
@@ -20,7 +21,7 @@ export class CustomersService {
       topTopicsRaw,
       topicsLastWeek,
       topicsPrevWeek,
-      frictionByConnector,
+      frictionByField2,
       sentimentTrendRaw,
       categoryMixRaw,
       convoDepthRaw,
@@ -65,22 +66,22 @@ export class CustomersService {
         _sum: { reopenCount: true },
       }),
 
-      // Top topics
-      this.db.topic.findMany({
-        orderBy: { ticketCount: 'desc' },
-        take: 10,
-        include: {
-          tickets: {
-            where: { deletedAt: null },
-            select: {
-              messages: {
-                where: { sentimentScore: { not: null }, deletedAt: null },
-                select: { sentimentScore: true },
-              },
-            },
-          },
-        },
-      }),
+      // Top topics with avg sentiment computed in SQL — the previous version pulled
+      // every ticket and every scored message for the top 10 topics into Node just to
+      // average one number per topic; a single GROUP BY + AVG does it in the database.
+      this.db.$queryRaw<{ id: string; name: string; ticketCount: number; avgSentiment: number | null }[]>`
+        SELECT
+          top.id,
+          top.name,
+          top."ticketCount",
+          AVG(m."sentimentScore") AS "avgSentiment"
+        FROM "Topic" top
+        LEFT JOIN "Ticket" t ON t."topicId" = top.id AND t."deletedAt" IS NULL
+        LEFT JOIN "Message" m ON m."ticketId" = t.id AND m."deletedAt" IS NULL AND m."sentimentScore" IS NOT NULL
+        GROUP BY top.id, top.name, top."ticketCount"
+        ORDER BY top."ticketCount" DESC
+        LIMIT 10
+      `,
 
       // Topic ticket count this week
       this.db.ticket.groupBy({
@@ -102,10 +103,10 @@ export class CustomersService {
         orderBy: { topicId: 'asc' },
       }),
 
-      // Friction by connector (BUG_REPORT only)
+      // Friction by field2 (BUG_REPORT only)
       this.db.ticket.groupBy({
-        by: ['connector'],
-        where: { deletedAt: null, category: 'BUG_REPORT', connector: { not: null } },
+        by: ['field2'],
+        where: { deletedAt: null, category: 'BUG_REPORT', field2: { not: null } },
         _count: { id: true },
         orderBy: { _count: { id: 'desc' } },
         take: 15,
@@ -201,7 +202,7 @@ export class CustomersService {
           reason: true,
           createdAt: true,
           user: { select: { name: true, email: true } },
-          ticket: { select: { number: true, title: true } },
+          ticket: { select: { ref: true, title: true } },
         },
       }),
 
@@ -216,7 +217,7 @@ export class CustomersService {
           reason: true,
           createdAt: true,
           user: { select: { name: true, email: true } },
-          ticket: { select: { number: true, title: true } },
+          ticket: { select: { ref: true, title: true } },
         },
       }),
 
@@ -297,10 +298,7 @@ export class CustomersService {
     )
 
     const topTopics = topTopicsRaw.map((topic) => {
-      const allScores = topic.tickets.flatMap((t) => t.messages.map((m) => m.sentimentScore ?? 0))
-      const avgSentiment = allScores.length
-        ? allScores.reduce((a, b) => a + b, 0) / allScores.length
-        : null
+      const avgSentiment = topic.avgSentiment !== null ? Number(topic.avgSentiment) : null
       const thisWeek = thisWeekMap.get(topic.id) ?? 0
       const prevWeek = prevWeekMap.get(topic.id) ?? 0
       const deltaWoW =
@@ -438,7 +436,7 @@ export class CustomersService {
         reason: s.reason,
         customerName: s.user.name ?? s.user.email.split('@')[0],
         customerEmail: s.user.email,
-        ticketNumber: s.ticket.number,
+        ticketRef: formatRef(s.ticket.ref),
         ticketTitle: s.ticket.title,
         createdAt: s.createdAt,
       })),
@@ -448,7 +446,7 @@ export class CustomersService {
         reason: s.reason,
         customerName: s.user.name ?? s.user.email.split('@')[0],
         customerEmail: s.user.email,
-        ticketNumber: s.ticket.number,
+        ticketRef: formatRef(s.ticket.ref),
         ticketTitle: s.ticket.title,
         createdAt: s.createdAt,
       })),
@@ -524,10 +522,10 @@ export class CustomersService {
       emergingTopics,
       signals,
       effort,
-      frictionByConnector: frictionByConnector
-        .filter((r) => r.connector)
+      frictionByField2: frictionByField2
+        .filter((r) => r.field2)
         .map((r) => ({
-          connector: r.connector as string,
+          value: r.field2 as string,
           count: (r._count as Record<string, number>)['id'] ?? 0,
         })),
       categoryMixOverTime,

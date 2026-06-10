@@ -3,6 +3,8 @@
 > Living reference for how the app is wired today.
 > Pair with `STATE.md` (which tracks *what changed when*).
 > Update the relevant feature file in the same PR that ships a material change. See [CLAUDE.md](../../CLAUDE.md) for the rule.
+>
+> **Start here:** [architecture.md](architecture.md) for the system overview (services, flows, modules).
 
 ## System
 
@@ -45,6 +47,29 @@ flowchart LR
 | [Auth](auth.md) | ✅ Working (stub doc) | Custom JWT (HMAC-SHA256) · `localStorage` |
 | [Queue](queue.md) | ✅ Working (stub doc) | pg-boss v9 · Postgres `pgboss` schema |
 | [Bot (Athena)](bot.md) | ✅ Working | Gemini 2.0 Flash · text-embedding-004 · pgvector HNSW · pg_trgm · RRF · Contextual Retrieval · shift routing |
+
+## Quick Navigation
+
+Find any feature fast: atlas doc → API module(s) → frontend page(s) → tests.
+
+| Feature | Atlas doc | API module(s) | Frontend page(s) | Test(s) |
+|---|---|---|---|---|
+| Ticket lifecycle | [ticket-lifecycle.md](ticket-lifecycle.md) | `tickets`, `messages`, `email-sync`, `email`, `bot` | both apps | `integration/email-ticket-flow.spec.ts` |
+| Tickets | [tickets.md](tickets.md), [portal-ticket-view.md](portal-ticket-view.md) | `tickets`, `messages` | bridge `tickets/[id]`, `inbox/`, `tickets/domain/[domain]`; portal `tickets/[id]`, `tickets/` | `integration/tickets.create.spec.ts`, `integration/email-ticket-flow.spec.ts`, `unit/api/generate-ref.spec.ts` |
+| Messages | [messages.md](messages.md) | `messages` | inline in `tickets/[id]` (both apps) | `integration/tickets.create.spec.ts` |
+| Email | [email.md](email.md) | `email`, `email-oauth`, `email-sync` | bridge `settings/email` | `integration/email-ticket-flow.spec.ts`, `unit/api/strip-subject.spec.ts` |
+| Bot (Athena) | [bot.md](bot.md) | `bot`, `knowledge-base`, `shifts` | bridge `settings/ai-assistant`, `settings/shifts` | `integration/bot.respond.spec.ts`, `integration/shift-routing.spec.ts`, `integration/kb-fts-tsv.spec.ts`, `unit/api/rrf-fusion.spec.ts`, `unit/api/shift-resolver.spec.ts`, `unit/api/chunker.spec.ts` |
+| AI analysis | [ai.md](ai.md) | `ai`, `queue` | bridge `settings/ai-assistant`, `settings/ai-usage` | `integration/ai-usage.per-user.spec.ts` |
+| Analytics | [analytics.md](analytics.md) | `analytics` | bridge `analytics/operations`, `analytics/customers` | — (none yet) |
+| GitHub | [github.md](github.md) | `github` | bridge `settings/github`, `github/` | — (none yet) |
+| Auth | [auth.md](auth.md) | `auth`, `config` | bridge `auth/`; portal `auth/`, `auth/google/callback` | — (none yet) |
+| Notifications | [notifications.md](notifications.md) | `notifications` | bridge sidebar bell, `github/` | — (none yet) |
+| Settings | [settings.md](settings.md) | `config` | bridge `settings/*` | — (none yet) |
+| Files | [files.md](files.md) | `files` | portal `submit/`; attachments in `tickets/[id]` | — (none yet) |
+| Queue | [queue.md](queue.md) | `queue` | — (no UI) | — (none yet) |
+| Real-time (SSE) | [realtime.md](realtime.md) | `events` | bridge `layout.tsx` (global SSE provider) | `contract/sse-coverage.spec.ts` |
+| Customers | (in [tickets.md](tickets.md)) | `users` | bridge `customers/` | `integration/users.customers.spec.ts` |
+| Health | — | `health` | — | `integration/health.spec.ts` |
 
 ## Auto-generated reference
 

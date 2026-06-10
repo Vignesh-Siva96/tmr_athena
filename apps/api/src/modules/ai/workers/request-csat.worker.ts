@@ -4,6 +4,7 @@ import { QueueService, RequestCsatJobData } from '../../queue/queue.service'
 import { AI_REQUEST_CSAT_QUEUE } from '../../queue/queue.module'
 import { PrismaService } from '../../database/prisma.service'
 import { EmailService } from '../../email/email.service'
+import { formatRef } from '../../tickets/util/generate-ref'
 
 @Injectable()
 export class RequestCsatWorker implements OnModuleInit {
@@ -28,6 +29,21 @@ export class RequestCsatWorker implements OnModuleInit {
         })
         if (!ticket) return
 
+        // Idempotency guard: a `csat_requested` SYSTEM_EVENT marks that the email already
+        // went out for this ticket. Without it, every retry (or every resolve→reopen→resolve
+        // cycle, each of which enqueues its own delayed job) re-sends the survey — annoying
+        // the customer with duplicate emails. `requestedAt` on TicketRating can't be used for
+        // this: classify-ticket.worker upserts the same row first and stamps it on creation,
+        // long before any email is actually sent.
+        const alreadySent = await this.db.message.findFirst({
+          where: { ticketId, type: 'SYSTEM_EVENT', body: 'csat_requested' },
+          select: { id: true },
+        })
+        if (alreadySent) {
+          this.logger.debug(`CSAT email already sent for ticket ${ticketId} — skipping`)
+          return
+        }
+
         const appConfig = await this.db.appConfig.findFirst()
         if (!appConfig) return
 
@@ -45,7 +61,7 @@ export class RequestCsatWorker implements OnModuleInit {
 
         await this.emailService.sendRaw({
           to: ticket.user.email,
-          subject: `How did we do? [TMR-${ticket.number}]`,
+          subject: `How did we do? [${formatRef(ticket.ref)}]`,
           text: [
             `Hi ${customerName},`,
             '',
@@ -59,6 +75,11 @@ export class RequestCsatWorker implements OnModuleInit {
             '',
             `— ${appName} Support Team`,
           ].join('\n'),
+        })
+
+        // Record the send so retries / future resolve cycles don't duplicate it
+        await this.db.message.create({
+          data: { ticketId, type: 'SYSTEM_EVENT', body: 'csat_requested', isInternal: true },
         })
 
         this.logger.log(`Sent CSAT email for ticket ${ticketId}`)
