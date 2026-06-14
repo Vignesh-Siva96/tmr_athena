@@ -37,3 +37,22 @@ export const agentGoogleSchema = z.object({
   code: z.string(),
 })
 export type AgentGoogleDto = z.infer<typeof agentGoogleSchema>
+
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1),
+})
+export type VerifyEmailDto = z.infer<typeof verifyEmailSchema>
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+})
+export type ForgotPasswordDto = z.infer<typeof forgotPasswordSchema>
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z.string()
+    .min(8)
+    .regex(/[0-9]/, 'Must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
+})
+export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>

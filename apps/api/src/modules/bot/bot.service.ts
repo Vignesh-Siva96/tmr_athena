@@ -7,6 +7,7 @@ import { SseService } from '../events/sse.service'
 import { RetrievalService } from './retrieval.service'
 import { GeneratorService } from './generator.service'
 import { ShiftResolverService } from './shift-resolver.service'
+import { isFeatureSuppressed } from '../config/feature-flags'
 
 @Injectable()
 export class BotService {
@@ -34,6 +35,11 @@ export class BotService {
 
     // 1. Load AppConfig
     const config = await this.db.appConfig.findFirst()
+
+    if (!config || isFeatureSuppressed(config, 'botReply')) {
+      this.logger.log(`Bot reply suppressed by feature flag for ticket ${ticketId}`)
+      return
+    }
 
     // 2. Idempotency: if a BotInteraction already exists for this ticket, skip
     const existing = await this.db.botInteraction.findFirst({

@@ -6,7 +6,7 @@ import { AppConfigService } from '../config/config.service'
 import { PrismaService } from '../database/prisma.service'
 import { TokenRefresher } from '../email-oauth/token-refresher'
 import { MailCaptureService } from '../test-utils/mail-capture.service'
-import type { Ticket, Agent, Message, AppConfig } from '@tmr/db'
+import type { Ticket, Agent, Message, AppConfig, User } from '@tmr/db'
 import { formatRef } from '../tickets/util/generate-ref'
 
 type TicketWithUser = Ticket & {
@@ -381,6 +381,56 @@ export class EmailService implements OnModuleInit {
       this.logger.log(`Sent escalation notification for ticket ${ticket.id}`)
     } catch (err) {
       this.logger.error(`Failed to send escalation notification for ticket ${ticket.id}: ${String(err)}`)
+    }
+  }
+
+  async sendEmailVerification(user: User, verifyUrl: string, appConfig: AppConfig): Promise<void> {
+    try {
+      const transport = await this.getTransporter()
+      await transport.sendMail({
+        from: this.getFromAddress(appConfig),
+        to: user.email,
+        subject: `Verify your email for ${appConfig.appName}`,
+        text: [
+          `Hi ${user.name ?? 'there'},`,
+          '',
+          `Please confirm your email address by clicking the link below:`,
+          '',
+          verifyUrl,
+          '',
+          `This link expires in 24 hours.`,
+          '',
+          `— ${appConfig.appName} Support Team`,
+        ].join('\n'),
+      })
+      this.logger.log(`Sent verification email to ${user.email}`)
+    } catch (err) {
+      this.logger.error(`Failed to send verification email to ${user.email}: ${String(err)}`)
+    }
+  }
+
+  async sendPasswordReset(user: User, resetUrl: string, appConfig: AppConfig): Promise<void> {
+    try {
+      const transport = await this.getTransporter()
+      await transport.sendMail({
+        from: this.getFromAddress(appConfig),
+        to: user.email,
+        subject: `Reset your password for ${appConfig.appName}`,
+        text: [
+          `Hi ${user.name ?? 'there'},`,
+          '',
+          `We received a request to reset your password. Click the link below to choose a new one:`,
+          '',
+          resetUrl,
+          '',
+          `This link expires in 1 hour. If you didn't request this, you can safely ignore this email.`,
+          '',
+          `— ${appConfig.appName} Support Team`,
+        ].join('\n'),
+      })
+      this.logger.log(`Sent password reset email to ${user.email}`)
+    } catch (err) {
+      this.logger.error(`Failed to send password reset email to ${user.email}: ${String(err)}`)
     }
   }
 

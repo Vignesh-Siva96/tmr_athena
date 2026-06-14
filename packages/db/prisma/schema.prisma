@@ -90,6 +90,17 @@ model AppConfig {
 
   // Mirror customer portal replies into support mailbox as a self-addressed copy
   mirrorPortalRepliesToEmail Boolean @default(true)
+
+  // SLA target for agent first response
+  slaFirstResponseHours      Int     @default(4)
+
+  // Maintenance mode + feature flags (master overrides individual flags)
+  maintenanceMode            Boolean @default(false)
+  featConfirmationEmail      Boolean @default(true)
+  featBotReply               Boolean @default(true)
+  featAiAnalysis             Boolean @default(true)
+  featCsatSurvey             Boolean @default(true)
+  featGithubIssueCreation    Boolean @default(true)
 }
 
 enum AuthLayout {
@@ -197,8 +208,16 @@ model MagicToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   token     String   @unique
+  type      MagicTokenType
   expiresAt DateTime
   usedAt    DateTime?
+
+  @@index([userId, type])
+}
+
+enum MagicTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }
 
 // ─── AGENTS (internal team) ───────────────────────────────────────────────────
@@ -299,6 +318,7 @@ model Ticket {
   reopenedAt      DateTime?
   reopenCount     Int       @default(0)
   firstResolvedAt DateTime?
+  convertedAt     DateTime? // set when an email conversation is converted to a real ticket
 
   githubIssue     GithubIssue?
   messages        Message[]

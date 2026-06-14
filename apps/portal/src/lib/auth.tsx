@@ -7,6 +7,7 @@ interface AuthUser {
   name: string | null
   avatarUrl: string | null
   isGuest: boolean
+  isVerified: boolean
 }
 
 interface AuthContextValue {

@@ -39,7 +39,7 @@ This section gets updated as coverage grows. Treat anything not listed here as *
 | Unit | 1 | 9 | Only `stripSubjectPrefixes` — proves the runner works |
 | Contract | 2 | 5 | Atlas drift guard is functional; will catch undocumented route changes |
 | Integration | 3 | 10 | Health smoke, ticket visibility, mail capture — proves the harness is real |
-| E2E | 2 | 2 (F1 + F2 — selectors wired, ready for first run) | Run with `pnpm test:e2e`; `--headed` for visual; `--ui` for trace viewer. Traces on failure → `coverage/playwright-report/` |
+| E2E | 2 | 2 (F1 + F2 — executed and passing) | **Manual only — not run in CI** (user decision 2026-06-11). `pnpm test:e2e` manages the full infra lifecycle. For `--ui`/`--headed` iteration: `pnpm test:e2e:infra` once, then `playwright test --config tests/playwright.config.ts --ui` (stack stays warm; `pnpm test:e2e:infra:down` when done). Infra must exist BEFORE Playwright starts — webServers boot before globalSetup, so containers live in `tests/e2e/infra.ts`, which writes `tests/e2e/.env.e2e` for the config to read. Stop `pnpm dev` first (ports 3000–3002). Traces on failure → `coverage/playwright-report/` |
 | Security / Migration / Concurrency / Parsing / External | 0 | 0 | Empty directories, configs only |
 
 The plan calls for ~150 more tests across all layers. Each follows one of the patterns in [§6–§8](#6-worked-example--unit-test).

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Heart, Zap, X, Info } from 'lucide-react'
+import { AlertTriangle, Heart, Zap, X } from 'lucide-react'
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell, LabelList,
@@ -9,6 +9,8 @@ import {
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { DashboardSidebar } from '@/components/dashboard/Sidebar'
+import { Skeleton } from '@/components/Skeleton'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,33 +83,6 @@ function ChartTooltip({ active, payload, label }: Record<string, unknown>) {
         </p>
       ))}
     </div>
-  )
-}
-
-// ─── InfoTooltip ──────────────────────────────────────────────────────────────
-
-function InfoTooltip({ text, direction = 'up' }: { text: string; direction?: 'up' | 'down' }) {
-  const [show, setShow] = useState(false)
-  const vPos = direction === 'down' ? { top: 'calc(100% + 6px)' } : { bottom: 'calc(100% + 6px)' }
-  return (
-    <span
-      style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
-      <Info size={13} color="var(--d-text-4)" style={{ cursor: 'help', flexShrink: 0 }} />
-      {show && (
-        <div style={{
-          position: 'absolute', ...vPos, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 7,
-          padding: '7px 11px', fontSize: 11, color: 'var(--d-text-3)', width: 230,
-          zIndex: 200, lineHeight: 1.55, pointerEvents: 'none', whiteSpace: 'normal',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-        }}>
-          {text}
-        </div>
-      )}
-    </span>
   )
 }
 
@@ -320,7 +295,60 @@ export default function CustomerInsightsPage() {
           </div>
         </header>
 
-        {loading && <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-3)' }}>Loading…</div>}
+        {loading && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+            {/* KPI strip — 6 cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 32 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '16px 20px' }}>
+                  <Skeleton h={10} w="70%" radius={4} style={{ marginBottom: 10 }} />
+                  <Skeleton h={26} w="50%" radius={4} style={{ marginBottom: 6 }} />
+                  <Skeleton h={10} w="60%" radius={4} />
+                </div>
+              ))}
+            </div>
+            {/* Section header */}
+            <Skeleton h={14} w="200px" radius={4} style={{ marginBottom: 24 }} />
+            {/* Signals strip — 3 cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 28 }}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '16px 20px' }}>
+                  <Skeleton h={10} w="60%" radius={4} style={{ marginBottom: 10 }} />
+                  <Skeleton h={28} w="40%" radius={4} style={{ marginBottom: 8 }} />
+                  <Skeleton h={10} w="70%" radius={4} />
+                </div>
+              ))}
+            </div>
+            {/* Sentiment + Topics */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '20px 24px' }}>
+                  <Skeleton h={13} w="55%" radius={4} style={{ marginBottom: 16 }} />
+                  <Skeleton h={200} radius={8} />
+                </div>
+              ))}
+            </div>
+            {/* Recent signals + Effort */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '16px 20px' }}>
+                <Skeleton h={13} w="40%" radius={4} style={{ marginBottom: 16 }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {Array.from({ length: 3 }).map((_, j) => (
+                        <Skeleton key={j} h={52} radius={6} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: '20px 24px' }}>
+                <Skeleton h={13} w="55%" radius={4} style={{ marginBottom: 16 }} />
+                <Skeleton h={200} radius={8} />
+              </div>
+            </div>
+          </div>
+        )}
         {!loading && (error || !data) && <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-danger)' }}>{error ?? 'No data'}</div>}
         {!loading && data && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>

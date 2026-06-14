@@ -4,6 +4,7 @@ import { AI_CLASSIFY_TICKET_QUEUE } from '../../queue/queue.module'
 import { GeminiService } from '../gemini.service'
 import { PrismaService } from '../../database/prisma.service'
 import type { Prisma } from '@tmr/db'
+import { isFeatureSuppressed } from '../../config/feature-flags'
 
 @Injectable()
 export class ClassifyTicketWorker implements OnModuleInit {
@@ -19,6 +20,13 @@ export class ClassifyTicketWorker implements OnModuleInit {
     await this.queue.ready()
     this.queue.getBoss().work<ClassifyTicketJobData>(AI_CLASSIFY_TICKET_QUEUE, async (job) => {
       const { ticketId } = job.data
+
+      const appConfig = await this.db.appConfig.findFirst()
+      if (appConfig && isFeatureSuppressed(appConfig, 'aiAnalysis')) {
+        this.logger.log(`AI analysis suppressed by feature flag for ticket ${ticketId}`)
+        return
+      }
+
       const ticket = await this.db.ticket.findUnique({
         where: { id: ticketId },
         include: {

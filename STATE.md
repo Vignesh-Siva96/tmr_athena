@@ -1,7 +1,7 @@
 # STATE.md — TMR Support Platform
 
 Living document. Updated every session. Reflects current reality, not the original spec.
-Last updated: 2026-06-09 (Plan okay-can-you-check-binary-nova: convert/status crash fix + Portal WYSIWYG editor)
+Last updated: 2026-06-14 (Plan in-portal-signup-flow-enumerated-clarke: Email verification + forgot/reset password)
 
 ---
 
@@ -89,6 +89,9 @@ ngrok http 3001
 | **`firstResolvedAt` is immutable — set once, never overwritten**        | Preserves original resolution time even if ticket is reopened and resolved again                                                    |
 | **`/analytics` → redirect to `/analytics/operations`**                  | Preserves existing bookmarks/links while adding the new `/analytics/customers` sub-route                                           |
 | **Email-card format is Bridge-only; portal keeps chat bubbles**          | Portal is customer-facing — chat bubbles feel friendlier and match the portal's light-theme aesthetic. The new email-card format suits the agent tool. `MessageCard` is in `apps/bridge/` only, not `packages/ui`. |
+| **Maintenance mode: master overrides individual feature flags**          | `maintenanceMode=true` suppresses all five automated features regardless of their individual flags; individual flags only matter when master is OFF. Guard rule: `isFeatureSuppressed(config, feature)` in `apps/api/src/modules/config/feature-flags.ts`. (2026-06-14) |
+| **Bot suppressed = leave for humans silently**                           | When `botReply` is suppressed (maintenance or flag), the bot does NOT write a BotInteraction, does NOT escalate, and does NOT post any note — ticket stays NEW/unassigned for humans. Silent skip only. (2026-06-14) |
+| **CSAT survey is its own toggle** (`featCsatSurvey`)                    | Separate from `featAiAnalysis` — operators may want AI classification running but no survey emails, e.g. during incident windows. Five individual flags total. (2026-06-14) |
 | **Bridge renders `bodyHtml` preferentially** (parity with Portal); quoted HTML history collapsed via `splitQuotedHtml()` (`div.gmail_quote` / `blockquote[type=cite]` detection) | Customer/agent replies in Bridge only rendered the plain-text `body`, so Gmail signatures/tables/images were lost. Worse, `isHtmlBody()`'s any-tag regex misdetected Gmail plain-text autolinks (`<https://…>`) as HTML, pushing the body through `dangerouslySetInnerHTML` and flattening it onto one line. `isHtmlBody()` now matches a known-tag allowlist. (2026-06-10, plan `when-a-email-received-soft-abelson`, R199/R200) |
 | **GraphProvider `bodyPlain` via structure-preserving `htmlToText()`** (`email-sync/util/html-to-text.ts`, no new dependency) | The old naive `replace(/<[^>]*>/g,' ')` + collapse-all-whitespace flattened the whole email onto one line in the stored `Message.body`. (2026-06-10, R201) |
 | **atlas-gen: enum-typed Prisma fields are columns, not relations, in the generated ERD** | The generator classified any uppercase non-scalar type as a relation and the ERD emitter skipped relation fields — every enum column (`Ticket.status`, `CustomerSignal.type`, …) was silently missing from `_generated/erd.md`. Enum names are now pre-scanned and excluded from relation classification. (2026-06-10, R202) |
@@ -98,6 +101,10 @@ ngrok http 3001
 | **Attachment fix at the data layer (not the UI layer)**                  | Portal and Bridge renderers already read `msg.attachments` correctly — the data just never arrived. Fixed three root causes: (1) `MessagesService.create()` now links `attachmentIds` via `updateMany` inside the transaction; (2) `GmailProvider.parseGmailMessage()` now extracts `payload.parts` attachments; (3) `ThreadIngestionService` fetches and stores each inbound attachment via `FilesService.storeBuffer()`. |
 | **`attachment.updateMany` guards: `ticketId` + `messageId: null`**      | Prevents cross-ticket attachment hijacking and prevents re-linking an attachment already owned by another message. Both checks run inside the same DB transaction as the message create. |
 | **Email attachment fetch runs outside the DB transaction**               | `GmailProvider.fetchAttachmentBytes()` makes an HTTP call. HTTP calls inside Postgres transactions can hold a DB connection for seconds and cause lock waits. Attachment list collected inside the transaction; HTTP fetch + MinIO upload happen after the transaction commits. |
+| **Email verification is a soft gate** — signup signs the user in immediately; unverified users see a persistent `VerificationBanner` instead of being blocked | Matches the low-friction support-ticket use case — customers shouldn't be locked out of filing a ticket over an unverified email. (2026-06-14, plan `in-portal-signup-flow-enumerated-clarke`) |
+| **`MagicToken.type: MagicTokenType` (`EMAIL_VERIFICATION` \| `PASSWORD_RESET`)** reuses one model for both verification and password-reset tokens | Both are single-use, time-limited, link-based tokens with the same shape — a second model would just duplicate the cleanup/expiry/used-at logic. (2026-06-14, plan `in-portal-signup-flow-enumerated-clarke`) |
+| **`SendVerificationWorker` / `SendPasswordResetWorker` bypass `isFeatureSuppressed`/`maintenanceMode`** | Email verification and password reset are core auth flows, not "automated features" — they must keep working even when maintenance mode suppresses bot/CSAT/AI email features. (2026-06-14, plan `in-portal-signup-flow-enumerated-clarke`) |
+| **`POST /auth/forgot-password` always returns 200** regardless of whether the account/password exists | Prevents account enumeration via response status; the portal `/forgot-password` page shows the same "Check your email" confirmation either way. (2026-06-14, plan `in-portal-signup-flow-enumerated-clarke`) |
 | **`attachment.updateMany` guard allows `ticketId: null` OR ticket match** | Freshly-uploaded files have `ticketId: null` (uploaded before being associated to any ticket). The original guard `ticketId: ticketId` (exact match only) blocked all reply-composer uploads because the attachment had never been pre-scoped. Fixed to `OR: [{ ticketId }, { ticketId: null }]`; `ticketId` also written into `data` so it is set correctly when a null-scoped attachment gets linked. |
 | **`ZodValidationPipe` on `@Body` is incompatible with multipart uploads** | NestJS pipes run before the method body. When Multer processes a multipart request, it sets the body to `{}`. Wrapping `@Body` with `ZodValidationPipe(uploadLinkSchema)` causes Zod to validate `{}` against the `linkUrl`-required schema and throw — before the method even inspects the uploaded file. Fix: remove the pipe from `@Body`, parse `rawBody` manually inside the method only on the link-upload path. |
 | **Portal auth page supports two layouts (MINIMAL default / BRANDED opt-in)** | MINIMAL works out-of-the-box with just `logoUrl` + `appName`; BRANDED requires headline + ≥1 feature to save. Server-side validation in `updateAppConfigSchema` mirrors client-side rules. |
@@ -161,6 +168,11 @@ ngrok http 3001
 | **Graph attachments stored in Gmail-named ParsedAttachment fields (G5)** | `ParsedAttachment.gmailMessageId` / `gmailAttachmentId` are provider-opaque (named for Gmail historically). Graph stores its own message/attachment IDs there rather than adding new interface fields. `'fetchAttachmentBytes' in provider` duck-type check lets `ThreadIngestionService` use both adapters without branching. (2026-06-10) |
 | **Inbox uses SSE as primary signal, 60s poll as fallback (G6)** | Inbox previously polled every 15s. Now subscribes to `ticket-created`, `ticket-updated`, `message-created` SSE events with 300ms debounce. The `setInterval` fallback stretched to 60s — it only fires if the SSE connection dropped silently (some corporate proxies buffer SSE). (2026-06-10) |
 | **pg-boss `newJobCheckInterval: 100` in test mode** | Default pg-boss v9 polling interval is 2000ms. Queue integration tests (R112) need pg-boss to process jobs quickly; a 100ms interval in `NODE_ENV=test` is enough without timing-sensitive sleeps. (2026-06-10) |
+| **Operations analytics scoped to `isTicket=true` only** | All operational metrics (volume, FRT, resolution, SLA, category, priority, agent performance) now use `REAL = { deletedAt: null, isTicket: true }`. Conversations (`NEW`) and dismissed rows are excluded — they were inflating numbers and made the KPIs incoherent (open/resolved counted different universes). (2026-06-14) |
+| **Agent FRT clock start = bot escalation time (not ticket.createdAt) when bot engaged** | Counting triage delay against FRT is unfair to agents when the bot ran first. Clock starts at the `BotInteraction.createdAt` with `didAnswer=false`; falls back to `ticket.createdAt` if no bot interaction. This is per-ticket (not a global flag) so historical tickets are correct even if the setting changed. (2026-06-14) |
+| **`Ticket.convertedAt` stamped in `convert()`** | Enables Time-to-Triage metric (`convertedAt − createdAt`). Portal tickets never pass through `convert()` so `convertedAt` is null for them (portal tickets start as `isTicket=true`). Analytics service filters `convertedAt NOT NULL` before computing the median. (2026-06-14) |
+| **`AppConfig.slaFirstResponseHours = 4` (read-only, no UI yet)** | SLA target is instance config, not a hard-coded constant in the service. Defaults to 4h; settable via DB; full Settings UI is a follow-up. (2026-06-14) |
+| **Resolution time uses `firstResolvedAt`, not `:RESOLVED` message scan** | The old code text-scanned message bodies for the magic string `:RESOLVED` and labeled the result "median" while computing a mean. Replaced with direct read of `Ticket.firstResolvedAt` (already set by the status-machine when a ticket first enters RESOLVED). (2026-06-14) |
 
 ---
 
@@ -1939,3 +1951,236 @@ Added to every E2E touchpoint (render-only, no logic change):
 - `tests/README.md` — E2E row updated (2 files, 2 tests, run instructions)
 - `tests/regression-catalogue.md` — R116 (F1), R117 (F2) added
 - STATE.md — 2 new Decisions rows + this session entry
+
+## Session — 2026-06-11 (E2E suite first-ever green: F1 + F2 — and a real SSE production bug found)
+
+### E2E infrastructure restructure (root cause: Playwright boots webServers BEFORE globalSetup)
+
+The scaffolded design (globalSetup boots Testcontainers and hands DATABASE_URL to webServers via
+process.env) can never work — verified in the Playwright 1.60 runner source, plugin setup precedes
+globalSetups. The API booted first and silently fell back to `.env` (the dev DB). Restructure:
+
+- **`tests/e2e/infra.ts` (new)** — owns container lifecycle (`up`/`down`): pgvector Postgres
+  (extension created via in-container psql) + MinIO, `db push`, seed, marks AppConfig email
+  "connected" with dummy tokens (`support@e2e.test`; safe — test-mode EmailService short-circuits
+  to MailCapture before touching OAuth), writes `tests/e2e/.env.e2e`. Ryuk disabled; containers
+  reused across runs for warm `--ui` iteration.
+- **playwright.config.ts** — reads `.env.e2e` at load time, injects into the API webServer env;
+  `reuseExistingServer: false` everywhere (a reused dev server on :3001 caused silent 401s);
+  `GEMINI_API_KEY: ''` (bot disabled in E2E → escalation path, by user decision).
+- **global-setup** → fast guard only (asserts :3001 is a test-mode API); teardown → no-op.
+- **Scripts**: `test:e2e` (up → test → down), `test:e2e:ui`, `test:e2e:infra(:down)`.
+- **E2E removed from CI and from the aggregate `pnpm test`** — manual-only by user decision.
+- Seed fixed (predated ref/isTicket redesign): generates Crockford `ref`, sets `isTicket: true`,
+  logs `ticket.ref` (the `Ticket.number` field no longer exists).
+
+### 🔴 Production bug found by E2E: SSE was dead app-wide
+
+`TransformResponseInterceptor` wrapped **every** observable emission in `{data}` — including each
+`@Sse` frame. Wire format became `data: {"data":"{\"type\":…}"}`, Bridge parsed
+`event.type=undefined` and silently dropped every event (inbox, ticket detail, backfill progress —
+all masked by polling fallbacks). Fix: skip wrapping when the handler carries Nest's `__sse__`
+metadata. Test: `transform-response-interceptor.spec › R203`.
+
+### Spec fixes (first-contact bugs)
+
+- mail fixture unwraps the global `{data}` envelope (R-: poll compared against undefined).
+- F1/F2: `locator.isVisible()` does not auto-wait — conditional Reply-button clicks raced page
+  load; replaced with auto-waiting `click()`.
+- F1 must fill the description (no description → no customer REPLY row → no message card → no
+  Reply button).
+- F1's G1 mirror assertion targets `support@e2e.test` (AppConfig.oauthEmail in E2E).
+
+**Result: `pnpm test:e2e` → 2 passed** (F1 portal round-trip incl. confirmation + reply email +
+G1 mirror; F2 ingest → convert → confirmation → reply email → customer email reply threading +
+G3 transition). Gemini ERROR log lines during runs are expected (bot disabled → escalation path).
+Unit suite 120 passing incl. new R203.
+
+### Docs
+- tests/README.md §2 E2E row updated (manual-only, infra lifecycle, --ui workflow).
+- tests/regression-catalogue.md: R203.
+- CI workflow: e2e job replaced with a comment pointing at `pnpm test:e2e`.
+
+---
+
+## Session — 2026-06-14 — Maintenance Mode feature
+
+### What changed
+
+Added a **Maintenance Mode** section to Bridge → Settings → General. One master toggle with five individual feature-flag toggles — all backed by a single shared helper and guarded at every automated-action call site.
+
+**Schema**: Added 6 boolean fields to `AppConfig`:
+- `maintenanceMode` (master, default `false`)
+- `featConfirmationEmail`, `featBotReply`, `featAiAnalysis`, `featCsatSurvey`, `featGithubIssueCreation` (all default `true`)
+
+Migration: `20260614000000_add_maintenance_mode` (manual SQL, applied via `prisma migrate resolve --applied`).
+
+**Backend helper**: `apps/api/src/modules/config/feature-flags.ts` — pure `isFeatureSuppressed(config, feature)` function. Guard rule: master ON suppresses all; master OFF respects individual flags.
+
+**Guard points added**:
+- `send-confirmation.worker.ts` — confirmation email silent skip
+- `bot.service.ts` `respondTo()` — bot silent skip (no BotInteraction, no note)
+- `analyze-message.worker.ts`, `classify-ticket.worker.ts` — AI analysis silent skip
+- `request-csat.worker.ts` — CSAT survey email silent skip
+- `github.service.ts` `createIssue()` — throws `BadRequestException(400)` to surface to agent UI
+
+**Config API**: `UPDATABLE_FIELDS` + Zod schema extended with the 6 new booleans. No controller change needed — `getSafe()` returns all `AppConfig` columns.
+
+**Frontend**: `apps/bridge/src/app/settings/general/page.tsx` — new Maintenance Mode section with a master toggle (requires confirm modal), five individual toggle rows (disabled + dimmed when master is ON). Inline `Switch` helper component built from the shifts page pattern.
+
+### Tests
+
+- `tests/unit/api/feature-flags.spec.ts` — full truth table for `isFeatureSuppressed` (17 assertions). All 137 unit tests passing.
+- Fixed `worker-guards.spec.ts` (`makeClassifyWorker` mock was missing `appConfig.findFirst`).
+- `tests/regression-catalogue.md` — R118 added.
+
+### Docs
+
+- `docs/atlas/settings.md` — new Maintenance Mode section with guard-point table.
+- `docs/atlas/_generated/` — regenerated via `pnpm atlas:gen` (ERD now includes the 6 new fields).
+- `STATE.md` — 3 new Decisions rows + this Session Log entry.
+
+## Session Log — 2026-06-14 (Plan in-bridge-when-i-luminous-perlis: Bridge skeleton loading states)
+
+### Overview
+
+UI polish pass: replaced blank screens and plain "Loading…" text across the Bridge agent dashboard with layout-matching shimmer skeletons using the existing `.shimmer` CSS class.
+
+### Changes
+
+- **New:** `apps/bridge/src/components/Skeleton.tsx` — shared `Skeleton` and `SkeletonText` primitives built on `.shimmer`, no new CSS or library.
+- **Analytics — Operations:** deleted local `Skeleton` helper (was duplicated inline), imported shared component. Added skeleton placeholder cards for the `field1`/`field2` bar charts during loading so the 3-column grid doesn't collapse while data loads.
+- **Analytics — Customer Insights:** replaced centered "Loading…" text with a full-page layout-matching skeleton: 6-card KPI strip, 3-card signals strip, two pairs of chart cards — mirrors the real grid templates so no layout jump on data arrival.
+- **Settings — General:** added `loading` state; page previously rendered an empty form silently. Now shows form-field skeletons (icon box, name field, appearance card, feature-flag rows) while the `GET /config` call completes.
+- **Settings — Email:** replaced `if (!cfg) return <div>Loading…</div>` with a card-shaped skeleton matching the real page structure.
+- **Settings — Shifts:** replaced `<Loader2>` spinner with a table-row skeleton (header row + 3 shimmer rows) that matches the real table's column layout.
+- **Settings — GitHub:** added `!status ? skeleton : ...` guard in the GitHub connection card body so the status block shimmers while the initial `GET /github/status` resolves.
+
+### Tests
+
+No tests required — presentation-only changes with no behavioral logic, endpoint, schema, or data-flow change.
+
+### Docs
+
+No atlas regen required — no new endpoint, module, or schema change. This Session Log is the only doc update needed.
+
+### 2026-06-14 — Operations analytics rework (plan in-bridge-we-have-wiggly-stream)
+
+**Problem fixed:** the Operations tab was counting the wrong population (conversations and dismissed
+rows mixed with real tickets), using a broken resolution-time metric (message body text scan + mean
+mislabeled "median"), and missing all front-line responsiveness signals.
+
+**What changed:**
+
+- **Schema** — `Ticket.convertedAt DateTime?` added (set in `convert()`); `AppConfig.slaFirstResponseHours Int @default(4)` added. Migration `20260614000001_ops_analytics_fields`.
+- **`tickets.service.ts`** — `convert()` now stamps `convertedAt: new Date()` when flipping `isTicket → true`.
+- **`analytics.service.ts`** — full rewrite: `REAL = { deletedAt: null, isTicket: true }` base filter applied to every count/groupBy; resolution time uses `firstResolvedAt` (P50+P90 via `percentile()` helper); Agent FRT P50/P90 computed via raw SQL with per-ticket bot-escalation clock-start; SLA compliance %; triage backlog + oldest age + time-to-triage median; bot deflection rate + escalation count; reopen rate; Created vs Resolved 30d dual-series. Removed `topCustomers`. `AppConfigService` injected to read `slaFirstResponseHours` and `featBotReply`.
+- **`analytics.module.ts`** — `AppConfigModule` added to imports.
+- **`operations/page.tsx`** — complete rewrite: new `AnalyticsData` shape; Responsiveness KPI row (5 cards); Triage & Automation row (3–4 cards, bot card conditional); Created vs Resolved dual-series area chart (replaces single-series volume); section labels; staggered framer-motion entrance; count-up on integers; card hover-lift; `InfoTooltip` on every widget. Removed High-attention customers table and tickets-per-customer insight.
+- **`InfoTooltip`** — promoted from local function in `customers/page.tsx` to shared `apps/bridge/src/components/InfoTooltip.tsx`; `customers/page.tsx` now imports it.
+- **`docs/atlas/analytics.md`** — updated Operations section with full metric definitions, FRT clock rule, schema additions, premium UX section, and component table.
+- **`docs/atlas/_generated/`** — regenerated via `pnpm atlas:gen`.
+- **STATE.md Decisions** — 5 new rows documenting real-ticket scoping, FRT clock rule, convertedAt semantics, slaFirstResponseHours, resolution-time fix.
+
+## Session Log — 2026-06-14 (Plan in-bridge-we-have-wiggly-stream: Operations analytics premium polish)
+
+Premium polish and layout-gap pass on the Operations analytics dashboard. No new API surface; no atlas regen needed (metric semantics unchanged).
+
+### Changes
+
+- **`apps/bridge/src/globals.css`** — strengthened `--d-shadow-card` in light mode (`0 1px 3px/0 4px 12px rgba(16,24,40,...)`) and `--d-shadow-lg`; added subtle dark-mode resting shadow to `:root` (`--d-shadow-card: 0 1px 2px/0 1px 3px rgba(0,0,0,0.35/0.25)`) and `--d-shadow-lg`; extended card elevation CSS rule to both `html:not([data-theme="light"])` and light mode so cards read as raised in both themes.
+- **`operations/page.tsx`**:
+  - **Hover shadow fix** — `onMouseLeave` in `KpiCard`, `Card`, and `InsightCard` now restores `var(--d-shadow-card)` (was `''`, which left dark-mode cards flat after hover).
+  - `KpiCard` hover shadow now uses `var(--d-shadow-lg)` token instead of hardcoded rgba.
+  - `InsightCard` — added hover lift + shadow handlers and `transition`; was completely flat previously.
+  - **Grid gap fix** — Category/field1/field2/Priority row now uses `repeat(${breakdownCols}, 1fr)` computed dynamically: 2 columns when field1+field2 have no data, up to 4 when both have data. Eliminates the dead empty column when optional fields are absent.
+  - **Status pie** — centred (`cx="50%"`), legend moved to horizontal bottom, donut-hole total label added via recharts `<Label content={...}>`.
+  - **minHeight** — `KpiCard` gets `minHeight: 112`, `InsightCard` gets `minHeight: 90` so Responsiveness and Triage rows are vertically even.
+  - **Created-vs-Resolved** — graceful empty state ("No ticket data yet") mirroring the pie's `No data` handling.
+- **`packages/db/src/seed.ts`** — enriched with 55 new idempotent tickets spread over 30 days: 23 RESOLVED, 8 CLOSED, 8 OPEN, 4 IN_PROGRESS, 3 WAITING, 3 DISMISSED email conversations, 5 NEW triage-backlog rows. Includes 4 additional customers (`alex`, `mary`, `tom`, `lisa`), reopenCount > 0 on 3 tickets, 12 BotInteraction rows (mix of `didAnswer` true/false), and first-agent-reply messages so FRT metrics populate.
+
+## Session Log — 2026-06-14 (Plan in-portal-signup-flow-enumerated-clarke: Email verification + forgot/reset password)
+
+Added two new Portal auth flows on top of the existing `MagicToken` model and pg-boss queue
+pattern: a soft email-verification gate, and a forgot/reset-password round trip. Both are core
+auth flows — **no feature flags, no `maintenanceMode` gating**.
+
+### Schema
+
+- **`MagicToken.type: MagicTokenType`** (`EMAIL_VERIFICATION` | `PASSWORD_RESET`, new enum) +
+  `@@index([userId, type])`. Migration `20260614000002_magic_token_type` (hand-written + applied
+  via the documented shadow-DB workaround — `prisma migrate dev` still can't replay
+  `20260530000000_athena_bot` against a fresh shadow DB).
+
+### API (`apps/api`)
+
+- **`auth.dto.ts`** — `verifyEmailSchema`, `forgotPasswordSchema`, `resetPasswordSchema`.
+- **`auth.service.ts`** — `createMagicToken`/`consumeMagicToken` helpers; `signup()` now issues an
+  `EMAIL_VERIFICATION` token + enqueues `email:send-verification`; `googleAuth()` sets
+  `isVerified: true` for both new and linked users; new public methods `verifyEmail`,
+  `resendVerification` (from `@CurrentUser()`), `requestPasswordReset` (always succeeds, no
+  enumeration), `resetPassword` (also sets `isVerified: true`).
+- **`auth.controller.ts`** — `POST /auth/verify-email`, `POST /auth/resend-verification` (authed),
+  `POST /auth/forgot-password`, `POST /auth/reset-password`, all rate-limited.
+- **`queue.module.ts` / `queue.service.ts`** — `EMAIL_SEND_VERIFICATION_QUEUE` and
+  `EMAIL_SEND_PASSWORD_RESET_QUEUE` + `enqueueEmailVerification`/`enqueueEmailPasswordReset`.
+- **`email.service.ts`** — `sendEmailVerification` / `sendPasswordReset` (same
+  `getTransporter()` + try/catch + logger pattern as existing send methods; no Graph branching,
+  consistent with sibling methods).
+- **New workers** `send-verification.worker.ts` / `send-password-reset.worker.ts` (registered in
+  `email.module.ts`) — skip if `AppConfig` missing or (verification only) user already verified;
+  build `${PORTAL_URL}/verify-email?token=…` / `${PORTAL_URL}/reset-password?token=…`. No
+  suppression branch — these always run.
+
+### Portal (`apps/portal`)
+
+- New pages: `/verify-email` (consumes `?token=`, loading/success/error states, calls `signIn`
+  with updated `isVerified` if already authed), `/forgot-password` (always shows "Check your
+  email"), `/reset-password` (consumes `?token=`, password+confirm form, same strength rules as
+  signup).
+- New shared `AuthCard` component (extracted from the `/auth` page layout) used by all three pages.
+- New `VerificationBanner` (in `PortalNav`, `data-testid="verification-banner"`) — shown whenever
+  `user && !user.isVerified && !user.isGuest`, with a "Resend" button
+  (`data-testid="resend-verification-btn"`) hitting `/auth/resend-verification`.
+- `AuthForm.tsx` — previously-dead "Forgot password?" button now routes to `/forgot-password`;
+  `AuthUser`/`AuthResponse` types gained `isVerified: boolean` (also fixed a missed
+  `isVerified` field on the Google OAuth callback's `AuthResponse` type — portal type-check was
+  failing without it).
+
+### Tests
+
+- **`tests/integration/auth-verification-reset.spec.ts`** (new, 14 tests) — R204-R209: signup
+  issues a verification token + job; verify-email happy/expired/used/wrong-type paths;
+  resend-verification re-issues vs. no-ops for verified users; forgot-password
+  no-enumeration + real-account paths; reset-password updates password + `isVerified` + rejects
+  reused tokens; googleAuth sets `isVerified=true` for new and linked users.
+- **`tests/unit/api/worker-guards.spec.ts`** — R210/R211: `SendVerificationWorker` and
+  `SendPasswordResetWorker` skip on missing `AppConfig` / already-verified / unknown user, and
+  build the correct portal URLs otherwise.
+- **`tests/e2e/flows/F3.spec.ts`** (new) — R212: signup → verification banner visible → verify
+  email link → banner clears; "Forgot password?" → `/forgot-password` → reset email →
+  `/reset-password` → sign in with the new password. (Not executed in this session — the sandbox's
+  Node 22.15 can't `require()` `@tmr/db`'s raw-TS `main` entry, so the API webServer fails to boot
+  for any Playwright run, F1/F2 included. Pre-existing environment issue, unrelated to this change.)
+- Added R204-R212 rows to `tests/regression-catalogue.md`.
+
+### Docs
+
+- `docs/atlas/auth.md` — new "Email verification (soft gate)" and "Forgot / reset password"
+  sections; removed the "No forgot-password flow" known gap; new Notable Decisions.
+- `docs/atlas/_generated/` regenerated (`pnpm atlas:gen`): 86 routes / 20 controllers, 25 modules,
+  22 models / 24 enums.
+- STATE.md Decisions — 4 new rows (soft verification gate, `MagicToken.type` reuse, no
+  feature-flag gating on these workers, forgot-password no-enumeration).
+
+### Verification
+
+- `pnpm --filter @tmr/api type-check` ✅, `pnpm --filter @tmr/portal type-check` ✅ (after the
+  Google-callback `AuthResponse.isVerified` fix above).
+- `pnpm test:unit` — 143/143 ✅ (includes new R210/R211 worker tests).
+- `pnpm test:integration` — new `auth-verification-reset.spec.ts` 14/14 ✅. Full-suite run hit a
+  pre-existing "too many database connections" failure across 7 unrelated suites when run
+  back-to-back (maxWorkers=1, but connections accumulate across 21 suites in one process); the
+  same suites pass individually. Not a regression from this change.
+- `pnpm lint` not run — pre-existing environment issue in this sandbox (`@tmr/api` has no ESLint
+  config for ESLint 6.4.0; `next lint` for `@tmr/portal` wants an interactive `eslint --init`).

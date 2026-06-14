@@ -27,7 +27,9 @@ const BRIDGE = 'http://localhost:3002'
 
 const CUSTOMER_CREDS = { email: 'jordan@acmecorp.com', password: 'customer123' }
 const AGENT_CREDS = { email: 'agent@twominutereports.com', password: 'agent123' }
-const SUPPORT_MIRROR_ADDR = 'support@twominutereports.com'
+// G1 portal-copy goes To the support mailbox = AppConfig.oauthEmail, which
+// tests/e2e/infra.ts sets to support@e2e.test when marking email "connected".
+const SUPPORT_MIRROR_ADDR = 'support@e2e.test'
 
 test.describe('F1 — Portal → Bridge SSE → Agent reply → Portal SSE + email', () => {
   test.beforeEach(async ({ request }) => {
@@ -63,6 +65,9 @@ test.describe('F1 — Portal → Bridge SSE → Agent reply → Portal SSE + ema
 
     // Category must be selected before form submits — pick the first radio option
     await customerPage.locator('[data-testid="submit-title"]').fill(UNIQUE_TITLE)
+    // Description is required for the flow: without it no customer REPLY message
+    // exists on the ticket, so the thread has no message card (and no Reply button).
+    await customerPage.locator('[data-testid="submit-description"]').fill('Something is broken in the F1 flow — please help.')
     await customerPage.getByRole('radio').first().click()
 
     const submitResponse = customerPage.waitForResponse(
@@ -97,11 +102,10 @@ test.describe('F1 — Portal → Bridge SSE → Agent reply → Portal SSE + ema
     await row.click()
     await agentPage.waitForURL(new RegExp(`/tickets/${ticketId}$`))
 
-    // Open the compose drawer — look for a Reply button (may be in an action banner)
-    const replyTrigger = agentPage.getByRole('button', { name: /^reply$/i })
-    if (await replyTrigger.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await replyTrigger.click()
-    }
+    // Open the compose drawer via the last message card's Reply button.
+    // (locator.isVisible() does NOT auto-wait — a conditional click here raced the
+    // page load and silently skipped. click() auto-waits for actionability.)
+    await agentPage.getByRole('button', { name: /^reply$/i }).first().click()
 
     const replyEditor = agentPage.locator('[data-testid="reply-editor"]')
     await expect(replyEditor).toBeVisible({ timeout: 5_000 })

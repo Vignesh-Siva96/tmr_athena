@@ -279,7 +279,7 @@ export class TicketsService {
     if (!ticket.isTicket) {
       await this.db.ticket.update({
         where: { id: ticketId },
-        data: { isTicket: true, status: 'OPEN', dismissedAt: null, dismissedById: null },
+        data: { isTicket: true, status: 'OPEN', dismissedAt: null, dismissedById: null, convertedAt: new Date() },
       })
       await this.activateTicket(ticketId)
       this.sse.broadcast({ type: 'ticket-updated', ticketId })

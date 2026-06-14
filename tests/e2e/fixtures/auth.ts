@@ -9,6 +9,16 @@ import type { APIRequestContext, Page } from '@playwright/test'
 
 const API = 'http://localhost:3001'
 
+async function expectOk(res: { ok(): boolean; status(): number; text(): Promise<string> }, what: string): Promise<void> {
+  if (res.ok()) return
+  const body = await res.text().catch(() => '')
+  throw new Error(
+    `${what} failed with ${res.status()}: ${body}\n` +
+    `Hint: a 401/404 here usually means the tests reached a DEV server instead of the ` +
+    `test stack (seeded accounts only exist in the test DB). Stop \`pnpm dev\` and rerun.`,
+  )
+}
+
 /** Obtain a JWT for a bridge agent via the API (no browser needed). */
 export async function agentApiLogin(
   request: APIRequestContext,
@@ -18,6 +28,7 @@ export async function agentApiLogin(
   const res = await request.post(`${API}/api/v1/auth/agent/signin`, {
     data: { email, password },
   })
+  await expectOk(res, `agentApiLogin(${email})`)
   const body = (await res.json()) as { data: { agent: Record<string, unknown>; token: string } }
   return { token: body.data.token, agent: body.data.agent }
 }
@@ -31,6 +42,7 @@ export async function customerApiLogin(
   const res = await request.post(`${API}/api/v1/auth/signin`, {
     data: { email, password },
   })
+  await expectOk(res, `customerApiLogin(${email})`)
   const body = (await res.json()) as { data: { user: Record<string, unknown>; token: string } }
   return { token: body.data.token, user: body.data.user }
 }

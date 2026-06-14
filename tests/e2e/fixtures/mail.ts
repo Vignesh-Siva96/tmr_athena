@@ -29,7 +29,9 @@ export async function getCapturedMail(
     ? `${API}/api/v1/__test/captured-mail?to=${encodeURIComponent(to)}`
     : `${API}/api/v1/__test/captured-mail`
   const res = await request.get(url)
-  return (await res.json()) as CapturedMail[]
+  // TransformResponseInterceptor wraps every API response in { data: ... }
+  const body = (await res.json()) as { data?: CapturedMail[] } | CapturedMail[]
+  return Array.isArray(body) ? body : (body.data ?? [])
 }
 
 export async function resetCapturedMail(request: APIRequestContext): Promise<void> {

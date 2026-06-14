@@ -2,6 +2,9 @@ import { Controller, Post, Body, HttpCode, UseGuards } from '@nestjs/common'
 import { AuthService } from './auth.service'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard'
+import { AuthGuard } from '../../common/guards/auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import type { User } from '@tmr/types'
 import {
   signupSchema,
   signinSchema,
@@ -9,12 +12,18 @@ import {
   guestSchema,
   agentSigninSchema,
   agentGoogleSchema,
+  verifyEmailSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   type SignupDto,
   type SigninDto,
   type GoogleAuthDto,
   type GuestDto,
   type AgentSigninDto,
   type AgentGoogleDto,
+  type VerifyEmailDto,
+  type ForgotPasswordDto,
+  type ResetPasswordDto,
 } from './auth.dto'
 
 // Auth endpoints are unauthenticated by nature (that's the point) — without a cap,
@@ -66,5 +75,36 @@ export class AuthController {
   @RateLimit(...AUTH_RATE_LIMIT)
   agentGoogleAuth(@Body(new ZodValidationPipe(agentGoogleSchema)) dto: AgentGoogleDto) {
     return this.authService.agentGoogleAuth(dto)
+  }
+
+  @Post('verify-email')
+  @HttpCode(200)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  verifyEmail(@Body(new ZodValidationPipe(verifyEmailSchema)) dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto.token)
+  }
+
+  @Post('resend-verification')
+  @HttpCode(200)
+  @UseGuards(AuthGuard)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  resendVerification(@CurrentUser() user: User) {
+    return this.authService.resendVerification(user.id)
+  }
+
+  @Post('forgot-password')
+  @HttpCode(200)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  async forgotPassword(@Body(new ZodValidationPipe(forgotPasswordSchema)) dto: ForgotPasswordDto) {
+    await this.authService.requestPasswordReset(dto.email)
+    return { message: 'If an account exists for this email, a reset link has been sent.' }
+  }
+
+  @Post('reset-password')
+  @HttpCode(200)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  async resetPassword(@Body(new ZodValidationPipe(resetPasswordSchema)) dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.password)
+    return { message: 'Password updated successfully.' }
   }
 }

@@ -13,6 +13,8 @@ const UPDATABLE_FIELDS = [
   'portalFeatures', 'botProvider', 'botApiKeyEnc', 'botFallbackAgentId', 'kbRootUrl', 'timezone',
   'field1Label', 'field1Options', 'field2Label', 'field2Options',
   'mirrorPortalRepliesToEmail',
+  'maintenanceMode', 'featConfirmationEmail', 'featBotReply', 'featAiAnalysis',
+  'featCsatSurvey', 'featGithubIssueCreation',
 ] as const satisfies readonly (keyof UpdateAppConfigDto)[]
 
 const dropdownOptionSchema = z.object({
@@ -48,6 +50,13 @@ export const updateAppConfigSchema = z.object({
   field2Label: z.string().nullable().optional(),
   field2Options: z.array(dropdownOptionSchema).optional(),
   mirrorPortalRepliesToEmail: z.boolean().optional(),
+  // Maintenance mode + feature flags
+  maintenanceMode: z.boolean().optional(),
+  featConfirmationEmail: z.boolean().optional(),
+  featBotReply: z.boolean().optional(),
+  featAiAnalysis: z.boolean().optional(),
+  featCsatSurvey: z.boolean().optional(),
+  featGithubIssueCreation: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.portalAuthLayout === 'BRANDED') {
     if (!data.portalHeroHeadline?.trim()) {

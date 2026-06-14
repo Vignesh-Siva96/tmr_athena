@@ -94,12 +94,11 @@ test.describe('F2 — Inbound email → Bridge Inbox → Convert → Email reply
     await convertedRow.click()
     await agentPage.waitForURL(new RegExp(`/tickets/${ticketId}`))
 
+    // Open the compose panel via the last message card's Reply button.
+    // (locator.isVisible() does NOT auto-wait — a conditional click here raced the
+    // page load and silently skipped. click() auto-waits for actionability.)
     const replyEditor = agentPage.locator('[data-testid="reply-editor"]')
-    // Compose panel may need to be opened first
-    const replyBtn = agentPage.getByRole('button', { name: /^reply$/i })
-    if (await replyBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await replyBtn.click()
-    }
+    await agentPage.getByRole('button', { name: /^reply$/i }).first().click()
     await expect(replyEditor).toBeVisible({ timeout: 5_000 })
     await replyEditor.click()
     await replyEditor.type('Hi — thanks for reaching out! We are looking into this.')

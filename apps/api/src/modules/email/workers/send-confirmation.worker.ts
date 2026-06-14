@@ -5,6 +5,7 @@ import { EmailService } from '../email.service'
 import { QueueService } from '../../queue/queue.service'
 import { EMAIL_SEND_CONFIRMATION_QUEUE } from '../../queue/queue.module'
 import type { EmailSendConfirmationJobData } from '../../queue/queue.service'
+import { isFeatureSuppressed } from '../../config/feature-flags'
 
 @Injectable()
 export class SendConfirmationWorker implements OnModuleInit {
@@ -39,6 +40,11 @@ export class SendConfirmationWorker implements OnModuleInit {
         const appConfig = await this.db.appConfig.findFirst()
         if (!appConfig) {
           this.logger.warn(`No AppConfig found — skipping confirmation email for ticket ${ticketId}`)
+          return
+        }
+
+        if (isFeatureSuppressed(appConfig, 'confirmationEmail')) {
+          this.logger.log(`Confirmation email suppressed by feature flag for ticket ${ticketId}`)
           return
         }
 

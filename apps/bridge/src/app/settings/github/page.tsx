@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Copy, Eye, EyeOff, RefreshCw, Github, ExternalLink, Tag, Webhook, AlertCircle, CheckCircle2, Lock, Search, GitBranch } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { Skeleton } from '@/components/Skeleton'
 
 interface WebhookConfig {
   hasSecret: boolean
@@ -273,7 +274,12 @@ export default function GithubSettingsPage() {
         </div>
 
         <div style={{ padding: '20px 24px' }}>
-          {status?.connected ? (
+          {!status ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Skeleton h={14} w="240px" radius={4} />
+              <Skeleton h={36} w="180px" radius={6} />
+            </div>
+          ) : status.connected ? (
             <div>
               {/* Account row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>

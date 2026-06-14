@@ -26,3 +26,4 @@ apps/api/logs/
 # Playwright
 .playwright-state.json
 test-results/
+tests/e2e/.env.e2e

@@ -189,7 +189,7 @@ export function DashboardSidebar() {
           </div>
           <RailBtn section="customers" icon={<Users size={17} />} navigateTo="/customers" />
           <RailBtn section="github" icon={<svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor"><path d={OCTOCAT} /></svg>} badge={unreadCount} navigateTo="/github" />
-          <RailBtn section="analytics" icon={<BarChart2 size={17} />} navigateTo="/analytics" />
+          <RailBtn section="analytics" icon={<BarChart2 size={17} />} navigateTo="/analytics/operations" />
 
           {/* Spacer */}
           <div style={{ flex: 1 }} />

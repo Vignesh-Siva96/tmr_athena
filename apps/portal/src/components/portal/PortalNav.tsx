@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { useAppConfig } from '@/lib/brand'
 import { LifeBuoy, LogOut } from 'lucide-react'
+import { VerificationBanner } from './VerificationBanner'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -19,6 +20,7 @@ export function PortalNav() {
   const config = useAppConfig()
 
   return (
+    <>
     <header
       style={{
         height: 56,
@@ -146,5 +148,7 @@ export function PortalNav() {
         )}
       </nav>
     </header>
+    <VerificationBanner />
+    </>
   )
 }

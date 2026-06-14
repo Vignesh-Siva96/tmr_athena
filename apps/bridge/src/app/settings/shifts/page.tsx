@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Trash2, Calendar, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
+import { Skeleton } from '@/components/Skeleton'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -237,8 +238,25 @@ export default function ShiftsPage() {
 
       {/* Shifts list */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--d-text-3)' }} />
+        <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 80px 80px 60px 60px', gap: 0, padding: '10px 16px', borderBottom: '1px solid var(--d-border)' }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} h={10} w="60%" radius={4} />
+            ))}
+          </div>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 80px 80px 60px 60px', gap: 0, padding: '12px 16px', borderBottom: i < 2 ? '1px solid var(--d-border-2)' : 'none', alignItems: 'center' }}>
+              <div>
+                <Skeleton h={13} w="55%" radius={4} style={{ marginBottom: 5 }} />
+                <Skeleton h={10} w="75%" radius={4} />
+              </div>
+              <Skeleton h={13} w="70%" radius={4} />
+              <Skeleton h={13} w="50px" radius={4} />
+              <Skeleton h={13} w="50px" radius={4} />
+              <Skeleton h={20} w="36px" radius={10} />
+              <Skeleton h={28} w="36px" radius={6} />
+            </div>
+          ))}
         </div>
       ) : shifts.length === 0 ? (
         <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 10, padding: 40, textAlign: 'center' }}>

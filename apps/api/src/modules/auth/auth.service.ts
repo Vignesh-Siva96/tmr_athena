@@ -3,8 +3,13 @@ import { ConfigService } from '@nestjs/config'
 import * as crypto from 'crypto'
 import { PrismaService } from '../database/prisma.service'
 import { getJwtSecret } from '../../common/auth/jwt-secret'
+import { QueueService } from '../queue/queue.service'
+import { MagicTokenType } from '@tmr/db'
 import type { User, Agent } from '@tmr/db'
 import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto } from './auth.dto'
+
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1h
 
 interface JwtPayload {
   sub: string
@@ -94,6 +99,7 @@ export class AuthService {
   constructor(
     private readonly db: PrismaService,
     private readonly config: ConfigService,
+    private readonly queue: QueueService,
   ) {}
 
   private get jwtSecret(): string {
@@ -120,6 +126,26 @@ export class AuthService {
     })
   }
 
+  /** Creates a single-use, time-limited token row for email verification or password reset. */
+  private async createMagicToken(userId: string, type: MagicTokenType, ttlMs: number): Promise<string> {
+    const token = crypto.randomBytes(32).toString('hex')
+    await this.db.magicToken.create({
+      data: { userId, type, token, expiresAt: new Date(Date.now() + ttlMs) },
+    })
+    return token
+  }
+
+  /** Validates and single-use-consumes a magic token, returning the owning user. */
+  private async consumeMagicToken(token: string, type: MagicTokenType): Promise<User> {
+    const record = await this.db.magicToken.findUnique({ where: { token }, include: { user: true } })
+    if (!record || record.type !== type || record.usedAt || record.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid or expired token')
+    }
+
+    await this.db.magicToken.update({ where: { id: record.id }, data: { usedAt: new Date() } })
+    return record.user
+  }
+
   issueToken(payload: Omit<JwtPayload, 'iat' | 'exp'>, expiresIn = 60 * 60 * 24 * 7): string {
     const now = Math.floor(Date.now() / 1000)
     const fullPayload: JwtPayload = { ...payload, iat: now, exp: now + expiresIn }
@@ -138,6 +164,9 @@ export class AuthService {
     const user = await this.db.user.create({
       data: { email: dto.email, name: dto.name, password: hashedPassword },
     })
+
+    const verificationToken = await this.createMagicToken(user.id, MagicTokenType.EMAIL_VERIFICATION, VERIFICATION_TOKEN_TTL_MS)
+    await this.queue.enqueueEmailVerification({ userId: user.id, token: verificationToken })
 
     const token = this.issueToken({ sub: user.id, role: 'user' })
     return { user: omitPassword(user), token }
@@ -193,7 +222,7 @@ export class AuthService {
       if (byEmail) {
         user = await this.db.user.update({
           where: { id: byEmail.id },
-          data: { googleId: googleUser.sub, avatarUrl: googleUser.picture, lastActiveAt: new Date() },
+          data: { googleId: googleUser.sub, avatarUrl: googleUser.picture, isVerified: true, lastActiveAt: new Date() },
         })
       } else {
         isNew = true
@@ -203,6 +232,7 @@ export class AuthService {
             name: googleUser.name,
             avatarUrl: googleUser.picture,
             googleId: googleUser.sub,
+            isVerified: true,
             lastActiveAt: new Date(),
           },
         })
@@ -294,5 +324,38 @@ export class AuthService {
 
     const token = this.issueToken({ sub: agent.id, role: 'agent' })
     return { agent: omitPassword(agent), token }
+  }
+
+  async verifyEmail(token: string): Promise<Omit<User, 'password'>> {
+    const user = await this.consumeMagicToken(token, MagicTokenType.EMAIL_VERIFICATION)
+    const updated = await this.db.user.update({ where: { id: user.id }, data: { isVerified: true } })
+    return omitPassword(updated)
+  }
+
+  async resendVerification(userId: string): Promise<{ sent: boolean }> {
+    const user = await this.db.user.findUnique({ where: { id: userId } })
+    if (!user || user.isVerified) return { sent: false }
+
+    const verificationToken = await this.createMagicToken(user.id, MagicTokenType.EMAIL_VERIFICATION, VERIFICATION_TOKEN_TTL_MS)
+    await this.queue.enqueueEmailVerification({ userId: user.id, token: verificationToken })
+    return { sent: true }
+  }
+
+  /** Always resolves successfully to avoid leaking which emails have accounts. */
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await this.db.user.findUnique({ where: { email } })
+    if (!user || !user.password) return
+
+    const resetToken = await this.createMagicToken(user.id, MagicTokenType.PASSWORD_RESET, PASSWORD_RESET_TOKEN_TTL_MS)
+    await this.queue.enqueueEmailPasswordReset({ userId: user.id, token: resetToken })
+  }
+
+  async resetPassword(token: string, password: string): Promise<void> {
+    const user = await this.consumeMagicToken(token, MagicTokenType.PASSWORD_RESET)
+    const hashedPassword = await this.hashPassword(password)
+    await this.db.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, isVerified: true },
+    })
   }
 }

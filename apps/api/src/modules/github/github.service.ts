@@ -5,6 +5,7 @@ import * as crypto from 'crypto'
 import { PrismaService } from '../database/prisma.service'
 import type { ConnectGithubDto, UpdateGithubConfigDto, CreateIssueDto, LinkIssueDto } from './github.dto'
 import { formatRef } from '../tickets/util/generate-ref'
+import { isFeatureSuppressed } from '../config/feature-flags'
 
 interface GitHubOAuthResponse {
   access_token?: string
@@ -145,6 +146,11 @@ export class GithubService {
   }
 
   async createIssue(ticketId: string, dto: CreateIssueDto): Promise<{ issue: unknown }> {
+    const appConfig = await this.db.appConfig.findFirst()
+    if (appConfig && isFeatureSuppressed(appConfig, 'githubIssueCreation')) {
+      throw new BadRequestException('GitHub issue creation is disabled (maintenance mode)')
+    }
+
     const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
     if (!ticket) throw new NotFoundException('Ticket not found')
 

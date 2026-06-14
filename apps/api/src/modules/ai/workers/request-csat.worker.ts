@@ -5,6 +5,7 @@ import { AI_REQUEST_CSAT_QUEUE } from '../../queue/queue.module'
 import { PrismaService } from '../../database/prisma.service'
 import { EmailService } from '../../email/email.service'
 import { formatRef } from '../../tickets/util/generate-ref'
+import { isFeatureSuppressed } from '../../config/feature-flags'
 
 @Injectable()
 export class RequestCsatWorker implements OnModuleInit {
@@ -46,6 +47,11 @@ export class RequestCsatWorker implements OnModuleInit {
 
         const appConfig = await this.db.appConfig.findFirst()
         if (!appConfig) return
+
+        if (isFeatureSuppressed(appConfig, 'csatSurvey')) {
+          this.logger.log(`CSAT survey suppressed by feature flag for ticket ${ticketId}`)
+          return
+        }
 
         // Ensure a TicketRating row exists and get the token
         const rating = await this.db.ticketRating.upsert({

@@ -11,6 +11,8 @@ export const KB_SCAN_QUEUE = 'kb:scan'
 export const KB_EMBED_QUEUE = 'kb:embed'
 export const EMAIL_SEND_REPLY_QUEUE = 'email:send-reply'
 export const EMAIL_SEND_CONFIRMATION_QUEUE = 'email:send-confirmation'
+export const EMAIL_SEND_VERIFICATION_QUEUE = 'email:send-verification'
+export const EMAIL_SEND_PASSWORD_RESET_QUEUE = 'email:send-password-reset'
 
 @Global()
 @Module({

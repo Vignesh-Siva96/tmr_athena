@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { verifyAndConsumeState } from '@/lib/googleOAuth'
 
 interface AuthResponse {
-  user: { id: string; email: string; name: string | null; avatarUrl: string | null; isGuest: boolean }
+  user: { id: string; email: string; name: string | null; avatarUrl: string | null; isGuest: boolean; isVerified: boolean }
   token: string
 }
 

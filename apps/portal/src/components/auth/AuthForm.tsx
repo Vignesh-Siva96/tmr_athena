@@ -30,7 +30,7 @@ const signupSchema = z.object({
 type SignupData = z.infer<typeof signupSchema>
 
 interface AuthResponse {
-  user: { id: string; email: string; name: string | null; avatarUrl: string | null; isGuest: boolean }
+  user: { id: string; email: string; name: string | null; avatarUrl: string | null; isGuest: boolean; isVerified: boolean }
   token: string
 }
 
@@ -194,7 +194,7 @@ export default function AuthForm({ initialError }: Props) {
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--p-text)' }}>Password</label>
-              <button type="button" style={{ fontSize: 12, color: 'var(--p-accent)', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <button type="button" onClick={() => router.push('/forgot-password')} style={{ fontSize: 12, color: 'var(--p-accent)', background: 'none', border: 'none', cursor: 'pointer' }}>
                 Forgot password?
               </button>
             </div>

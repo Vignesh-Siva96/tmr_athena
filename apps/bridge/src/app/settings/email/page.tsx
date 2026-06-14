@@ -6,6 +6,7 @@ import { useEmailConfig } from '@/lib/useEmailConfig'
 import { api } from '@/lib/api'
 import { MethodPicker } from '@/components/settings/email/MethodPicker'
 import { ArchiveProgressCard } from '@/components/dashboard/ArchiveProgressCard'
+import { Skeleton } from '@/components/Skeleton'
 
 interface EmailConfig {
   oauthProvider: 'GOOGLE' | 'MICROSOFT' | null
@@ -113,7 +114,17 @@ export default function EmailSettingsPage() {
     }
   }
 
-  if (!cfg) return <div style={{ color: 'var(--d-text-3)', padding: 32 }}>Loading…</div>
+  if (!cfg) return (
+    <div style={{ maxWidth: 580 }}>
+      <Skeleton h={26} w="180px" radius={6} style={{ marginBottom: 10 }} />
+      <Skeleton h={13} w="380px" radius={4} style={{ marginBottom: 28 }} />
+      <div style={{ background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-md)', padding: 24, marginBottom: 20 }}>
+        <Skeleton h={14} w="200px" radius={4} style={{ marginBottom: 16 }} />
+        <Skeleton h={44} radius={8} style={{ marginBottom: 10 }} />
+        <Skeleton h={44} radius={8} />
+      </div>
+    </div>
+  )
 
   const isAdmin = agent?.role === 'ADMIN'
 

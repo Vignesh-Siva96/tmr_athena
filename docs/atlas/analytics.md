@@ -1,8 +1,8 @@
 ---
 title: Analytics
-stack: [NestJS, Prisma `groupBy`, $queryRaw, Recharts, Gemini 2.0 Flash]
+stack: [NestJS, Prisma `groupBy`, $queryRaw, Recharts, Gemini 2.0 Flash, framer-motion]
 status: working
-last-reviewed: 2026-05-24 (chart redesign)
+last-reviewed: 2026-06-14 (ops rework — real-ticket scoping, FRT, triage, bot deflection, SLA)
 ---
 
 
@@ -45,13 +45,55 @@ Two analytics dashboards in Bridge:
 
 ## Operations page
 
-- **KPIs**: total tickets, open, resolved, resolution rate, avg resolution hours, new-this-week + WoW%, unassigned
-- **Volume by day**: 30-day area chart
-- **Donut**: status distribution
-- **Horizontal bars**: category, top 10 connectors, priority
-- **Top customers** (by ticket count, with "At risk" badge for ≥3 open tickets)
-- **Agent performance** (assigned / resolved / open per agent)
-- **Insights row**: tickets-per-customer avg, backlog pressure %, unassigned count
+All operational metrics count **real tickets only** (`isTicket = true`). Conversations (`isTicket=false`, `status=NEW`) and dismissed rows are always excluded.
+
+### Metric definitions
+
+**Responsiveness KPI row** (5 cards):
+- **Open backlog** — real tickets in OPEN/IN_PROGRESS/WAITING; sub-label shows unassigned count.
+- **Agent FRT P50** (first-response time) — median time from clock-start to first human-agent `REPLY` message. Clock start: if a `BotInteraction` with `didAnswer=false` exists, use escalation time; else use `ticket.createdAt`. P90 shown as sub-label.
+- **Resolution time P50** — median `firstResolvedAt − createdAt` for resolved real tickets (last 30d). P90 as sub.
+- **Resolution rate** — % of real tickets in RESOLVED/CLOSED.
+- **SLA compliance %** — share of real tickets where FRT ≤ `AppConfig.slaFirstResponseHours` (default 4h).
+
+**Triage & Automation row** (3–4 cards):
+- **Triage backlog** — count of `{isTicket:false, status:NEW}` + oldest age.
+- **Time to triage P50** — median `convertedAt − createdAt` for real tickets converted in last 30d.
+- **Bot deflection** — `didAnswer=true / total BotInteractions` (last 30d). Hidden when bot is disabled.
+- **Reopen rate** — `reopenCount > 0` tickets ÷ resolved count.
+
+**Charts:**
+- **Created vs Resolved** (30d two-series area chart, replaces single-series volume)
+- **Status breakdown** (pie)
+- **By category**, **field1**, **field2** (horizontal bars, conditional on data)
+- **Priority mix**
+- **Agent performance** (stacked horizontal bar)
+
+**Removed:** High-attention customers table, tickets-per-customer insight card.
+
+### Schema additions (migration 20260614000001)
+
+- `Ticket.convertedAt DateTime?` — set in `tickets.service.ts convert()` when `isTicket` flips to true.
+- `AppConfig.slaFirstResponseHours Int @default(4)` — SLA target read by `AnalyticsService`.
+
+### Premium UX
+
+- Staggered fade+rise entrance via framer-motion (gates on `!loading`).
+- Count-up on integer KPI values via `useMotionValue` (respects `prefers-reduced-motion`).
+- Card hover: lift + border glow (120ms transition).
+- Section labels ("Responsiveness", "Triage & Automation", "Volume & Mix", "Team").
+- Every KPI card and chart card has an `info` prop → `InfoTooltip` (shared component at `apps/bridge/src/components/InfoTooltip.tsx`).
+
+### Frontend components
+
+| Component | File | Notes |
+|---|---|---|
+| `InfoTooltip` | `apps/bridge/src/components/InfoTooltip.tsx` | Shared; promoted from customers/page.tsx local |
+| `KpiCard` | `operations/page.tsx` (local) | `info` prop, accent top-border, hover-lift |
+| `Card` | `operations/page.tsx` (local) | `info` prop, hover-lift |
+| `SectionLabel` | `operations/page.tsx` (local) | Uppercase section header |
+| `CountUp` | `operations/page.tsx` (local) | framer-motion count-up |
+| `InsightCard` | `operations/page.tsx` (local) | Mini insight card in team sidebar |
 
 ## Customer insights page (5 bands)
 
@@ -79,7 +121,7 @@ Every chart title has an `InfoTooltip` (hover `ⓘ` icon) with a one-sentence de
 
 | Component | File | Notes |
 |---|---|---|
-| `InfoTooltip` | `customers/page.tsx` (local) | Hover tooltip; `direction` prop (`'up'` default / `'down'`) controls whether tip renders above or below the icon. KPI cards and signals strip use `direction="down"` to avoid clipping into the sticky header. |
+| `InfoTooltip` | `apps/bridge/src/components/InfoTooltip.tsx` (shared) | Hover tooltip; `direction` prop (`'up'` default / `'down'`) controls whether tip renders above or below the icon. Imported by both operations and customers pages. |
 | `ChartTitle` | `customers/page.tsx` (local) | `<h3>` + inline `InfoTooltip`; used as header for every chart section |
 | `SentimentChart` | `customers/page.tsx` (local) | `LineChart` + right stats panel |
 | `TopicTrendChart` | `customers/page.tsx` (local) | Multi-line `LineChart` + right legend panel |

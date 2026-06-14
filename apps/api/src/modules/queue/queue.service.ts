@@ -12,6 +12,8 @@ import {
   KB_EMBED_QUEUE,
   EMAIL_SEND_REPLY_QUEUE,
   EMAIL_SEND_CONFIRMATION_QUEUE,
+  EMAIL_SEND_VERIFICATION_QUEUE,
+  EMAIL_SEND_PASSWORD_RESET_QUEUE,
 } from './queue.module'
 
 export interface AnalyzeMessageJobData {
@@ -40,6 +42,16 @@ export interface EmailSendReplyJobData {
 
 export interface EmailSendConfirmationJobData {
   ticketId: string
+}
+
+export interface EmailSendVerificationJobData {
+  userId: string
+  token: string
+}
+
+export interface EmailSendPasswordResetJobData {
+  userId: string
+  token: string
 }
 
 export interface KbCrawlJobData {
@@ -198,6 +210,24 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   async enqueueEmailConfirmation(data: EmailSendConfirmationJobData): Promise<void> {
     await this.readyPromise
     await this.boss.send(EMAIL_SEND_CONFIRMATION_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 30,
+      retryBackoff: true,
+    })
+  }
+
+  async enqueueEmailVerification(data: EmailSendVerificationJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(EMAIL_SEND_VERIFICATION_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 30,
+      retryBackoff: true,
+    })
+  }
+
+  async enqueueEmailPasswordReset(data: EmailSendPasswordResetJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(EMAIL_SEND_PASSWORD_RESET_QUEUE, data, {
       retryLimit: 3,
       retryDelay: 30,
       retryBackoff: true,

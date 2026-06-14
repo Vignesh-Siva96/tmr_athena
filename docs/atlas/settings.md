@@ -107,6 +107,31 @@ Operators can define up to two generic dropdowns shown on the portal ticket subm
 
 The portal submit page renders an `OptionSelect` for each dropdown when the options array is non-empty. Ticket rows store the selected values in `Ticket.field1` and `Ticket.field2` (formerly `product`/`connector`, renamed in migration).
 
+## Maintenance mode
+
+Bridge → Settings → General → **Maintenance Mode** section (Admin-only).
+
+A single master toggle (`maintenanceMode`) acts as a global override that silently pauses all five automated features:
+
+| AppConfig field | Feature | Guard location |
+|---|---|---|
+| `featConfirmationEmail` | Confirmation email sent on ticket creation | `send-confirmation.worker.ts` |
+| `featBotReply` | Athena bot auto-reply to new tickets | `bot.service.ts` `respondTo()` |
+| `featAiAnalysis` | Gemini sentiment, topic classification, CSAT scoring | `analyze-message.worker.ts`, `classify-ticket.worker.ts` |
+| `featCsatSurvey` | CSAT survey email sent on ticket resolution | `request-csat.worker.ts` |
+| `featGithubIssueCreation` | Agent creates a GitHub issue from a ticket | `github.service.ts` `createIssue()` |
+
+**Effective rule** at every guard point: `!maintenanceMode && <featureFlag>`.
+
+The shared helper `apps/api/src/modules/config/feature-flags.ts` (`isFeatureSuppressed`) encodes this rule. Each guard loads the already-fetched `AppConfig` and calls `isFeatureSuppressed(config, '<feature>')`.
+
+**UI behaviour:**
+- Toggling the master switch (either direction) opens a confirm modal before PATCHing.
+- When `maintenanceMode` is ON, the five individual switches are disabled and dimmed with an "Overridden by maintenance mode" hint.
+- When OFF, each individual switch PATCHes its own flag immediately (no confirmation needed).
+
+**Decision:** bot suppressed = leave for humans silently (no BotInteraction written, ticket stays NEW/unassigned). GitHub issue creation throws `BadRequestException(400)` so the UI surfaces the block to the agent.
+
 ## Known gaps
 
 - No "config history" / rollback.

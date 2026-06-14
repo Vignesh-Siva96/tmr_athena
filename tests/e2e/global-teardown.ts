@@ -1,17 +1,14 @@
-import { FullConfig } from '@playwright/test'
-import { readFileSync, unlinkSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { execSync } from 'node:child_process'
+/**
+ * Playwright global teardown.
+ *
+ * Intentionally a no-op: container lifecycle is owned by tests/e2e/infra.ts so
+ * that `--ui` / repeated local runs can reuse a warm stack. `pnpm test:e2e`
+ * calls `infra.ts down` after the run; for manual sessions run
+ * `pnpm test:e2e:infra:down` when finished.
+ */
 
-const STATE_FILE = resolve(__dirname, '../..', '.playwright-state.json')
+import { FullConfig } from '@playwright/test'
 
 export default async function globalTeardown(_: FullConfig): Promise<void> {
-  if (!existsSync(STATE_FILE)) return
-  const { pgId, minioId } = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as {
-    pgId: string
-    minioId: string
-  }
-  try { execSync(`docker stop ${pgId}`, { stdio: 'ignore' }) } catch {}
-  try { execSync(`docker stop ${minioId}`, { stdio: 'ignore' }) } catch {}
-  unlinkSync(STATE_FILE)
+  // no-op — see header
 }

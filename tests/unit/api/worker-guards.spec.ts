@@ -10,13 +10,15 @@
  *   R192 — SendReplyWorker refuses to email INTERNAL_NOTE (T2.2)
  *   R193 — RequestCsatWorker skips send when csat_requested SYSTEM_EVENT exists (T2.3)
  *   R194 — ClassifyTicketWorker only increments/decrements topicCount when topic changes (T2.3)
+ *   R210 — SendVerificationWorker skips already-verified users / missing AppConfig (T2.4)
+ *   R211 — SendPasswordResetWorker skips missing AppConfig / unknown user (T2.4)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-type HandlerFn = (job: { data: Record<string, unknown> }) => Promise<void>
+type HandlerFn = (job: { data: Record<string, unknown>; retrycount?: number; retrylimit?: number }) => Promise<void>
 
 function makeBoss() {
   let captured: HandlerFn | undefined
@@ -205,6 +207,7 @@ describe('R194 — ClassifyTicketWorker: ticketCount only changes when topic ass
       getBoss: vi.fn().mockReturnValue(boss),
     }
     const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue({ maintenanceMode: false }) },
       ticket: {
         findUnique: vi.fn().mockResolvedValue({
           id: 't1',
@@ -292,5 +295,123 @@ describe('R194 — ClassifyTicketWorker: ticketCount only changes when topic ass
     // Should have: ticketUpdate + ratingUpsert = 2 ops (no topic count changes)
     expect(ops).toHaveLength(2)
     expect(mockDb.topic.update).not.toHaveBeenCalled()
+  })
+})
+
+// ─── R210 — SendVerificationWorker: verified-user / missing-config guards ────
+
+describe('R210 — SendVerificationWorker: skips already-verified users and missing AppConfig', () => {
+  async function makeWorker(mockDb: Record<string, unknown>) {
+    const sendEmailVerification = vi.fn().mockResolvedValue(undefined)
+    const boss = makeBoss()
+    const mockQueue = {
+      ready: vi.fn().mockResolvedValue(undefined),
+      getBoss: vi.fn().mockReturnValue(boss),
+    }
+    const mockConfig = { get: vi.fn().mockReturnValue('http://localhost:3000') }
+
+    const { SendVerificationWorker } = await import(
+      '../../../apps/api/src/modules/email/workers/send-verification.worker'
+    )
+    const worker = new SendVerificationWorker(mockQueue as any, { sendEmailVerification } as any, mockDb as any, mockConfig as any)
+    await worker.onModuleInit()
+    return { handler: boss.getHandler(), sendEmailVerification }
+  }
+
+  it('sends the verification email for an unverified user', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue({ appName: 'TMR' }) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u1', email: 'u1@test.com', isVerified: false }) },
+    }
+    const { handler, sendEmailVerification } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'u1', token: 'tok1' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendEmailVerification).toHaveBeenCalledOnce()
+    const [, verifyUrl] = sendEmailVerification.mock.calls[0]
+    expect(verifyUrl).toBe('http://localhost:3000/verify-email?token=tok1')
+  })
+
+  it('does NOT send when the user is already verified', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue({ appName: 'TMR' }) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u2', email: 'u2@test.com', isVerified: true }) },
+    }
+    const { handler, sendEmailVerification } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'u2', token: 'tok2' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendEmailVerification).not.toHaveBeenCalled()
+  })
+
+  it('does NOT send when no AppConfig exists', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue(null) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u3', email: 'u3@test.com', isVerified: false }) },
+    }
+    const { handler, sendEmailVerification } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'u3', token: 'tok3' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendEmailVerification).not.toHaveBeenCalled()
+  })
+})
+
+// ─── R211 — SendPasswordResetWorker: missing-config / unknown-user guards ────
+
+describe('R211 — SendPasswordResetWorker: skips missing AppConfig and unknown users', () => {
+  async function makeWorker(mockDb: Record<string, unknown>) {
+    const sendPasswordReset = vi.fn().mockResolvedValue(undefined)
+    const boss = makeBoss()
+    const mockQueue = {
+      ready: vi.fn().mockResolvedValue(undefined),
+      getBoss: vi.fn().mockReturnValue(boss),
+    }
+    const mockConfig = { get: vi.fn().mockReturnValue('http://localhost:3000') }
+
+    const { SendPasswordResetWorker } = await import(
+      '../../../apps/api/src/modules/email/workers/send-password-reset.worker'
+    )
+    const worker = new SendPasswordResetWorker(mockQueue as any, { sendPasswordReset } as any, mockDb as any, mockConfig as any)
+    await worker.onModuleInit()
+    return { handler: boss.getHandler(), sendPasswordReset }
+  }
+
+  it('sends the password reset email for a known user', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue({ appName: 'TMR' }) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u1', email: 'u1@test.com' }) },
+    }
+    const { handler, sendPasswordReset } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'u1', token: 'tok1' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendPasswordReset).toHaveBeenCalledOnce()
+    const [, resetUrl] = sendPasswordReset.mock.calls[0]
+    expect(resetUrl).toBe('http://localhost:3000/reset-password?token=tok1')
+  })
+
+  it('does NOT send when no AppConfig exists', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue(null) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u2', email: 'u2@test.com' }) },
+    }
+    const { handler, sendPasswordReset } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'u2', token: 'tok2' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendPasswordReset).not.toHaveBeenCalled()
+  })
+
+  it('does NOT send when the user no longer exists', async () => {
+    const mockDb = {
+      appConfig: { findFirst: vi.fn().mockResolvedValue({ appName: 'TMR' }) },
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
+    }
+    const { handler, sendPasswordReset } = await makeWorker(mockDb)
+
+    await handler({ data: { userId: 'no-such-user', token: 'tok3' }, retrycount: 0, retrylimit: 3 })
+
+    expect(sendPasswordReset).not.toHaveBeenCalled()
   })
 })

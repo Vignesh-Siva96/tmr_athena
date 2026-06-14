@@ -5,6 +5,7 @@ import { GeminiService } from '../gemini.service'
 import { PrismaService } from '../../database/prisma.service'
 import { formatRef } from '../../tickets/util/generate-ref'
 import type { Prisma } from '@tmr/db'
+import { isFeatureSuppressed } from '../../config/feature-flags'
 
 @Injectable()
 export class AnalyzeMessageWorker implements OnModuleInit {
@@ -20,6 +21,12 @@ export class AnalyzeMessageWorker implements OnModuleInit {
     await this.queue.ready()
     this.queue.getBoss().work<AnalyzeMessageJobData>(AI_ANALYZE_MESSAGE_QUEUE, async (job) => {
       const { messageId, ticketId } = job.data
+
+      const appConfig = await this.db.appConfig.findFirst()
+      if (appConfig && isFeatureSuppressed(appConfig, 'aiAnalysis')) {
+        this.logger.log(`AI analysis suppressed by feature flag for message ${messageId}`)
+        return
+      }
 
       const message = await this.db.message.findUnique({
         where: { id: messageId },

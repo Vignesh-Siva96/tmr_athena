@@ -28,7 +28,8 @@
   --d-note-bg: rgba(245,158,11,0.06);
   --d-note-line: rgba(245,158,11,0.30);
   --d-note-text: #FDE68A;
-  --d-shadow-card: none;
+  --d-shadow-card: 0 1px 2px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25);
+  --d-shadow-lg:   0 4px 12px rgba(0,0,0,0.45), 0 16px 32px rgba(0,0,0,0.35);
   --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 12px;
   /* next/font/google loads Geist + Geist Mono and exposes them via these CSS
      variables on <html> (see apps/bridge/src/app/layout.tsx). The chain below
@@ -78,13 +79,17 @@ html[data-theme="light"] {
   --d-note-text: #92400E;
 
   /* Shadows (replace tone-only elevation from dark) */
-  --d-shadow-card: 0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06);
-  --d-shadow-lg:   0 4px 12px rgba(15,23,42,0.04), 0 16px 32px rgba(15,23,42,0.08);
+  --d-shadow-card: 0 1px 3px rgba(16,24,40,0.07), 0 4px 12px rgba(16,24,40,0.08);
+  --d-shadow-lg:   0 4px 16px rgba(16,24,40,0.10), 0 16px 40px rgba(16,24,40,0.14);
 }
 
-/* ─── CARD ELEVATION — only active in light mode ────────────────────────── */
+/* ─── CARD ELEVATION — active in both themes ─────────────────────────────── */
 html[data-theme="light"] [style*="background: var(--d-raised)"],
 html[data-theme="light"] [style*="background:var(--d-raised)"] {
+  box-shadow: var(--d-shadow-card);
+}
+html:not([data-theme="light"]) [style*="background: var(--d-raised)"],
+html:not([data-theme="light"]) [style*="background:var(--d-raised)"] {
   box-shadow: var(--d-shadow-card);
 }
 
