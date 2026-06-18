@@ -1,0 +1,4012 @@
+{
+  "version": 1,
+  "updated": "2026-06-16",
+  "index": {
+    "module:AgentsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/agents",
+      "connects": []
+    },
+    "module:AiModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/ai",
+      "connects": [
+        "feature:ai",
+        "module:DatabaseModule",
+        "module:EmailModule"
+      ]
+    },
+    "module:AnalyticsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/analytics",
+      "connects": [
+        "feature:analytics",
+        "module:AppConfigModule",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:AppConfigModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/config",
+      "connects": [
+        "feature:settings",
+        "module:DatabaseModule",
+        "module:FilesModule"
+      ]
+    },
+    "module:AppEventsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/app-events",
+      "connects": []
+    },
+    "module:AuthModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/auth",
+      "connects": [
+        "feature:auth"
+      ]
+    },
+    "module:BotModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/bot",
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule",
+        "module:EmailModule",
+        "module:EventsModule",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "module:DatabaseModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/database",
+      "connects": []
+    },
+    "module:EmailModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/email",
+      "connects": [
+        "feature:email",
+        "feature:messages",
+        "module:AppConfigModule",
+        "module:DatabaseModule",
+        "module:EmailOAuthModule"
+      ]
+    },
+    "module:EmailOAuthModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/email-oauth",
+      "connects": [
+        "feature:email",
+        "module:AppConfigModule",
+        "module:AppEventsModule"
+      ]
+    },
+    "module:EmailSyncModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/email-sync",
+      "connects": [
+        "feature:email",
+        "module:AppConfigModule",
+        "module:AppEventsModule",
+        "module:EmailModule",
+        "module:EmailOAuthModule",
+        "module:FilesModule"
+      ]
+    },
+    "module:EventsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/events",
+      "connects": []
+    },
+    "module:FilesModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/files",
+      "connects": [
+        "feature:files"
+      ]
+    },
+    "module:GithubModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/github",
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "module:HealthModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/health",
+      "connects": []
+    },
+    "module:KnowledgeBaseModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/knowledge-base",
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:MessagesModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/messages",
+      "connects": [
+        "feature:messages",
+        "feature:tickets",
+        "module:EmailModule"
+      ]
+    },
+    "module:NotificationsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/notifications",
+      "connects": [
+        "feature:notifications"
+      ]
+    },
+    "module:QueueModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/queue",
+      "connects": [
+        "feature:ai",
+        "feature:queue"
+      ]
+    },
+    "module:ShiftsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/shifts",
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:TicketsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/tickets",
+      "connects": [
+        "feature:tickets"
+      ]
+    },
+    "module:UsersModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/users",
+      "connects": [
+        "feature:tickets"
+      ]
+    },
+    "entity:AppConfig": {
+      "summary": "AppConfig table",
+      "connects": [
+        "entity:Notification",
+        "feature:bot",
+        "feature:email",
+        "feature:github",
+        "feature:settings"
+      ]
+    },
+    "entity:User": {
+      "summary": "User table",
+      "connects": [
+        "entity:AiUsage",
+        "entity:BotInteraction",
+        "entity:CustomerNote",
+        "entity:CustomerSignal",
+        "entity:MagicToken",
+        "entity:Message",
+        "entity:Ticket",
+        "feature:analytics",
+        "feature:auth",
+        "feature:tickets"
+      ]
+    },
+    "entity:MagicToken": {
+      "summary": "MagicToken table",
+      "connects": [
+        "entity:User",
+        "feature:auth"
+      ]
+    },
+    "entity:SsoUsedToken": {
+      "summary": "SsoUsedToken table \u2014 replay protection for SSO handoff JWTs (jti uniqueness)",
+      "connects": [
+        "feature:auth"
+      ]
+    },
+    "entity:Agent": {
+      "summary": "Agent table",
+      "connects": [
+        "entity:BotInteraction",
+        "entity:CustomerNote",
+        "entity:Message",
+        "entity:NotificationRead",
+        "entity:Shift",
+        "entity:Ticket",
+        "feature:auth",
+        "feature:bot",
+        "feature:tickets"
+      ]
+    },
+    "entity:Shift": {
+      "summary": "Shift table",
+      "connects": [
+        "entity:Agent",
+        "feature:bot"
+      ]
+    },
+    "entity:Ticket": {
+      "summary": "Ticket table",
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:Attachment",
+        "entity:BotInteraction",
+        "entity:CustomerSignal",
+        "entity:GithubIssue",
+        "entity:Message",
+        "entity:Notification",
+        "entity:Tag",
+        "entity:TicketRating",
+        "entity:Topic",
+        "entity:User",
+        "feature:ai",
+        "feature:analytics",
+        "feature:bot",
+        "feature:email",
+        "feature:github",
+        "feature:tickets"
+      ]
+    },
+    "entity:Message": {
+      "summary": "Message table",
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:Attachment",
+        "entity:CustomerSignal",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:bot",
+        "feature:email",
+        "feature:messages"
+      ]
+    },
+    "entity:Attachment": {
+      "summary": "Attachment table",
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "feature:email",
+        "feature:files",
+        "feature:tickets"
+      ]
+    },
+    "entity:Tag": {
+      "summary": "Tag table",
+      "connects": [
+        "entity:Ticket",
+        "feature:tickets"
+      ]
+    },
+    "entity:GithubConfig": {
+      "summary": "GithubConfig table",
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "entity:GithubIssue": {
+      "summary": "GithubIssue table",
+      "connects": [
+        "entity:Ticket",
+        "feature:github"
+      ]
+    },
+    "entity:CannedResponse": {
+      "summary": "CannedResponse table",
+      "connects": [
+        "feature:messages"
+      ]
+    },
+    "entity:CustomerNote": {
+      "summary": "CustomerNote table",
+      "connects": [
+        "entity:Agent",
+        "entity:User",
+        "feature:analytics"
+      ]
+    },
+    "entity:Notification": {
+      "summary": "Notification table",
+      "connects": [
+        "entity:AppConfig",
+        "entity:NotificationRead",
+        "entity:Ticket",
+        "feature:ai",
+        "feature:github",
+        "feature:notifications"
+      ]
+    },
+    "entity:NotificationRead": {
+      "summary": "NotificationRead table",
+      "connects": [
+        "entity:Agent",
+        "entity:Notification",
+        "feature:notifications"
+      ]
+    },
+    "entity:Topic": {
+      "summary": "Topic table",
+      "connects": [
+        "entity:Ticket",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:TicketRating": {
+      "summary": "TicketRating table",
+      "connects": [
+        "entity:Ticket",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:CustomerSignal": {
+      "summary": "CustomerSignal table",
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:AiUsage": {
+      "summary": "AiUsage table",
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:bot"
+      ]
+    },
+    "entity:KnowledgeSource": {
+      "summary": "KnowledgeSource table",
+      "connects": [
+        "entity:KnowledgeChunk",
+        "feature:bot"
+      ]
+    },
+    "entity:KnowledgeChunk": {
+      "summary": "KnowledgeChunk table",
+      "connects": [
+        "entity:KnowledgeSource",
+        "feature:bot"
+      ]
+    },
+    "entity:BotInteraction": {
+      "summary": "BotInteraction table",
+      "connects": [
+        "entity:Agent",
+        "entity:Ticket",
+        "entity:User",
+        "feature:bot"
+      ]
+    },
+    "route:POST /api/v1/tickets": {
+      "summary": "POST /api/v1/tickets \u2192 TicketsController.create",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets": {
+      "summary": "GET /api/v1/tickets \u2192 TicketsController.list",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets/:id": {
+      "summary": "GET /api/v1/tickets/:id \u2192 TicketsController.findById",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:PATCH /api/v1/tickets/:id": {
+      "summary": "PATCH /api/v1/tickets/:id \u2192 TicketsController.update",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/convert": {
+      "summary": "POST /api/v1/tickets/:id/convert \u2192 TicketsController.convert",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/discard": {
+      "summary": "POST /api/v1/tickets/:id/discard \u2192 TicketsController.discard",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets/stats": {
+      "summary": "GET /api/v1/tickets/stats \u2192 TicketsController.stats",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/users": {
+      "summary": "GET /api/v1/users \u2192 UsersController.listCustomers",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:GET /api/v1/users/:id": {
+      "summary": "GET /api/v1/users/:id \u2192 UsersController.findById",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:PATCH /api/v1/users/:id": {
+      "summary": "PATCH /api/v1/users/:id \u2192 UsersController.updateCategory",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:ticketId/messages": {
+      "summary": "POST /api/v1/tickets/:ticketId/messages \u2192 MessagesController.create",
+      "connects": [
+        "feature:messages",
+        "module:MessagesModule"
+      ]
+    },
+    "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId": {
+      "summary": "PATCH /api/v1/tickets/:ticketId/messages/:messageId \u2192 MessagesController.update",
+      "connects": [
+        "feature:messages",
+        "module:MessagesModule"
+      ]
+    },
+    "route:GET /api/v1/sync/status": {
+      "summary": "GET /api/v1/sync/status \u2192 EmailSyncController.getStatus",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:POST /api/v1/sync/poll/now": {
+      "summary": "POST /api/v1/sync/poll/now \u2192 EmailSyncController.pollNow",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:POST /api/v1/sync/backfill/run": {
+      "summary": "POST /api/v1/sync/backfill/run \u2192 EmailSyncController.runBackfill",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:GET /api/v1/config/email/oauth/:provider/start": {
+      "summary": "GET /api/v1/config/email/oauth/:provider/start \u2192 EmailOAuthController.getAuthUrl",
+      "connects": [
+        "feature:email",
+        "module:EmailOAuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/signin": {
+      "summary": "POST /api/v1/auth/signin \u2192 AuthController.signin",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/signup": {
+      "summary": "POST /api/v1/auth/signup \u2192 AuthController.signup",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/google": {
+      "summary": "POST /api/v1/auth/google \u2192 AuthController.googleAuth",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/sso": {
+      "summary": "POST /api/v1/auth/sso \u2192 AuthController.ssoAuth \u2014 exchanges a host-signed HS256 handoff JWT for a portal session",
+      "connects": [
+        "entity:SsoUsedToken",
+        "entity:User",
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/github/webhook": {
+      "summary": "POST /api/v1/github/webhook \u2192 GithubController.handleWebhook",
+      "connects": [
+        "feature:github",
+        "module:GithubModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/github/issues": {
+      "summary": "POST /api/v1/tickets/:id/github/issues \u2192 GithubController.createIssue",
+      "connects": [
+        "feature:github",
+        "module:GithubModule"
+      ]
+    },
+    "route:GET /api/v1/analytics": {
+      "summary": "GET /api/v1/analytics \u2192 AnalyticsController.getOverview",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/analytics/customers": {
+      "summary": "GET /api/v1/analytics/customers \u2192 CustomersController.getCustomerInsights",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/rate/:token": {
+      "summary": "GET /api/v1/rate/:token \u2192 RatingController.getRatingForm",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:POST /api/v1/rate/:token": {
+      "summary": "POST /api/v1/rate/:token \u2192 RatingController.submitRating",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/config": {
+      "summary": "GET /api/v1/config \u2192 ConfigController.get",
+      "connects": [
+        "feature:settings",
+        "module:AppConfigModule"
+      ]
+    },
+    "route:POST /api/v1/files/upload": {
+      "summary": "POST /api/v1/files/upload \u2192 FilesController.upload",
+      "connects": [
+        "feature:files",
+        "module:FilesModule"
+      ]
+    },
+    "route:POST /api/v1/kb/scan/start": {
+      "summary": "POST /api/v1/kb/scan/start \u2192 KnowledgeBaseController.startScan",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:POST /api/v1/kb/embed/confirm": {
+      "summary": "POST /api/v1/kb/embed/confirm \u2192 KnowledgeBaseController.confirmEmbed",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:GET /api/v1/kb/status": {
+      "summary": "GET /api/v1/kb/status \u2192 KnowledgeBaseController.getStatus",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:GET /api/v1/shifts": {
+      "summary": "GET /api/v1/shifts \u2192 ShiftsController.findAll",
+      "connects": [
+        "feature:bot",
+        "module:ShiftsModule"
+      ]
+    },
+    "route:GET /api/v1/notifications": {
+      "summary": "GET /api/v1/notifications \u2192 NotificationsController.list",
+      "connects": [
+        "feature:notifications",
+        "module:NotificationsModule"
+      ]
+    },
+    "route:GET /api/v1/settings/ai-usage": {
+      "summary": "GET /api/v1/settings/ai-usage \u2192 AiUsageController.getAiUsage",
+      "connects": [
+        "feature:ai",
+        "module:AppConfigModule"
+      ]
+    },
+    "ext:Gmail": {
+      "summary": "Gmail REST API",
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "ext:MicrosoftGraph": {
+      "summary": "Microsoft Graph API",
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "ext:GitHub": {
+      "summary": "GitHub REST API + Webhooks",
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "ext:Gemini": {
+      "summary": "Google Gemini",
+      "connects": [
+        "feature:ai",
+        "feature:bot"
+      ]
+    },
+    "ext:MinIO": {
+      "summary": "MinIO (S3-compatible object storage)",
+      "connects": [
+        "feature:files"
+      ]
+    },
+    "queue:email-ingest-thread": {
+      "summary": "Per-thread ingestion job enqueued by the live poller; ingest-thread.worker.ts parses the thread, dedupes by VERP token, creates/updates Ticket+Message rows.",
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "queue:email-send-reply": {
+      "summary": "Enqueued when an agent sends a reply via portal+email; send-reply.worker.ts sends via Nodemailer/Graph with VERP reply-to threading.",
+      "connects": [
+        "feature:email",
+        "feature:messages"
+      ]
+    },
+    "queue:email-send-confirmation": {
+      "summary": "Sends the ticket-received confirmation email via send-confirmation.worker.ts.",
+      "connects": [
+        "feature:email",
+        "feature:tickets"
+      ]
+    },
+    "queue:ai-analyze-message": {
+      "summary": "Sentiment analysis for each inbound message.",
+      "connects": [
+        "feature:ai",
+        "feature:messages"
+      ]
+    },
+    "queue:ai-classify-ticket": {
+      "summary": "Topic classification on ticket creation/update; also computes the AI CSAT estimate.",
+      "connects": [
+        "feature:ai",
+        "feature:tickets"
+      ]
+    },
+    "queue:ai-request-csat": {
+      "summary": "Sends the CSAT rating-request email when a ticket is resolved, creating a TicketRating row.",
+      "connects": [
+        "feature:analytics",
+        "feature:tickets"
+      ]
+    },
+    "queue:bot-respond-to-ticket": {
+      "summary": "Enqueued on new ticket creation; Athena retrieves KB context and replies or escalates to the on-shift agent.",
+      "connects": [
+        "feature:bot",
+        "feature:tickets"
+      ]
+    },
+    "queue:kb-crawl-and-index": {
+      "summary": "Crawls AppConfig.kbRootUrl and indexes discovered pages.",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-scan": {
+      "summary": "Phase 1 of (re)index: scans pages, estimates embedding cost (kbScanPagesSeen/kbScanCostUsd).",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-embed": {
+      "summary": "Phase 2: embeds chunks into pgvector after scan confirmation (kbEmbedChunksDone/kbEmbedChunksTotal).",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-index-page": {
+      "summary": "Per-page indexing job that chunks and embeds a single page's content.",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "feature:email": {
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free \u2014 thread lives in the email client's native chain.",
+      "connects": [
+        "entity:AppConfig",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "ext:Gmail",
+        "ext:MicrosoftGraph",
+        "module:EmailModule",
+        "module:EmailOAuthModule",
+        "module:EmailSyncModule",
+        "queue:email-ingest-thread",
+        "queue:email-send-confirmation",
+        "queue:email-send-reply",
+        "route:GET /api/v1/config/email/oauth/:provider/start",
+        "route:GET /api/v1/sync/status",
+        "route:POST /api/v1/sync/backfill/run",
+        "route:POST /api/v1/sync/poll/now"
+      ]
+    },
+    "feature:tickets": {
+      "summary": "Core ticketing aggregate \u2014 status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
+      "connects": [
+        "entity:Agent",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Tag",
+        "entity:Ticket",
+        "entity:Topic",
+        "entity:User",
+        "module:MessagesModule",
+        "module:TicketsModule",
+        "module:UsersModule",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:bot-respond-to-ticket",
+        "queue:email-send-confirmation",
+        "route:GET /api/v1/tickets",
+        "route:GET /api/v1/tickets/:id",
+        "route:GET /api/v1/tickets/stats",
+        "route:GET /api/v1/users",
+        "route:GET /api/v1/users/:id",
+        "route:PATCH /api/v1/tickets/:id",
+        "route:PATCH /api/v1/users/:id",
+        "route:POST /api/v1/tickets",
+        "route:POST /api/v1/tickets/:id/convert",
+        "route:POST /api/v1/tickets/:id/discard"
+      ]
+    },
+    "feature:messages": {
+      "summary": "Per-ticket message thread: customer replies, agent replies (sent via portal and/or email), and internal-only notes; tracks per-message sentiment from AI analysis.",
+      "connects": [
+        "entity:Agent",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "module:EmailModule",
+        "module:MessagesModule",
+        "queue:ai-analyze-message",
+        "queue:email-send-reply",
+        "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId",
+        "route:POST /api/v1/tickets/:ticketId/messages"
+      ]
+    },
+    "feature:github": {
+      "summary": "Links tickets to GitHub issues (create/link/unlink), receives webhook events to post fix-deployed notifications, and surfaces repo/issue status on the ticket.",
+      "connects": [
+        "entity:GithubConfig",
+        "entity:GithubIssue",
+        "entity:Notification",
+        "entity:Ticket",
+        "ext:GitHub",
+        "module:GithubModule",
+        "route:POST /api/v1/github/webhook",
+        "route:POST /api/v1/tickets/:id/github/issues"
+      ]
+    },
+    "feature:notifications": {
+      "summary": "In-app agent notifications (GitHub fix-deployed, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE.",
+      "connects": [
+        "entity:Agent",
+        "entity:Notification",
+        "entity:NotificationRead",
+        "module:NotificationsModule",
+        "route:GET /api/v1/notifications"
+      ]
+    },
+    "feature:analytics": {
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form.",
+      "connects": [
+        "entity:AiUsage",
+        "entity:CustomerNote",
+        "entity:CustomerSignal",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:TicketRating",
+        "entity:Topic",
+        "module:AnalyticsModule",
+        "queue:ai-request-csat",
+        "route:GET /api/v1/analytics",
+        "route:GET /api/v1/analytics/customers",
+        "route:GET /api/v1/rate/:token",
+        "route:POST /api/v1/rate/:token"
+      ]
+    },
+    "feature:ai": {
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call.",
+      "connects": [
+        "entity:AiUsage",
+        "entity:CustomerSignal",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:TicketRating",
+        "entity:Topic",
+        "ext:Gemini",
+        "module:AiModule",
+        "module:QueueModule",
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket",
+        "route:GET /api/v1/settings/ai-usage"
+      ]
+    },
+    "feature:files": {
+      "summary": "Upload/storage for ticket attachments and inline message/email attachments via MinIO (S3-compatible).",
+      "connects": [
+        "entity:Attachment",
+        "ext:MinIO",
+        "module:FilesModule",
+        "route:POST /api/v1/files/upload"
+      ]
+    },
+    "feature:settings": {
+      "summary": "Single-row instance-wide configuration: branding (logo, colors, portal hero copy), email/OAuth credentials, GitHub webhook config, bot/KB settings, feature flags, SLA, and configurable field1/field2 ticket fields.",
+      "connects": [
+        "entity:AppConfig",
+        "module:AppConfigModule",
+        "route:GET /api/v1/config"
+      ]
+    },
+    "feature:auth": {
+      "summary": "Customer auth (email/password, Google OAuth, guest sessions, SSO handoff, email verification, password reset via magic tokens) and separate agent auth (password/Google) for the dashboard.",
+      "connects": [
+        "entity:Agent",
+        "entity:MagicToken",
+        "entity:SsoUsedToken",
+        "entity:User",
+        "module:AuthModule",
+        "route:POST /api/v1/auth/google",
+        "route:POST /api/v1/auth/signin",
+        "route:POST /api/v1/auth/signup",
+        "route:POST /api/v1/auth/sso"
+      ]
+    },
+    "feature:queue": {
+      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing \u2014 durable Postgres-backed queues, no separate broker.",
+      "connects": [
+        "module:QueueModule",
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:bot-respond-to-ticket",
+        "queue:email-ingest-thread",
+        "queue:email-send-confirmation",
+        "queue:email-send-reply",
+        "queue:kb-crawl-and-index",
+        "queue:kb-embed",
+        "queue:kb-index-page",
+        "queue:kb-scan"
+      ]
+    },
+    "feature:bot": {
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently.",
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:BotInteraction",
+        "entity:KnowledgeChunk",
+        "entity:KnowledgeSource",
+        "entity:Message",
+        "entity:Shift",
+        "entity:Ticket",
+        "ext:Gemini",
+        "module:BotModule",
+        "module:KnowledgeBaseModule",
+        "module:ShiftsModule",
+        "queue:bot-respond-to-ticket",
+        "queue:kb-crawl-and-index",
+        "queue:kb-embed",
+        "queue:kb-index-page",
+        "queue:kb-scan",
+        "route:GET /api/v1/kb/status",
+        "route:GET /api/v1/shifts",
+        "route:POST /api/v1/kb/embed/confirm",
+        "route:POST /api/v1/kb/scan/start"
+      ]
+    }
+  },
+  "nodes": {
+    "module:AgentsModule": {
+      "kind": "module",
+      "name": "AgentsModule",
+      "path": "apps/api/src/modules/agents",
+      "imports": [],
+      "usedBy": [],
+      "connects": []
+    },
+    "module:AiModule": {
+      "kind": "module",
+      "name": "AiModule",
+      "path": "apps/api/src/modules/ai",
+      "imports": [
+        "module:DatabaseModule",
+        "module:EmailModule"
+      ],
+      "usedBy": [
+        "feature:ai"
+      ],
+      "connects": [
+        "feature:ai",
+        "module:DatabaseModule",
+        "module:EmailModule"
+      ]
+    },
+    "module:AnalyticsModule": {
+      "kind": "module",
+      "name": "AnalyticsModule",
+      "path": "apps/api/src/modules/analytics",
+      "imports": [
+        "module:DatabaseModule",
+        "module:AppConfigModule"
+      ],
+      "usedBy": [
+        "feature:analytics"
+      ],
+      "connects": [
+        "feature:analytics",
+        "module:AppConfigModule",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:AppConfigModule": {
+      "kind": "module",
+      "name": "AppConfigModule",
+      "path": "apps/api/src/modules/config",
+      "imports": [
+        "module:DatabaseModule",
+        "module:FilesModule"
+      ],
+      "usedBy": [
+        "feature:settings"
+      ],
+      "connects": [
+        "feature:settings",
+        "module:DatabaseModule",
+        "module:FilesModule"
+      ]
+    },
+    "module:AppEventsModule": {
+      "kind": "module",
+      "name": "AppEventsModule",
+      "path": "apps/api/src/modules/app-events",
+      "imports": [],
+      "usedBy": [],
+      "connects": []
+    },
+    "module:AuthModule": {
+      "kind": "module",
+      "name": "AuthModule",
+      "path": "apps/api/src/modules/auth",
+      "imports": [],
+      "usedBy": [
+        "feature:auth"
+      ],
+      "connects": [
+        "feature:auth"
+      ]
+    },
+    "module:BotModule": {
+      "kind": "module",
+      "name": "BotModule",
+      "path": "apps/api/src/modules/bot",
+      "imports": [
+        "module:DatabaseModule",
+        "module:EmailModule",
+        "module:KnowledgeBaseModule",
+        "module:EventsModule"
+      ],
+      "usedBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule",
+        "module:EmailModule",
+        "module:EventsModule",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "module:DatabaseModule": {
+      "kind": "module",
+      "name": "DatabaseModule",
+      "path": "apps/api/src/modules/database",
+      "imports": [],
+      "usedBy": [],
+      "connects": []
+    },
+    "module:EmailModule": {
+      "kind": "module",
+      "name": "EmailModule",
+      "path": "apps/api/src/modules/email",
+      "imports": [
+        "module:AppConfigModule",
+        "module:EmailOAuthModule",
+        "module:DatabaseModule"
+      ],
+      "usedBy": [
+        "feature:email",
+        "feature:messages"
+      ],
+      "connects": [
+        "feature:email",
+        "feature:messages",
+        "module:AppConfigModule",
+        "module:DatabaseModule",
+        "module:EmailOAuthModule"
+      ]
+    },
+    "module:EmailOAuthModule": {
+      "kind": "module",
+      "name": "EmailOAuthModule",
+      "path": "apps/api/src/modules/email-oauth",
+      "imports": [
+        "module:AppConfigModule",
+        "module:AppEventsModule"
+      ],
+      "usedBy": [
+        "feature:email"
+      ],
+      "connects": [
+        "feature:email",
+        "module:AppConfigModule",
+        "module:AppEventsModule"
+      ]
+    },
+    "module:EmailSyncModule": {
+      "kind": "module",
+      "name": "EmailSyncModule",
+      "path": "apps/api/src/modules/email-sync",
+      "imports": [
+        "module:AppConfigModule",
+        "module:EmailModule",
+        "module:EmailOAuthModule",
+        "module:AppEventsModule",
+        "module:FilesModule"
+      ],
+      "usedBy": [
+        "feature:email"
+      ],
+      "connects": [
+        "feature:email",
+        "module:AppConfigModule",
+        "module:AppEventsModule",
+        "module:EmailModule",
+        "module:EmailOAuthModule",
+        "module:FilesModule"
+      ]
+    },
+    "module:EventsModule": {
+      "kind": "module",
+      "name": "EventsModule",
+      "path": "apps/api/src/modules/events",
+      "imports": [],
+      "usedBy": [],
+      "connects": []
+    },
+    "module:FilesModule": {
+      "kind": "module",
+      "name": "FilesModule",
+      "path": "apps/api/src/modules/files",
+      "imports": [],
+      "usedBy": [
+        "feature:files"
+      ],
+      "connects": [
+        "feature:files"
+      ]
+    },
+    "module:GithubModule": {
+      "kind": "module",
+      "name": "GithubModule",
+      "path": "apps/api/src/modules/github",
+      "imports": [],
+      "usedBy": [
+        "feature:github"
+      ],
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "module:HealthModule": {
+      "kind": "module",
+      "name": "HealthModule",
+      "path": "apps/api/src/modules/health",
+      "imports": [],
+      "usedBy": [],
+      "connects": []
+    },
+    "module:KnowledgeBaseModule": {
+      "kind": "module",
+      "name": "KnowledgeBaseModule",
+      "path": "apps/api/src/modules/knowledge-base",
+      "imports": [
+        "module:DatabaseModule"
+      ],
+      "usedBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:MessagesModule": {
+      "kind": "module",
+      "name": "MessagesModule",
+      "path": "apps/api/src/modules/messages",
+      "imports": [
+        "module:EmailModule"
+      ],
+      "usedBy": [
+        "feature:tickets",
+        "feature:messages"
+      ],
+      "connects": [
+        "feature:messages",
+        "feature:tickets",
+        "module:EmailModule"
+      ]
+    },
+    "module:NotificationsModule": {
+      "kind": "module",
+      "name": "NotificationsModule",
+      "path": "apps/api/src/modules/notifications",
+      "imports": [],
+      "usedBy": [
+        "feature:notifications"
+      ],
+      "connects": [
+        "feature:notifications"
+      ]
+    },
+    "module:QueueModule": {
+      "kind": "module",
+      "name": "QueueModule",
+      "path": "apps/api/src/modules/queue",
+      "imports": [],
+      "usedBy": [
+        "feature:ai",
+        "feature:queue"
+      ],
+      "connects": [
+        "feature:ai",
+        "feature:queue"
+      ]
+    },
+    "module:ShiftsModule": {
+      "kind": "module",
+      "name": "ShiftsModule",
+      "path": "apps/api/src/modules/shifts",
+      "imports": [
+        "module:DatabaseModule"
+      ],
+      "usedBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "feature:bot",
+        "module:DatabaseModule"
+      ]
+    },
+    "module:TicketsModule": {
+      "kind": "module",
+      "name": "TicketsModule",
+      "path": "apps/api/src/modules/tickets",
+      "imports": [],
+      "usedBy": [
+        "feature:tickets"
+      ],
+      "connects": [
+        "feature:tickets"
+      ]
+    },
+    "module:UsersModule": {
+      "kind": "module",
+      "name": "UsersModule",
+      "path": "apps/api/src/modules/users",
+      "imports": [],
+      "usedBy": [
+        "feature:tickets"
+      ],
+      "connects": [
+        "feature:tickets"
+      ]
+    },
+    "entity:AppConfig": {
+      "kind": "entity",
+      "table": "AppConfig",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "appName",
+          "type": "String"
+        },
+        {
+          "name": "primaryColor",
+          "type": "String"
+        },
+        {
+          "name": "accentColor",
+          "type": "String"
+        },
+        {
+          "name": "oauthProvider",
+          "type": "OAuthProvider?"
+        },
+        {
+          "name": "botProvider",
+          "type": "BotProvider?"
+        },
+        {
+          "name": "kbPhase",
+          "type": "KbPhase"
+        },
+        {
+          "name": "field1Label",
+          "type": "String?"
+        },
+        {
+          "name": "field2Label",
+          "type": "String?"
+        },
+        {
+          "name": "timezone",
+          "type": "String"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Notification",
+          "kind": "hasMany",
+          "field": "notifications"
+        }
+      ],
+      "writtenBy": [
+        "feature:settings",
+        "feature:email",
+        "feature:github",
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:Notification",
+        "feature:bot",
+        "feature:email",
+        "feature:github",
+        "feature:settings"
+      ],
+      "notes": "Single-row instance config \u2014 ~80 columns spanning branding, email OAuth, GitHub webhook, bot/KB, feature flags. See _generated/erd.md for the full list."
+    },
+    "entity:User": {
+      "kind": "entity",
+      "table": "User",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "email",
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "type": "String?"
+        },
+        {
+          "name": "isGuest",
+          "type": "Boolean"
+        },
+        {
+          "name": "source",
+          "type": "UserSource"
+        },
+        {
+          "name": "category",
+          "type": "UserCategory"
+        },
+        {
+          "name": "isVerified",
+          "type": "Boolean"
+        },
+        {
+          "name": "emailStatus",
+          "type": "EmailStatus"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "hasMany",
+          "field": "tickets"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "hasMany",
+          "field": "messages"
+        },
+        {
+          "to": "entity:MagicToken",
+          "kind": "hasMany",
+          "field": "magicTokens"
+        },
+        {
+          "to": "entity:CustomerNote",
+          "kind": "hasMany",
+          "field": "customerNotes"
+        },
+        {
+          "to": "entity:CustomerSignal",
+          "kind": "hasMany",
+          "field": "signals"
+        },
+        {
+          "to": "entity:BotInteraction",
+          "kind": "hasMany",
+          "field": "botInteractions"
+        },
+        {
+          "to": "entity:AiUsage",
+          "kind": "hasMany",
+          "field": "aiUsages"
+        }
+      ],
+      "writtenBy": [
+        "feature:auth",
+        "feature:tickets",
+        "feature:analytics"
+      ],
+      "connects": [
+        "entity:AiUsage",
+        "entity:BotInteraction",
+        "entity:CustomerNote",
+        "entity:CustomerSignal",
+        "entity:MagicToken",
+        "entity:Message",
+        "entity:Ticket",
+        "feature:analytics",
+        "feature:auth",
+        "feature:tickets"
+      ]
+    },
+    "entity:MagicToken": {
+      "kind": "entity",
+      "table": "MagicToken",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "type": "String"
+        },
+        {
+          "name": "token",
+          "type": "String"
+        },
+        {
+          "name": "type",
+          "type": "MagicTokenType"
+        },
+        {
+          "name": "expiresAt",
+          "type": "DateTime"
+        },
+        {
+          "name": "usedAt",
+          "type": "DateTime?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        }
+      ],
+      "writtenBy": [
+        "feature:auth"
+      ],
+      "connects": [
+        "entity:User",
+        "feature:auth"
+      ]
+    },
+    "entity:Agent": {
+      "kind": "entity",
+      "table": "Agent",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "email",
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "name": "role",
+          "type": "AgentRole"
+        },
+        {
+          "name": "isActive",
+          "type": "Boolean"
+        },
+        {
+          "name": "inviteToken",
+          "type": "String?"
+        },
+        {
+          "name": "inviteAccepted",
+          "type": "Boolean"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "hasMany",
+          "field": "assignedTickets"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "hasMany",
+          "field": "messages"
+        },
+        {
+          "to": "entity:CustomerNote",
+          "kind": "hasMany",
+          "field": "customerNotes"
+        },
+        {
+          "to": "entity:NotificationRead",
+          "kind": "hasMany",
+          "field": "notificationReads"
+        },
+        {
+          "to": "entity:Shift",
+          "kind": "hasMany",
+          "field": "shifts"
+        },
+        {
+          "to": "entity:BotInteraction",
+          "kind": "hasMany",
+          "field": "botInteractions"
+        }
+      ],
+      "writtenBy": [
+        "feature:auth",
+        "feature:tickets",
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:BotInteraction",
+        "entity:CustomerNote",
+        "entity:Message",
+        "entity:NotificationRead",
+        "entity:Shift",
+        "entity:Ticket",
+        "feature:auth",
+        "feature:bot",
+        "feature:tickets"
+      ]
+    },
+    "entity:Shift": {
+      "kind": "entity",
+      "table": "Shift",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "primaryAgentId",
+          "type": "String"
+        },
+        {
+          "name": "dayOfWeek",
+          "type": "Int"
+        },
+        {
+          "name": "startMinute",
+          "type": "Int"
+        },
+        {
+          "name": "endMinute",
+          "type": "Int"
+        },
+        {
+          "name": "active",
+          "type": "Boolean"
+        },
+        {
+          "name": "lastAssignedAt",
+          "type": "DateTime?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "primaryAgent"
+        }
+      ],
+      "writtenBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:Agent",
+        "feature:bot"
+      ]
+    },
+    "entity:Ticket": {
+      "kind": "entity",
+      "table": "Ticket",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ref",
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "type": "TicketStatus"
+        },
+        {
+          "name": "priority",
+          "type": "TicketPriority"
+        },
+        {
+          "name": "category",
+          "type": "TicketCategory"
+        },
+        {
+          "name": "source",
+          "type": "TicketSource"
+        },
+        {
+          "name": "field1",
+          "type": "String?"
+        },
+        {
+          "name": "field2",
+          "type": "String?"
+        },
+        {
+          "name": "userId",
+          "type": "String"
+        },
+        {
+          "name": "assigneeId",
+          "type": "String?"
+        },
+        {
+          "name": "emailThreadId",
+          "type": "String"
+        },
+        {
+          "name": "topicId",
+          "type": "String?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Topic",
+          "kind": "hasOne",
+          "field": "topic"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "hasMany",
+          "field": "messages"
+        },
+        {
+          "to": "entity:Attachment",
+          "kind": "hasMany",
+          "field": "attachments"
+        },
+        {
+          "to": "entity:Tag",
+          "kind": "hasMany",
+          "field": "tags"
+        },
+        {
+          "to": "entity:Notification",
+          "kind": "hasMany",
+          "field": "notifications"
+        },
+        {
+          "to": "entity:AiUsage",
+          "kind": "hasMany",
+          "field": "aiUsages"
+        },
+        {
+          "to": "entity:CustomerSignal",
+          "kind": "hasMany",
+          "field": "signals"
+        },
+        {
+          "to": "entity:BotInteraction",
+          "kind": "hasMany",
+          "field": "botInteractions"
+        },
+        {
+          "to": "entity:GithubIssue",
+          "kind": "hasOne",
+          "field": "githubIssue"
+        },
+        {
+          "to": "entity:TicketRating",
+          "kind": "hasOne",
+          "field": "rating"
+        },
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        },
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "assignee"
+        }
+      ],
+      "writtenBy": [
+        "feature:tickets",
+        "feature:email",
+        "feature:github",
+        "feature:ai",
+        "feature:bot",
+        "feature:analytics"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:Attachment",
+        "entity:BotInteraction",
+        "entity:CustomerSignal",
+        "entity:GithubIssue",
+        "entity:Message",
+        "entity:Notification",
+        "entity:Tag",
+        "entity:TicketRating",
+        "entity:Topic",
+        "entity:User",
+        "feature:ai",
+        "feature:analytics",
+        "feature:bot",
+        "feature:email",
+        "feature:github",
+        "feature:tickets"
+      ]
+    },
+    "entity:Message": {
+      "kind": "entity",
+      "table": "Message",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String"
+        },
+        {
+          "name": "type",
+          "type": "MessageType"
+        },
+        {
+          "name": "body",
+          "type": "String"
+        },
+        {
+          "name": "sentVia",
+          "type": "MessageSentVia?"
+        },
+        {
+          "name": "isInternal",
+          "type": "Boolean"
+        },
+        {
+          "name": "authorUserId",
+          "type": "String?"
+        },
+        {
+          "name": "authorAgentId",
+          "type": "String?"
+        },
+        {
+          "name": "sentimentScore",
+          "type": "Float?"
+        },
+        {
+          "name": "sentimentLabel",
+          "type": "SentimentLabel?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:Attachment",
+          "kind": "hasMany",
+          "field": "attachments"
+        },
+        {
+          "to": "entity:AiUsage",
+          "kind": "hasMany",
+          "field": "aiUsages"
+        },
+        {
+          "to": "entity:CustomerSignal",
+          "kind": "hasMany",
+          "field": "signals"
+        },
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "author"
+        },
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "agentAuthor"
+        }
+      ],
+      "writtenBy": [
+        "feature:messages",
+        "feature:email",
+        "feature:ai",
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:Attachment",
+        "entity:CustomerSignal",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:bot",
+        "feature:email",
+        "feature:messages"
+      ]
+    },
+    "entity:Attachment": {
+      "kind": "entity",
+      "table": "Attachment",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String?"
+        },
+        {
+          "name": "messageId",
+          "type": "String?"
+        },
+        {
+          "name": "filename",
+          "type": "String"
+        },
+        {
+          "name": "mimeType",
+          "type": "String"
+        },
+        {
+          "name": "size",
+          "type": "Int"
+        },
+        {
+          "name": "url",
+          "type": "String"
+        },
+        {
+          "name": "isLink",
+          "type": "Boolean"
+        },
+        {
+          "name": "linkUrl",
+          "type": "String?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "belongsTo",
+          "field": "message"
+        }
+      ],
+      "writtenBy": [
+        "feature:files",
+        "feature:email",
+        "feature:tickets"
+      ],
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "feature:email",
+        "feature:files",
+        "feature:tickets"
+      ]
+    },
+    "entity:Tag": {
+      "kind": "entity",
+      "table": "Tag",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "name": "color",
+          "type": "String"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "hasMany",
+          "field": "tickets"
+        }
+      ],
+      "writtenBy": [
+        "feature:tickets"
+      ],
+      "connects": [
+        "entity:Ticket",
+        "feature:tickets"
+      ]
+    },
+    "entity:GithubConfig": {
+      "kind": "entity",
+      "table": "GithubConfig",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "accessToken",
+          "type": "String"
+        },
+        {
+          "name": "githubUsername",
+          "type": "String"
+        },
+        {
+          "name": "githubUserId",
+          "type": "String"
+        },
+        {
+          "name": "defaultRepo",
+          "type": "String?"
+        }
+      ],
+      "relations": [],
+      "writtenBy": [
+        "feature:github"
+      ],
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "entity:GithubIssue": {
+      "kind": "entity",
+      "table": "GithubIssue",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String"
+        },
+        {
+          "name": "issueNumber",
+          "type": "Int"
+        },
+        {
+          "name": "repo",
+          "type": "String"
+        },
+        {
+          "name": "issueUrl",
+          "type": "String"
+        },
+        {
+          "name": "title",
+          "type": "String"
+        },
+        {
+          "name": "state",
+          "type": "String"
+        },
+        {
+          "name": "reviewers",
+          "type": "Int"
+        },
+        {
+          "name": "daysOpen",
+          "type": "Int"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        }
+      ],
+      "writtenBy": [
+        "feature:github"
+      ],
+      "connects": [
+        "entity:Ticket",
+        "feature:github"
+      ]
+    },
+    "entity:CannedResponse": {
+      "kind": "entity",
+      "table": "CannedResponse",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "name": "body",
+          "type": "String"
+        }
+      ],
+      "relations": [],
+      "writtenBy": [
+        "feature:messages"
+      ],
+      "connects": [
+        "feature:messages"
+      ]
+    },
+    "entity:CustomerNote": {
+      "kind": "entity",
+      "table": "CustomerNote",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "type": "String"
+        },
+        {
+          "name": "agentId",
+          "type": "String"
+        },
+        {
+          "name": "body",
+          "type": "String"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        },
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "agent"
+        }
+      ],
+      "writtenBy": [
+        "feature:analytics"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:User",
+        "feature:analytics"
+      ]
+    },
+    "entity:Notification": {
+      "kind": "entity",
+      "table": "Notification",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "type",
+          "type": "NotificationType"
+        },
+        {
+          "name": "title",
+          "type": "String"
+        },
+        {
+          "name": "body",
+          "type": "String?"
+        },
+        {
+          "name": "ticketId",
+          "type": "String?"
+        },
+        {
+          "name": "githubIssueNumber",
+          "type": "Int?"
+        },
+        {
+          "name": "githubRepo",
+          "type": "String?"
+        },
+        {
+          "name": "appConfigId",
+          "type": "String?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:AppConfig",
+          "kind": "belongsTo",
+          "field": "appConfig"
+        },
+        {
+          "to": "entity:NotificationRead",
+          "kind": "hasMany",
+          "field": "reads"
+        }
+      ],
+      "writtenBy": [
+        "feature:notifications",
+        "feature:github",
+        "feature:ai"
+      ],
+      "connects": [
+        "entity:AppConfig",
+        "entity:NotificationRead",
+        "entity:Ticket",
+        "feature:ai",
+        "feature:github",
+        "feature:notifications"
+      ]
+    },
+    "entity:NotificationRead": {
+      "kind": "entity",
+      "table": "NotificationRead",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "readAt",
+          "type": "DateTime"
+        },
+        {
+          "name": "notificationId",
+          "type": "String"
+        },
+        {
+          "name": "agentId",
+          "type": "String"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Notification",
+          "kind": "belongsTo",
+          "field": "notification"
+        },
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "agent"
+        }
+      ],
+      "writtenBy": [
+        "feature:notifications"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:Notification",
+        "feature:notifications"
+      ]
+    },
+    "entity:Topic": {
+      "kind": "entity",
+      "table": "Topic",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "name": "description",
+          "type": "String?"
+        },
+        {
+          "name": "ticketCount",
+          "type": "Int"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "hasMany",
+          "field": "tickets"
+        }
+      ],
+      "writtenBy": [
+        "feature:ai",
+        "feature:analytics"
+      ],
+      "connects": [
+        "entity:Ticket",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:TicketRating": {
+      "kind": "entity",
+      "table": "TicketRating",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String"
+        },
+        {
+          "name": "userRating",
+          "type": "Int?"
+        },
+        {
+          "name": "userComment",
+          "type": "String?"
+        },
+        {
+          "name": "aiRating",
+          "type": "Int?"
+        },
+        {
+          "name": "aiSummary",
+          "type": "String?"
+        },
+        {
+          "name": "ratingToken",
+          "type": "String"
+        },
+        {
+          "name": "requestedAt",
+          "type": "DateTime"
+        },
+        {
+          "name": "ratedAt",
+          "type": "DateTime?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        }
+      ],
+      "writtenBy": [
+        "feature:analytics",
+        "feature:ai"
+      ],
+      "connects": [
+        "entity:Ticket",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:CustomerSignal": {
+      "kind": "entity",
+      "table": "CustomerSignal",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "type",
+          "type": "SignalType"
+        },
+        {
+          "name": "quote",
+          "type": "String"
+        },
+        {
+          "name": "reason",
+          "type": "String?"
+        },
+        {
+          "name": "messageId",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "type": "String"
+        },
+        {
+          "name": "reviewed",
+          "type": "Boolean"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        },
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "belongsTo",
+          "field": "message"
+        }
+      ],
+      "writtenBy": [
+        "feature:ai",
+        "feature:analytics"
+      ],
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:analytics"
+      ]
+    },
+    "entity:AiUsage": {
+      "kind": "entity",
+      "table": "AiUsage",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "model",
+          "type": "String"
+        },
+        {
+          "name": "operation",
+          "type": "AiOperation"
+        },
+        {
+          "name": "totalTokens",
+          "type": "Int"
+        },
+        {
+          "name": "estimatedCostUsd",
+          "type": "Decimal"
+        },
+        {
+          "name": "status",
+          "type": "AiCallStatus"
+        },
+        {
+          "name": "ticketId",
+          "type": "String?"
+        },
+        {
+          "name": "messageId",
+          "type": "String?"
+        },
+        {
+          "name": "userId",
+          "type": "String?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:Message",
+          "kind": "belongsTo",
+          "field": "message"
+        },
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        }
+      ],
+      "writtenBy": [
+        "feature:ai",
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "feature:ai",
+        "feature:bot"
+      ]
+    },
+    "entity:KnowledgeSource": {
+      "kind": "entity",
+      "table": "KnowledgeSource",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "url",
+          "type": "String"
+        },
+        {
+          "name": "title",
+          "type": "String?"
+        },
+        {
+          "name": "status",
+          "type": "SourceStatus"
+        },
+        {
+          "name": "fetchedAt",
+          "type": "DateTime?"
+        },
+        {
+          "name": "indexedAt",
+          "type": "DateTime?"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:KnowledgeChunk",
+          "kind": "hasMany",
+          "field": "chunks"
+        }
+      ],
+      "writtenBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:KnowledgeChunk",
+        "feature:bot"
+      ]
+    },
+    "entity:KnowledgeChunk": {
+      "kind": "entity",
+      "table": "KnowledgeChunk",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "sourceId",
+          "type": "String"
+        },
+        {
+          "name": "ordinal",
+          "type": "Int"
+        },
+        {
+          "name": "text",
+          "type": "String"
+        },
+        {
+          "name": "headingPath",
+          "type": "String[]"
+        },
+        {
+          "name": "deepUrl",
+          "type": "String"
+        },
+        {
+          "name": "tokenCount",
+          "type": "Int"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:KnowledgeSource",
+          "kind": "belongsTo",
+          "field": "source"
+        }
+      ],
+      "writtenBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:KnowledgeSource",
+        "feature:bot"
+      ]
+    },
+    "entity:BotInteraction": {
+      "kind": "entity",
+      "table": "BotInteraction",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "ticketId",
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "type": "String"
+        },
+        {
+          "name": "messageId",
+          "type": "String?"
+        },
+        {
+          "name": "retrievedChunkIds",
+          "type": "String[]"
+        },
+        {
+          "name": "llmConfidence",
+          "type": "Float?"
+        },
+        {
+          "name": "didAnswer",
+          "type": "Boolean"
+        },
+        {
+          "name": "escalatedToAgentId",
+          "type": "String?"
+        },
+        {
+          "name": "costUsd",
+          "type": "Decimal"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:Ticket",
+          "kind": "belongsTo",
+          "field": "ticket"
+        },
+        {
+          "to": "entity:User",
+          "kind": "belongsTo",
+          "field": "user"
+        },
+        {
+          "to": "entity:Agent",
+          "kind": "belongsTo",
+          "field": "escalatedToAgent"
+        }
+      ],
+      "writtenBy": [
+        "feature:bot"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:Ticket",
+        "entity:User",
+        "feature:bot"
+      ]
+    },
+    "route:POST /api/v1/tickets": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.create",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/tickets",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.list",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets/:id": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/tickets/:id",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.findById",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:PATCH /api/v1/tickets/:id": {
+      "kind": "route",
+      "method": "PATCH",
+      "path": "/api/v1/tickets/:id",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.update",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/convert": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets/:id/convert",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.convert",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/discard": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets/:id/discard",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.discard",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/tickets/stats": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/tickets/stats",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.stats",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:GET /api/v1/users": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/users",
+      "module": "module:UsersModule",
+      "handler": "UsersController.listCustomers",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:GET /api/v1/users/:id": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/users/:id",
+      "module": "module:UsersModule",
+      "handler": "UsersController.findById",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:PATCH /api/v1/users/:id": {
+      "kind": "route",
+      "method": "PATCH",
+      "path": "/api/v1/users/:id",
+      "module": "module:UsersModule",
+      "handler": "UsersController.updateCategory",
+      "feature": "feature:tickets",
+      "connects": [
+        "feature:tickets",
+        "module:UsersModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:ticketId/messages": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets/:ticketId/messages",
+      "module": "module:MessagesModule",
+      "handler": "MessagesController.create",
+      "feature": "feature:messages",
+      "connects": [
+        "feature:messages",
+        "module:MessagesModule"
+      ]
+    },
+    "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId": {
+      "kind": "route",
+      "method": "PATCH",
+      "path": "/api/v1/tickets/:ticketId/messages/:messageId",
+      "module": "module:MessagesModule",
+      "handler": "MessagesController.update",
+      "feature": "feature:messages",
+      "connects": [
+        "feature:messages",
+        "module:MessagesModule"
+      ]
+    },
+    "route:GET /api/v1/sync/status": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/sync/status",
+      "module": "module:EmailSyncModule",
+      "handler": "EmailSyncController.getStatus",
+      "feature": "feature:email",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:POST /api/v1/sync/poll/now": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/sync/poll/now",
+      "module": "module:EmailSyncModule",
+      "handler": "EmailSyncController.pollNow",
+      "feature": "feature:email",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:POST /api/v1/sync/backfill/run": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/sync/backfill/run",
+      "module": "module:EmailSyncModule",
+      "handler": "EmailSyncController.runBackfill",
+      "feature": "feature:email",
+      "connects": [
+        "feature:email",
+        "module:EmailSyncModule"
+      ]
+    },
+    "route:GET /api/v1/config/email/oauth/:provider/start": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/config/email/oauth/:provider/start",
+      "module": "module:EmailOAuthModule",
+      "handler": "EmailOAuthController.getAuthUrl",
+      "feature": "feature:email",
+      "connects": [
+        "feature:email",
+        "module:EmailOAuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/signin": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/auth/signin",
+      "module": "module:AuthModule",
+      "handler": "AuthController.signin",
+      "feature": "feature:auth",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/signup": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/auth/signup",
+      "module": "module:AuthModule",
+      "handler": "AuthController.signup",
+      "feature": "feature:auth",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/auth/google": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/auth/google",
+      "module": "module:AuthModule",
+      "handler": "AuthController.googleAuth",
+      "feature": "feature:auth",
+      "connects": [
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    },
+    "route:POST /api/v1/github/webhook": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/github/webhook",
+      "module": "module:GithubModule",
+      "handler": "GithubController.handleWebhook",
+      "feature": "feature:github",
+      "connects": [
+        "feature:github",
+        "module:GithubModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/github/issues": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets/:id/github/issues",
+      "module": "module:GithubModule",
+      "handler": "GithubController.createIssue",
+      "feature": "feature:github",
+      "connects": [
+        "feature:github",
+        "module:GithubModule"
+      ]
+    },
+    "route:GET /api/v1/analytics": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/analytics",
+      "module": "module:AnalyticsModule",
+      "handler": "AnalyticsController.getOverview",
+      "feature": "feature:analytics",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/analytics/customers": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/analytics/customers",
+      "module": "module:AnalyticsModule",
+      "handler": "CustomersController.getCustomerInsights",
+      "feature": "feature:analytics",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/rate/:token": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/rate/:token",
+      "module": "module:AnalyticsModule",
+      "handler": "RatingController.getRatingForm",
+      "feature": "feature:analytics",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:POST /api/v1/rate/:token": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/rate/:token",
+      "module": "module:AnalyticsModule",
+      "handler": "RatingController.submitRating",
+      "feature": "feature:analytics",
+      "connects": [
+        "feature:analytics",
+        "module:AnalyticsModule"
+      ]
+    },
+    "route:GET /api/v1/config": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/config",
+      "module": "module:AppConfigModule",
+      "handler": "ConfigController.get",
+      "feature": "feature:settings",
+      "connects": [
+        "feature:settings",
+        "module:AppConfigModule"
+      ]
+    },
+    "route:POST /api/v1/files/upload": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/files/upload",
+      "module": "module:FilesModule",
+      "handler": "FilesController.upload",
+      "feature": "feature:files",
+      "connects": [
+        "feature:files",
+        "module:FilesModule"
+      ]
+    },
+    "route:POST /api/v1/kb/scan/start": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/kb/scan/start",
+      "module": "module:KnowledgeBaseModule",
+      "handler": "KnowledgeBaseController.startScan",
+      "feature": "feature:bot",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:POST /api/v1/kb/embed/confirm": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/kb/embed/confirm",
+      "module": "module:KnowledgeBaseModule",
+      "handler": "KnowledgeBaseController.confirmEmbed",
+      "feature": "feature:bot",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:GET /api/v1/kb/status": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/kb/status",
+      "module": "module:KnowledgeBaseModule",
+      "handler": "KnowledgeBaseController.getStatus",
+      "feature": "feature:bot",
+      "connects": [
+        "feature:bot",
+        "module:KnowledgeBaseModule"
+      ]
+    },
+    "route:GET /api/v1/shifts": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/shifts",
+      "module": "module:ShiftsModule",
+      "handler": "ShiftsController.findAll",
+      "feature": "feature:bot",
+      "connects": [
+        "feature:bot",
+        "module:ShiftsModule"
+      ]
+    },
+    "route:GET /api/v1/notifications": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "module": "module:NotificationsModule",
+      "handler": "NotificationsController.list",
+      "feature": "feature:notifications",
+      "connects": [
+        "feature:notifications",
+        "module:NotificationsModule"
+      ]
+    },
+    "route:GET /api/v1/settings/ai-usage": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/settings/ai-usage",
+      "module": "module:AppConfigModule",
+      "handler": "AiUsageController.getAiUsage",
+      "feature": "feature:ai",
+      "connects": [
+        "feature:ai",
+        "module:AppConfigModule"
+      ]
+    },
+    "ext:Gmail": {
+      "kind": "external",
+      "name": "Gmail REST API",
+      "usedBy": [
+        "feature:email"
+      ],
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "ext:MicrosoftGraph": {
+      "kind": "external",
+      "name": "Microsoft Graph API",
+      "usedBy": [
+        "feature:email"
+      ],
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "ext:GitHub": {
+      "kind": "external",
+      "name": "GitHub REST API + Webhooks",
+      "usedBy": [
+        "feature:github"
+      ],
+      "connects": [
+        "feature:github"
+      ]
+    },
+    "ext:Gemini": {
+      "kind": "external",
+      "name": "Google Gemini",
+      "usedBy": [
+        "feature:ai",
+        "feature:bot"
+      ],
+      "connects": [
+        "feature:ai",
+        "feature:bot"
+      ]
+    },
+    "ext:MinIO": {
+      "kind": "external",
+      "name": "MinIO (S3-compatible object storage)",
+      "usedBy": [
+        "feature:files"
+      ],
+      "connects": [
+        "feature:files"
+      ]
+    },
+    "queue:email-ingest-thread": {
+      "kind": "queue",
+      "name": "email:ingest-thread",
+      "producer": "feature:email",
+      "consumer": "feature:email",
+      "notes": "Per-thread ingestion job enqueued by the live poller; ingest-thread.worker.ts parses the thread, dedupes by VERP token, creates/updates Ticket+Message rows.",
+      "connects": [
+        "feature:email"
+      ]
+    },
+    "queue:email-send-reply": {
+      "kind": "queue",
+      "name": "email:send-reply",
+      "producer": "feature:messages",
+      "consumer": "feature:email",
+      "notes": "Enqueued when an agent sends a reply via portal+email; send-reply.worker.ts sends via Nodemailer/Graph with VERP reply-to threading.",
+      "connects": [
+        "feature:email",
+        "feature:messages"
+      ]
+    },
+    "queue:email-send-confirmation": {
+      "kind": "queue",
+      "name": "email:send-confirmation",
+      "producer": "feature:tickets",
+      "consumer": "feature:email",
+      "notes": "Sends the ticket-received confirmation email via send-confirmation.worker.ts.",
+      "connects": [
+        "feature:email",
+        "feature:tickets"
+      ]
+    },
+    "queue:ai-analyze-message": {
+      "kind": "queue",
+      "name": "ai:analyze-message",
+      "producer": "feature:messages",
+      "consumer": "feature:ai",
+      "notes": "Sentiment analysis for each inbound message.",
+      "connects": [
+        "feature:ai",
+        "feature:messages"
+      ]
+    },
+    "queue:ai-classify-ticket": {
+      "kind": "queue",
+      "name": "ai:classify-ticket",
+      "producer": "feature:tickets",
+      "consumer": "feature:ai",
+      "notes": "Topic classification on ticket creation/update; also computes the AI CSAT estimate.",
+      "connects": [
+        "feature:ai",
+        "feature:tickets"
+      ]
+    },
+    "queue:ai-request-csat": {
+      "kind": "queue",
+      "name": "ai:request-csat",
+      "producer": "feature:tickets",
+      "consumer": "feature:analytics",
+      "notes": "Sends the CSAT rating-request email when a ticket is resolved, creating a TicketRating row.",
+      "connects": [
+        "feature:analytics",
+        "feature:tickets"
+      ]
+    },
+    "queue:bot-respond-to-ticket": {
+      "kind": "queue",
+      "name": "bot:respond-to-ticket",
+      "producer": "feature:tickets",
+      "consumer": "feature:bot",
+      "notes": "Enqueued on new ticket creation; Athena retrieves KB context and replies or escalates to the on-shift agent.",
+      "connects": [
+        "feature:bot",
+        "feature:tickets"
+      ]
+    },
+    "queue:kb-crawl-and-index": {
+      "kind": "queue",
+      "name": "kb:crawl-and-index",
+      "producer": "feature:bot",
+      "consumer": "feature:bot",
+      "notes": "Crawls AppConfig.kbRootUrl and indexes discovered pages.",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-scan": {
+      "kind": "queue",
+      "name": "kb:scan",
+      "producer": "feature:bot",
+      "consumer": "feature:bot",
+      "notes": "Phase 1 of (re)index: scans pages, estimates embedding cost (kbScanPagesSeen/kbScanCostUsd).",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-embed": {
+      "kind": "queue",
+      "name": "kb:embed",
+      "producer": "feature:bot",
+      "consumer": "feature:bot",
+      "notes": "Phase 2: embeds chunks into pgvector after scan confirmation (kbEmbedChunksDone/kbEmbedChunksTotal).",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "queue:kb-index-page": {
+      "kind": "queue",
+      "name": "kb:index-page",
+      "producer": "feature:bot",
+      "consumer": "feature:bot",
+      "notes": "Per-page indexing job that chunks and embeds a single page's content.",
+      "connects": [
+        "feature:bot"
+      ]
+    },
+    "feature:email": {
+      "kind": "feature",
+      "title": "Email Sync",
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free \u2014 thread lives in the email client's native chain.",
+      "stack": [
+        "Gmail REST API",
+        "Microsoft Graph API",
+        "Nodemailer",
+        "pg-boss"
+      ],
+      "modules": [
+        "module:EmailModule",
+        "module:EmailSyncModule",
+        "module:EmailOAuthModule"
+      ],
+      "entities": [
+        "entity:Ticket",
+        "entity:Message",
+        "entity:User",
+        "entity:Attachment",
+        "entity:AppConfig"
+      ],
+      "routes": [
+        "route:POST /api/v1/sync/backfill/run",
+        "route:GET /api/v1/sync/status",
+        "route:POST /api/v1/sync/poll/now",
+        "route:GET /api/v1/config/email/oauth/:provider/start"
+      ],
+      "externals": [
+        "ext:Gmail",
+        "ext:MicrosoftGraph"
+      ],
+      "queues": [
+        "queue:email-ingest-thread",
+        "queue:email-send-reply",
+        "queue:email-send-confirmation"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/email-sync/live-poller.service.ts",
+        "apps/api/src/modules/email-sync/thread-ingestion.service.ts",
+        "apps/api/src/modules/email-sync/ingest-thread.worker.ts",
+        "apps/api/src/modules/email/email.service.ts",
+        "apps/api/src/modules/email-oauth/email-oauth.service.ts"
+      ],
+      "why": "Polling (not SMTP/IMAP IDLE) because Gmail/Graph REST APIs give reliable history/delta cursors and OAuth-scoped access without running a mailbox-watching daemon; VERP reply-to addresses encode the ticket/thread id so inbound replies are matched without parsing subject lines.",
+      "gaps": [
+        "No documented backoff/retry tuning for Graph 429 rate limits",
+        "Backfill/archive progress lives on the single AppConfig row, so only one mailbox syncs at a time (single-tenant assumption)",
+        "Delta-quoting is text-only (Message.body); an HTML-aware quoted-history block (bodyHtml) is a documented follow-up."
+      ],
+      "connects": [
+        "entity:AppConfig",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "ext:Gmail",
+        "ext:MicrosoftGraph",
+        "module:EmailModule",
+        "module:EmailOAuthModule",
+        "module:EmailSyncModule",
+        "queue:email-ingest-thread",
+        "queue:email-send-confirmation",
+        "queue:email-send-reply",
+        "route:GET /api/v1/config/email/oauth/:provider/start",
+        "route:GET /api/v1/sync/status",
+        "route:POST /api/v1/sync/backfill/run",
+        "route:POST /api/v1/sync/poll/now"
+      ]
+    },
+    "feature:tickets": {
+      "kind": "feature",
+      "title": "Tickets",
+      "summary": "Core ticketing aggregate \u2014 status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
+      "stack": [
+        "NestJS",
+        "Prisma",
+        "Postgres"
+      ],
+      "modules": [
+        "module:TicketsModule",
+        "module:UsersModule",
+        "module:MessagesModule"
+      ],
+      "entities": [
+        "entity:Ticket",
+        "entity:Message",
+        "entity:Attachment",
+        "entity:User",
+        "entity:Agent",
+        "entity:Tag",
+        "entity:Topic"
+      ],
+      "routes": [
+        "route:POST /api/v1/tickets",
+        "route:GET /api/v1/tickets",
+        "route:GET /api/v1/tickets/:id",
+        "route:PATCH /api/v1/tickets/:id",
+        "route:POST /api/v1/tickets/:id/convert",
+        "route:POST /api/v1/tickets/:id/discard",
+        "route:GET /api/v1/tickets/stats",
+        "route:GET /api/v1/users",
+        "route:GET /api/v1/users/:id",
+        "route:PATCH /api/v1/users/:id"
+      ],
+      "externals": [],
+      "queues": [
+        "queue:bot-respond-to-ticket",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:email-send-confirmation"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/tickets/tickets.service.ts",
+        "apps/api/src/modules/tickets/tickets.controller.ts"
+      ],
+      "why": "isTicket + status (NEW vs DISMISSED) distinguishes real support requests from other inbound mail/portal submissions; convert/discard let agents reclassify after triage.",
+      "gaps": [
+        "A triage\u2192status redesign (NEW/DISMISSED inbox split with dedicated tabs) was planned separately \u2014 see STATE.md decisions"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Tag",
+        "entity:Ticket",
+        "entity:Topic",
+        "entity:User",
+        "module:MessagesModule",
+        "module:TicketsModule",
+        "module:UsersModule",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:bot-respond-to-ticket",
+        "queue:email-send-confirmation",
+        "route:GET /api/v1/tickets",
+        "route:GET /api/v1/tickets/:id",
+        "route:GET /api/v1/tickets/stats",
+        "route:GET /api/v1/users",
+        "route:GET /api/v1/users/:id",
+        "route:PATCH /api/v1/tickets/:id",
+        "route:PATCH /api/v1/users/:id",
+        "route:POST /api/v1/tickets",
+        "route:POST /api/v1/tickets/:id/convert",
+        "route:POST /api/v1/tickets/:id/discard"
+      ]
+    },
+    "feature:messages": {
+      "kind": "feature",
+      "title": "Messages & Notes",
+      "summary": "Per-ticket message thread: customer replies, agent replies (sent via portal and/or email), and internal-only notes; tracks per-message sentiment from AI analysis.",
+      "stack": [
+        "NestJS",
+        "Prisma"
+      ],
+      "modules": [
+        "module:MessagesModule",
+        "module:EmailModule"
+      ],
+      "entities": [
+        "entity:Message",
+        "entity:Ticket",
+        "entity:Attachment",
+        "entity:User",
+        "entity:Agent"
+      ],
+      "routes": [
+        "route:POST /api/v1/tickets/:ticketId/messages",
+        "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId"
+      ],
+      "externals": [],
+      "queues": [
+        "queue:email-send-reply",
+        "queue:ai-analyze-message"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/messages/messages.service.ts",
+        "apps/api/src/modules/messages/messages.controller.ts"
+      ],
+      "why": "MessageType (REPLY/INTERNAL_NOTE/SYSTEM_EVENT) and MessageSentVia (PORTAL/EMAIL/PORTAL_AND_EMAIL) let one model represent customer-visible replies, internal notes, and system events, and record how an agent reply was delivered.",
+      "gaps": [],
+      "connects": [
+        "entity:Agent",
+        "entity:Attachment",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:User",
+        "module:EmailModule",
+        "module:MessagesModule",
+        "queue:ai-analyze-message",
+        "queue:email-send-reply",
+        "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId",
+        "route:POST /api/v1/tickets/:ticketId/messages"
+      ]
+    },
+    "feature:github": {
+      "kind": "feature",
+      "title": "GitHub Integration",
+      "summary": "Links tickets to GitHub issues (create/link/unlink), receives webhook events to post fix-deployed notifications, and surfaces repo/issue status on the ticket.",
+      "stack": [
+        "GitHub REST API",
+        "GitHub Webhooks"
+      ],
+      "modules": [
+        "module:GithubModule"
+      ],
+      "entities": [
+        "entity:GithubConfig",
+        "entity:GithubIssue",
+        "entity:Notification",
+        "entity:Ticket"
+      ],
+      "routes": [
+        "route:POST /api/v1/github/webhook",
+        "route:POST /api/v1/tickets/:id/github/issues"
+      ],
+      "externals": [
+        "ext:GitHub"
+      ],
+      "queues": [],
+      "keyFiles": [
+        "apps/api/src/modules/github/github.service.ts",
+        "apps/api/src/modules/github/github.controller.ts"
+      ],
+      "why": "A single GithubConfig row (single-tenant model) stores the connected account's access token; webhooks are verified against AppConfig.githubWebhookSecret.",
+      "gaps": [
+        "fixDeployedLabel / pendingConfirmationLabel are configurable strings on AppConfig \u2014 webhook label matching is exact-string"
+      ],
+      "connects": [
+        "entity:GithubConfig",
+        "entity:GithubIssue",
+        "entity:Notification",
+        "entity:Ticket",
+        "ext:GitHub",
+        "module:GithubModule",
+        "route:POST /api/v1/github/webhook",
+        "route:POST /api/v1/tickets/:id/github/issues"
+      ]
+    },
+    "feature:notifications": {
+      "kind": "feature",
+      "title": "Notifications",
+      "summary": "In-app agent notifications (GitHub fix-deployed, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE.",
+      "stack": [
+        "NestJS",
+        "Prisma",
+        "SSE"
+      ],
+      "modules": [
+        "module:NotificationsModule"
+      ],
+      "entities": [
+        "entity:Notification",
+        "entity:NotificationRead",
+        "entity:Agent"
+      ],
+      "routes": [
+        "route:GET /api/v1/notifications"
+      ],
+      "externals": [],
+      "queues": [],
+      "keyFiles": [
+        "apps/api/src/modules/notifications/notifications.service.ts",
+        "apps/api/src/modules/notifications/notifications.controller.ts"
+      ],
+      "why": "NotificationRead is a per-agent join table so unread counts/read-state are agent-specific even though Notification rows are global (single-tenant, shared inbox).",
+      "gaps": [],
+      "connects": [
+        "entity:Agent",
+        "entity:Notification",
+        "entity:NotificationRead",
+        "module:NotificationsModule",
+        "route:GET /api/v1/notifications"
+      ]
+    },
+    "feature:analytics": {
+      "kind": "feature",
+      "title": "Analytics",
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form.",
+      "stack": [
+        "NestJS",
+        "Prisma",
+        "Recharts (bridge)"
+      ],
+      "modules": [
+        "module:AnalyticsModule"
+      ],
+      "entities": [
+        "entity:Ticket",
+        "entity:Message",
+        "entity:CustomerSignal",
+        "entity:Topic",
+        "entity:TicketRating",
+        "entity:AiUsage",
+        "entity:CustomerNote"
+      ],
+      "routes": [
+        "route:GET /api/v1/analytics",
+        "route:GET /api/v1/analytics/customers",
+        "route:GET /api/v1/rate/:token",
+        "route:POST /api/v1/rate/:token"
+      ],
+      "externals": [],
+      "queues": [
+        "queue:ai-request-csat"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/analytics/analytics.service.ts",
+        "apps/api/src/modules/analytics/customers.controller.ts",
+        "apps/api/src/modules/analytics/rating.controller.ts"
+      ],
+      "why": "TicketRating.ratingToken is a single-use unauthenticated token emailed to the customer so the CSAT form works without a portal login.",
+      "gaps": [],
+      "connects": [
+        "entity:AiUsage",
+        "entity:CustomerNote",
+        "entity:CustomerSignal",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:TicketRating",
+        "entity:Topic",
+        "module:AnalyticsModule",
+        "queue:ai-request-csat",
+        "route:GET /api/v1/analytics",
+        "route:GET /api/v1/analytics/customers",
+        "route:GET /api/v1/rate/:token",
+        "route:POST /api/v1/rate/:token"
+      ]
+    },
+    "feature:ai": {
+      "kind": "feature",
+      "title": "AI Ticket Analysis",
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call.",
+      "stack": [
+        "Gemini",
+        "pg-boss"
+      ],
+      "modules": [
+        "module:AiModule",
+        "module:QueueModule"
+      ],
+      "entities": [
+        "entity:AiUsage",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:Topic",
+        "entity:TicketRating",
+        "entity:CustomerSignal"
+      ],
+      "routes": [
+        "route:GET /api/v1/settings/ai-usage"
+      ],
+      "externals": [
+        "ext:Gemini"
+      ],
+      "queues": [
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/ai/ai.service.ts"
+      ],
+      "why": "Every Gemini call is recorded as an AiUsage row (model, tokens, cost, status) for the AI usage settings page and cost visibility \u2014 single-tenant so usage is instance-wide, not per-org.",
+      "gaps": [
+        "AiOperation also includes ATHENA_EMBED/ATHENA_GENERATE/KB_CONTEXTUAL_SUMMARY which belong to feature:bot's usage \u2014 AiUsage is shared across both features"
+      ],
+      "connects": [
+        "entity:AiUsage",
+        "entity:CustomerSignal",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:TicketRating",
+        "entity:Topic",
+        "ext:Gemini",
+        "module:AiModule",
+        "module:QueueModule",
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket",
+        "route:GET /api/v1/settings/ai-usage"
+      ]
+    },
+    "feature:files": {
+      "kind": "feature",
+      "title": "Files & Attachments",
+      "summary": "Upload/storage for ticket attachments and inline message/email attachments via MinIO (S3-compatible).",
+      "stack": [
+        "MinIO",
+        "S3 API"
+      ],
+      "modules": [
+        "module:FilesModule"
+      ],
+      "entities": [
+        "entity:Attachment"
+      ],
+      "routes": [
+        "route:POST /api/v1/files/upload"
+      ],
+      "externals": [
+        "ext:MinIO"
+      ],
+      "queues": [],
+      "keyFiles": [
+        "apps/api/src/modules/files/files.service.ts",
+        "apps/api/src/modules/files/files.controller.ts"
+      ],
+      "why": "Attachment.isLink/linkUrl lets large or external attachments be represented as links instead of stored blobs.",
+      "gaps": [],
+      "connects": [
+        "entity:Attachment",
+        "ext:MinIO",
+        "module:FilesModule",
+        "route:POST /api/v1/files/upload"
+      ]
+    },
+    "feature:settings": {
+      "kind": "feature",
+      "title": "Settings / AppConfig",
+      "summary": "Single-row instance-wide configuration: branding (logo, colors, portal hero copy), email/OAuth credentials, GitHub webhook config, bot/KB settings, feature flags, SLA, and configurable field1/field2 ticket fields.",
+      "stack": [
+        "NestJS",
+        "Prisma"
+      ],
+      "modules": [
+        "module:AppConfigModule"
+      ],
+      "entities": [
+        "entity:AppConfig"
+      ],
+      "routes": [
+        "route:GET /api/v1/config"
+      ],
+      "externals": [],
+      "queues": [],
+      "keyFiles": [
+        "apps/api/src/modules/config/app-config.service.ts",
+        "apps/api/src/modules/config/config.controller.ts"
+      ],
+      "why": "Single-tenant: no Org model, so every cross-feature setting (branding, integration credentials, feature flags) lives on one AppConfig row instead of per-tenant config.",
+      "gaps": [
+        "AppConfig has grown to ~80 columns spanning email/GitHub/bot/KB/branding/feature-flags \u2014 see _generated/erd.md for the full field list"
+      ],
+      "connects": [
+        "entity:AppConfig",
+        "module:AppConfigModule",
+        "route:GET /api/v1/config"
+      ]
+    },
+    "feature:auth": {
+      "kind": "feature",
+      "title": "Auth",
+      "summary": "Customer auth (email/password, Google OAuth, guest sessions, SSO handoff, email verification, password reset via magic tokens) and separate agent auth (password/Google) for the dashboard.",
+      "stack": [
+        "JWT",
+        "Google OAuth",
+        "HMAC-SSO handoff",
+        "NestJS Passport"
+      ],
+      "modules": [
+        "module:AuthModule"
+      ],
+      "entities": [
+        "entity:User",
+        "entity:Agent",
+        "entity:MagicToken",
+        "entity:SsoUsedToken"
+      ],
+      "routes": [
+        "route:POST /api/v1/auth/signin",
+        "route:POST /api/v1/auth/signup",
+        "route:POST /api/v1/auth/google",
+        "route:POST /api/v1/auth/sso"
+      ],
+      "externals": [],
+      "queues": [],
+      "keyFiles": [
+        "apps/api/src/modules/auth/auth.service.ts",
+        "apps/api/src/modules/auth/auth.controller.ts",
+        "apps/portal/src/app/auth/sso/page.tsx",
+        "apps/bridge/src/app/settings/sso/page.tsx"
+      ],
+      "why": "MagicToken (EMAIL_VERIFICATION / PASSWORD_RESET) is a shared single-use-token table for both flows; guest sessions create an isGuest User so unauthenticated portal visitors can still open tickets. SSO handoff uses HMAC shared secret (HS256) matching Intercom's identity-verification model \u2014 simple, single-tenant, first-party-only.",
+      "gaps": [
+        "SsoUsedToken cleanup cron not yet implemented \u2014 expired rows accumulate indefinitely",
+        "RS256 mode (for untrusted third-party host apps) not yet supported"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:MagicToken",
+        "entity:SsoUsedToken",
+        "entity:User",
+        "module:AuthModule",
+        "route:POST /api/v1/auth/google",
+        "route:POST /api/v1/auth/signin",
+        "route:POST /api/v1/auth/signup",
+        "route:POST /api/v1/auth/sso"
+      ]
+    },
+    "feature:queue": {
+      "kind": "feature",
+      "title": "Job Queue",
+      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing \u2014 durable Postgres-backed queues, no separate broker.",
+      "stack": [
+        "pg-boss v9",
+        "Postgres"
+      ],
+      "modules": [
+        "module:QueueModule"
+      ],
+      "entities": [],
+      "routes": [],
+      "externals": [],
+      "queues": [
+        "queue:email-ingest-thread",
+        "queue:email-send-reply",
+        "queue:email-send-confirmation",
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:bot-respond-to-ticket",
+        "queue:kb-crawl-and-index",
+        "queue:kb-scan",
+        "queue:kb-embed",
+        "queue:kb-index-page"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/queue/queue.module.ts",
+        "apps/api/src/modules/queue/queue.service.ts"
+      ],
+      "why": "pg-boss was chosen over Redis/BullMQ to avoid an extra infra dependency \u2014 jobs are durable rows in the same Postgres database.",
+      "gaps": [],
+      "connects": [
+        "module:QueueModule",
+        "queue:ai-analyze-message",
+        "queue:ai-classify-ticket",
+        "queue:ai-request-csat",
+        "queue:bot-respond-to-ticket",
+        "queue:email-ingest-thread",
+        "queue:email-send-confirmation",
+        "queue:email-send-reply",
+        "queue:kb-crawl-and-index",
+        "queue:kb-embed",
+        "queue:kb-index-page",
+        "queue:kb-scan"
+      ]
+    },
+    "feature:bot": {
+      "kind": "feature",
+      "title": "Athena Bot (First Responder + KB)",
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently.",
+      "stack": [
+        "Gemini",
+        "pgvector",
+        "Postgres FTS",
+        "pg-boss"
+      ],
+      "modules": [
+        "module:BotModule",
+        "module:KnowledgeBaseModule",
+        "module:ShiftsModule"
+      ],
+      "entities": [
+        "entity:KnowledgeSource",
+        "entity:KnowledgeChunk",
+        "entity:BotInteraction",
+        "entity:Shift",
+        "entity:Message",
+        "entity:Ticket",
+        "entity:Agent",
+        "entity:AiUsage"
+      ],
+      "routes": [
+        "route:POST /api/v1/kb/scan/start",
+        "route:POST /api/v1/kb/embed/confirm",
+        "route:GET /api/v1/kb/status",
+        "route:GET /api/v1/shifts"
+      ],
+      "externals": [
+        "ext:Gemini"
+      ],
+      "queues": [
+        "queue:bot-respond-to-ticket",
+        "queue:kb-crawl-and-index",
+        "queue:kb-scan",
+        "queue:kb-embed",
+        "queue:kb-index-page"
+      ],
+      "keyFiles": [
+        "apps/api/src/modules/bot/bot.service.ts",
+        "apps/api/src/modules/knowledge-base/knowledge-base.service.ts",
+        "apps/api/src/modules/shifts/shifts.service.ts"
+      ],
+      "why": "Hybrid retrieval (vector similarity + keyword FTS, fused with RRF) covers both semantic and exact-term queries; BotInteraction records retrieval scores/confidence/cost per attempt for tuning. Shift-based escalation picks the on-shift agent (primaryAgentId by dayOfWeek/time window) when the bot doesn't answer.",
+      "gaps": [
+        "KB scan/embed is a two-phase confirm flow (scan estimates cost, embed commits) \u2014 KbPhase enum tracks IDLE/SCANNING/AWAITING_CONFIRM/EMBEDDING/DONE/FAILED/CANCELLED on AppConfig"
+      ],
+      "connects": [
+        "entity:Agent",
+        "entity:AiUsage",
+        "entity:BotInteraction",
+        "entity:KnowledgeChunk",
+        "entity:KnowledgeSource",
+        "entity:Message",
+        "entity:Shift",
+        "entity:Ticket",
+        "ext:Gemini",
+        "module:BotModule",
+        "module:KnowledgeBaseModule",
+        "module:ShiftsModule",
+        "queue:bot-respond-to-ticket",
+        "queue:kb-crawl-and-index",
+        "queue:kb-embed",
+        "queue:kb-index-page",
+        "queue:kb-scan",
+        "route:GET /api/v1/kb/status",
+        "route:GET /api/v1/shifts",
+        "route:POST /api/v1/kb/embed/confirm",
+        "route:POST /api/v1/kb/scan/start"
+      ]
+    },
+    "entity:SsoUsedToken": {
+      "kind": "entity",
+      "table": "SsoUsedToken",
+      "columns": [
+        {
+          "name": "jti",
+          "type": "String"
+        },
+        {
+          "name": "expiresAt",
+          "type": "DateTime"
+        },
+        {
+          "name": "createdAt",
+          "type": "DateTime"
+        }
+      ],
+      "connects": [
+        "feature:auth"
+      ]
+    },
+    "route:POST /api/v1/auth/sso": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/auth/sso",
+      "module": "module:AuthModule",
+      "handler": "AuthController.ssoAuth",
+      "feature": "feature:auth",
+      "connects": [
+        "entity:SsoUsedToken",
+        "entity:User",
+        "feature:auth",
+        "module:AuthModule"
+      ]
+    }
+  },
+  "journeys": {
+    "journey:inbound-email": {
+      "title": "Inbound email becomes a ticket",
+      "beats": [
+        {
+          "node": "ext:Gmail",
+          "say": "Customer replies to (or starts) a support thread via Gmail/Graph"
+        },
+        {
+          "node": "feature:email",
+          "say": "Live poller (live-poller.service.ts) detects new history via the Gmail/Graph delta cursor"
+        },
+        {
+          "node": "queue:email-ingest-thread",
+          "say": "Poller enqueues an ingest-thread job for the new message"
+        },
+        {
+          "node": "feature:email",
+          "say": "ingest-thread.worker parses the thread and matches the VERP reply-to token to find/create the ticket"
+        },
+        {
+          "node": "entity:Ticket",
+          "say": "Ticket created or updated (status NEW); Message row inserted"
+        },
+        {
+          "node": "queue:bot-respond-to-ticket",
+          "say": "New-ticket hook enqueues Athena to attempt a first response"
+        },
+        {
+          "node": "queue:ai-classify-ticket",
+          "say": "Topic classification + sentiment analysis queued"
+        }
+      ]
+    },
+    "journey:send-reply": {
+      "title": "Agent reply goes out over email",
+      "beats": [
+        {
+          "node": "feature:tickets",
+          "say": "Agent opens the ticket in the Dashboard"
+        },
+        {
+          "node": "feature:messages",
+          "say": "Agent writes a reply, choosing Portal + Email delivery"
+        },
+        {
+          "node": "entity:Message",
+          "say": "Message row created (type REPLY, sentVia PORTAL_AND_EMAIL)"
+        },
+        {
+          "node": "queue:email-send-reply",
+          "say": "send-reply job enqueued"
+        },
+        {
+          "node": "feature:email",
+          "say": "send-reply.worker sends via Nodemailer/Graph with VERP reply-to for threading"
+        },
+        {
+          "node": "ext:Gmail",
+          "say": "Customer receives the reply and can respond to continue the thread"
+        }
+      ]
+    },
+    "journey:bot-first-response": {
+      "title": "Athena answers or escalates a new ticket",
+      "beats": [
+        {
+          "node": "entity:Ticket",
+          "say": "New ticket created (status NEW)"
+        },
+        {
+          "node": "queue:bot-respond-to-ticket",
+          "say": "respond-to-ticket job enqueued"
+        },
+        {
+          "node": "feature:bot",
+          "say": "Athena retrieves KB chunks via hybrid search (pgvector + Postgres FTS, RRF fusion)"
+        },
+        {
+          "node": "entity:KnowledgeChunk",
+          "say": "Top-ranked chunks + citations gathered as context"
+        },
+        {
+          "node": "ext:Gemini",
+          "say": "Gemini generates an answer grounded in the retrieved chunks"
+        },
+        {
+          "node": "entity:BotInteraction",
+          "say": "Interaction logged: confidence, chunks used, cost, tokens"
+        },
+        {
+          "node": "entity:Shift",
+          "say": "If confidence is too low, the on-shift agent (per Shift schedule) is assigned and notified instead"
+        },
+        {
+          "node": "entity:Message",
+          "say": "Athena's reply (or escalation note) is posted to the ticket"
+        }
+      ]
+    },
+    "journey:ticket-resolution-csat": {
+      "title": "Ticket resolved \u2192 AI analysis + CSAT",
+      "beats": [
+        {
+          "node": "feature:tickets",
+          "say": "Agent marks the ticket RESOLVED"
+        },
+        {
+          "node": "queue:ai-request-csat",
+          "say": "CSAT request job enqueued"
+        },
+        {
+          "node": "entity:TicketRating",
+          "say": "TicketRating row created with a single-use ratingToken"
+        },
+        {
+          "node": "feature:email",
+          "say": "Rating-request email sent to the customer with the rating link"
+        },
+        {
+          "node": "route:GET /api/v1/rate/:token",
+          "say": "Customer opens the unauthenticated rating form"
+        },
+        {
+          "node": "route:POST /api/v1/rate/:token",
+          "say": "Customer submits a 1-5 rating + optional comment"
+        },
+        {
+          "node": "queue:ai-classify-ticket",
+          "say": "Gemini also computes an AI CSAT estimate (aiRating/aiReasoning) for comparison"
+        },
+        {
+          "node": "feature:analytics",
+          "say": "Ratings feed the customer-intelligence dashboard"
+        }
+      ]
+    },
+    "journey:auth-signin": {
+      "title": "Customer signs in / signs up",
+      "beats": [
+        {
+          "node": "route:POST /api/v1/auth/signup",
+          "say": "Customer signs up with email/password (or POST /auth/google for OAuth)"
+        },
+        {
+          "node": "entity:User",
+          "say": "User row created (source PORTAL, isVerified=false)"
+        },
+        {
+          "node": "entity:MagicToken",
+          "say": "EMAIL_VERIFICATION magic token issued and emailed"
+        },
+        {
+          "node": "feature:auth",
+          "say": "Customer clicks the verification link; token validated, isVerified set true"
+        },
+        {
+          "node": "route:POST /api/v1/auth/signin",
+          "say": "Subsequent sign-ins use email/password (or Google) to receive a JWT"
+        },
+        {
+          "node": "feature:tickets",
+          "say": "Authenticated customer can now view their tickets in the Portal"
+        }
+      ]
+    },
+    "journey:portal-support-flow": {
+      "title": "Portal ticket: open \u2192 confirm \u2192 bot \u2192 reply \u2192 resolve",
+      "beats": [
+        {
+          "node": "feature:tickets",
+          "say": "Customer opens a ticket in the portal (source=PORTAL); Ticket + first Message row created"
+        },
+        {
+          "node": "entity:Ticket",
+          "say": "Ticket activated (isTicket=true, status=OPEN); confirmation job enqueued"
+        },
+        {
+          "node": "queue:email-send-confirmation",
+          "say": "SendConfirmationWorker sends confirmation email (thread root) quoting the customer's description"
+        },
+        {
+          "node": "queue:bot-respond-to-ticket",
+          "say": "Bot job enqueued; Athena retrieves KB chunks (hybrid RAG) and generates an answer"
+        },
+        {
+          "node": "feature:bot",
+          "say": "Bot posts reply message; if confident it answers, otherwise escalates to a human"
+        },
+        {
+          "node": "queue:email-send-reply",
+          "say": "SendReplyWorker emails the bot reply to the customer \u2014 no quoted history block"
+        },
+        {
+          "node": "feature:email",
+          "say": "Customer replies from the portal; sendPortalReplyAck sends 'Received your response' email To the customer, threaded"
+        },
+        {
+          "node": "queue:email-send-reply",
+          "say": "Agent replies from Bridge; sendAgentReply emails the customer \u2014 no quoted history block"
+        }
+      ]
+    },
+    "journey:email-support-flow": {
+      "title": "Direct email: inbound \u2192 ticket \u2192 ongoing thread replies",
+      "beats": [
+        {
+          "node": "ext:Gmail",
+          "say": "Customer emails the support address directly"
+        },
+        {
+          "node": "feature:email",
+          "say": "Live poller detects new history via the Gmail/Graph delta cursor"
+        },
+        {
+          "node": "queue:email-ingest-thread",
+          "say": "Poller enqueues ingest-thread job; IngestThreadWorker processes it"
+        },
+        {
+          "node": "entity:Ticket",
+          "say": "Thread ingested: Ticket created (source=EMAIL, isTicket=false) + Message row (sentVia=EMAIL, customerEmailedAt pre-marked)"
+        },
+        {
+          "node": "queue:ai-classify-ticket",
+          "say": "AI classifies the ticket (sentiment, topic, CSAT signals)"
+        },
+        {
+          "node": "feature:tickets",
+          "say": "Agent converts conversation to ticket in Bridge (isTicket=true); confirmation + bot enqueued"
+        },
+        {
+          "node": "entity:Message",
+          "say": "Customer replies in email thread \u2192 ingested, matched to ticket by externalThreadId, deduped by RFC Message-ID \u2014 no outbound ack (already in the thread)"
+        },
+        {
+          "node": "queue:email-send-reply",
+          "say": "Agent replies from Bridge \u2192 sendAgentReply delivers email to customer (no quoted history)"
+        }
+      ]
+    }
+  }
+}

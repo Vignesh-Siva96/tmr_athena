@@ -1382,3 +1382,112 @@ describe('G4 — Bounce detection (R114–R115)', () => {
     expect(result.created).toBe(false)
   })
 })
+
+// ─── S11 — Delta-quoting (customerEmailedAt watermark) ────────────────────────
+
+describe('S11 — Delta-quoting in confirmation and agent-reply emails', () => {
+  it('portal ticket confirmation quotes the customer description, then marks it delivered', async () => {
+    const appConfig = await seedAppConfig()
+    const user = await makeUser({ email: 'delta-confirm@example.com', name: 'Delta User' })
+    const token = await signJwt({ id: user.id, role: 'user' })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/tickets')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ title: 'Delta quoting test', description: "Here's my actual problem.", category: 'BUG_REPORT' })
+
+    expect(res.status).toBe(201)
+    const { ticket } = res.body.data
+    await flushPromises()
+
+    const emailService = harness.get<EmailService>(EmailService)
+    const mailCapture = harness.get<MailCaptureService>(MailCaptureService)
+    const ticketWithUser = await harness.prisma.ticket.findUnique({ where: { id: ticket.id }, include: { user: true } })
+
+    const result = await emailService.sendTicketConfirmation(ticketWithUser!, appConfig)
+    const descriptionMsg = await harness.prisma.message.findFirst({
+      where: { ticketId: ticket.id, type: 'REPLY', authorUserId: user.id },
+    })
+    expect(result.quotedMessageIds).toEqual([descriptionMsg!.id])
+
+    const mails = mailCapture.list({ to: user.email })
+    const confirmation = mails[mails.length - 1]
+    expect(confirmation.text).toContain('Your message:')
+    expect(confirmation.text).toContain("> Here's my actual problem.")
+
+    // Worker marks the quoted message(s) as delivered after a successful send
+    await emailService.markMessagesEmailed(result.quotedMessageIds)
+    const markedMsg = await harness.prisma.message.findUnique({ where: { id: descriptionMsg!.id } })
+    expect(markedMsg!.customerEmailedAt).not.toBeNull()
+
+    // A retry/second confirmation must not re-quote the now-delivered description
+    const result2 = await emailService.sendTicketConfirmation(ticketWithUser!, appConfig)
+    expect(result2.quotedMessageIds).toEqual([])
+    const mails2 = mailCapture.list({ to: user.email })
+    expect(mails2[mails2.length - 1].text).not.toContain('Your message:')
+  })
+
+  it('agent reply quotes prior undelivered customer messages once, not on a subsequent reply', async () => {
+    const appConfig = await seedAppConfig()
+    const user = await makeUser({ email: 'delta-reply@example.com', name: 'Reply User' })
+    const agent = await makeAgent()
+    const ticket = await makeTicket({ userId: user.id, status: 'OPEN' })
+    const emailService = harness.get<EmailService>(EmailService)
+    const mailCapture = harness.get<MailCaptureService>(MailCaptureService)
+    const ticketWithUser = { ...ticket, user: { id: user.id, email: user.email, name: user.name } }
+
+    // Customer's portal follow-up — not yet emailed to them
+    const customerMsg = await harness.prisma.message.create({
+      data: { ticketId: ticket.id, body: 'Any update on this?', authorUserId: user.id, type: 'REPLY' },
+    })
+
+    const agentMsg1 = await harness.prisma.message.create({
+      data: { ticketId: ticket.id, body: 'Looking into it now.', authorAgentId: agent.id, type: 'REPLY', sentVia: 'PORTAL_AND_EMAIL' },
+    })
+
+    const result1 = await emailService.sendAgentReply(ticketWithUser as any, agentMsg1 as any, appConfig)
+    expect(result1.quotedMessageIds).toEqual([customerMsg.id])
+    const mails1 = mailCapture.list({ to: user.email })
+    expect(mails1[mails1.length - 1].text).toContain('--- Previous messages:')
+    expect(mails1[mails1.length - 1].text).toContain('> Any update on this?')
+
+    await emailService.markMessagesEmailed([agentMsg1.id, ...result1.quotedMessageIds])
+
+    const agentMsg2 = await harness.prisma.message.create({
+      data: { ticketId: ticket.id, body: 'Fixed — please retry.', authorAgentId: agent.id, type: 'REPLY', sentVia: 'PORTAL_AND_EMAIL' },
+    })
+
+    const result2 = await emailService.sendAgentReply(ticketWithUser as any, agentMsg2 as any, appConfig)
+    expect(result2.quotedMessageIds).toEqual([])
+    const mails2 = mailCapture.list({ to: user.email })
+    expect(mails2[mails2.length - 1].text).not.toContain('--- Previous messages:')
+  })
+
+  it('inbound email message is pre-marked customerEmailedAt and never quoted', async () => {
+    await seedAppConfig()
+    const thread = buildParsedThread({
+      threadId: 'delta-inbound-thread',
+      messageId: 'delta-inbound-msg',
+      rfcMessageId: '<delta-inbound@gmail.com>',
+      from: 'inbound-customer@example.com',
+      subject: 'Need help',
+      body: 'I need some help with this.',
+    })
+    const provider = makeMailProvider(thread)
+    const ingestion = harness.get<ThreadIngestionService>(ThreadIngestionService)
+
+    const result = await ingestion.fetchAndUpsertThread(provider, 'delta-inbound-thread', { isBackfill: false })
+
+    const inboundMsg = await harness.prisma.message.findUnique({ where: { externalMessageId: 'delta-inbound-msg' } })
+    expect(inboundMsg!.customerEmailedAt).not.toBeNull()
+    expect(inboundMsg!.customerEmailedAt!.getTime()).toBe(inboundMsg!.createdAt.getTime())
+
+    const emailService = harness.get<EmailService>(EmailService)
+    const appConfig = await harness.prisma.appConfig.findFirst()
+    const ticketWithUser = await harness.prisma.ticket.findUnique({ where: { id: result.ticketId! }, include: { user: true } })
+
+    const confirmationResult = await emailService.sendTicketConfirmation(ticketWithUser!, appConfig!)
+    expect(confirmationResult.quotedMessageIds).not.toContain(inboundMsg!.id)
+  })
+})

@@ -24,6 +24,7 @@ const STATIC_NAV_ITEMS: { section: string; items: NavItem[] }[] = [
   { section: 'Integrations', items: [
     { href: '/settings/github', label: 'GitHub', badge: null, badgeColor: 'var(--d-success)' },
     { href: '/settings/email', label: 'Email', badge: null, badgeColor: 'var(--d-success)' },
+    { href: '/settings/sso', label: 'Embedded Portal' },
   ]},
   { section: 'AI', items: [
     { href: '/settings/ai-assistant', label: 'AI Assistant' },

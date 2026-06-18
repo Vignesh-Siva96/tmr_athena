@@ -54,13 +54,17 @@ export class ThreadIngestionService {
       return { created: false }
     }
 
-    // G4: Bounce detection — mailer-daemon / postmaster sender indicates a DSN / NDR.
-    // Try to match the bounce to a known ticket and write a SYSTEM_EVENT; skip normal ingest.
-    const BOUNCE_PATTERN = /^(mailer-daemon|postmaster)(@|$)/i
+    // G4: Bounce detection — common DSN/NDR senders indicate a delivery failure.
+    // Includes mailer-daemon, postmaster, and common automated-reply local-parts.
+    const BOUNCE_PATTERN = /^(mailer-daemon|postmaster|bounce|bounces|noreply|no-reply|no\.reply|donotreply|do-not-reply|auto-reply|autoreply)(@|$)/i
     const firstParsedMsg = [...parsed.messages].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())[0]
     const fromLocalPart = (firstParsedMsg?.fromEmail ?? '').split('@')[0] ?? ''
     if (BOUNCE_PATTERN.test(fromLocalPart + '@')) {
-      await this.handleBouncedThread(parsed, options)
+      try {
+        await this.handleBouncedThread(parsed, options)
+      } catch (err) {
+        this.logger.warn(`Bounce handler failed for thread, falling through: ${String(err)}`)
+      }
       return { created: false }
     }
 
@@ -243,6 +247,8 @@ export class ThreadIngestionService {
             authorUserId: isFromAgent ? null : user.id,
             authorAgentId: isFromAgent ? authorAgentId : null,
             createdAt: msg.sentAt,
+            // Already in the customer's mailbox (this message WAS that email) — never quote it.
+            customerEmailedAt: msg.sentAt,
           },
         })
 

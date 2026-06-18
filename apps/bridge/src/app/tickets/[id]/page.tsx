@@ -842,19 +842,6 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                 <button type="button" style={{ height: 34, background: 'var(--d-raised)', color: 'var(--d-text-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
                   ✉ Send to customer
                 </button>
-                {agent?.role === 'ADMIN' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!token || !ticket) return
-                      void api.delete(`/tickets/${ticket.id}`, token)
-                        .then(() => router.push('/inbox'))
-                        .catch(console.error)
-                    }}
-                    style={{ height: 34, background: 'transparent', color: 'var(--d-text-4)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    🗑 Archive ticket
-                  </button>
-                )}
               </>
             )}
           </div>

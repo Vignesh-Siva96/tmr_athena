@@ -67,7 +67,10 @@ ngrok http 3001
 | **Generated FTS `tsv` column asserted at boot** (`RetrievalService.onModuleInit`) | Generated columns live in raw-SQL migrations, not `schema.prisma`; `migrate reset`/0-step migrations can silently drop them and break bot retrieval. Idempotent boot guard self-heals. (2026-06-01) |
 | **Athena `Learn more:` link rendered in code, not by the LLM** (`BotService.appendSource`) | The bot answer used to rely on the LLM typing the source link into `answer`. Under structured-JSON output `gemini-2.5-flash-lite` fills the `citations` array but drops the inline link; `gemini-2.0-flash` didn't. Link now appended deterministically from `citations[0]` (matched to a retrieved chunk for a heading label), so it's model-independent. (2026-06-01) |
 | **KB + Shifts controllers: `@UseGuards(AuthGuard, AgentGuard)` at class level, ADMIN-only on every mutation** | They had zero auth guards (KB even had a literal `// TODO: Add auth guard`) — anyone could crawl/delete the knowledge base, trigger `manualIndex` (SSRF surface), or CRUD on-call shifts. Matched the existing `ConfigController`/`AgentsController` pattern: class-level guard + per-mutation `if (agent.role !== 'ADMIN') throw new ForbiddenException(...)`. Read-only `GET` routes (`kb/status`, `kb/sources`, `shifts`) require auth but not ADMIN. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.1) |
+| **`worldgraph/atlas.world.json`: single `connects: string[]` per node** (mirrored into `index.<label>.connects`, equality-checked by `validate.ts`) instead of the plan's literal "union of typed reference arrays" | 105 hand-authored nodes — one explicit array per node is far less bookkeeping than per-kind typed-array unions, while a generic recursive label scan still catches dangling refs and the index/node duplication is validator-enforced. (2026-06-15) |
+| **`worldgraph/pnpm-workspace.yaml` with `packages: ["viewer"]`** | Without it, `cd worldgraph && pnpm install` was absorbed into the root pnpm workspace (no isolated `node_modules`/lockfile). This file makes `worldgraph/` its own pnpm workspace root, isolating its deps (and `viewer/`'s) from the monorepo's `pnpm-lock.yaml` entirely. (2026-06-15) |
 | **Single shared SSRF guard** — `apps/api/src/common/net/assert-public-url.ts` (`assertPublicUrl` + `fetchPublic` + `readBodyCapped`) | Three server-side `fetch()`s of admin/config-supplied URLs (`config.service.extractBrand`, KB crawler `fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod`) had no protection against internal targets (loopback, link-local incl. `169.254.169.254`, RFC1918 ranges, `localhost`), non-`http(s)` schemes, redirect chains, or oversized bodies. One module now: resolves the hostname via DNS at call time (covers DNS-rebinding), rejects private/loopback/link-local ranges + non-public schemes (`http` allowed only outside `production`), and `fetchPublic` re-validates every redirect hop (capped at 3) and caps response bytes (5 MB) via `readBodyCapped`. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.2) |
+| **Portal reply ack to customer, not self-addressed mirror** — `sendPortalReplyAck` replaces `sendPortalReplyCopy` | Self-addressed mirrors were awkward: the customer's portal message was quoted back at them in a later agent reply, and the mirror only landed in the support inbox. A direct "Received your response" ack To the customer puts the portal message in the thread on both sides cleanly. Agent/bot reply emails also drop all quoted history — the thread is in the email client's native chain. (2026-06-16) |
 | **IMAP IDLE client** replaces smtp-server inbound listener              | `ImapClientService` reads from org's existing inbox via IMAP IDLE, no MX changes needed                                           |
 | **VERP signed reply tokens** for threading                              | `reply+<emailThreadId>.<hmac8>@<domain>` — signed with AES-256-GCM key from `EMAIL_CREDS_KEY` env                                 |
 | **IMAP/SMTP creds stored encrypted in AppConfig**                       | AES-256-GCM via `credentials-cipher.ts`; never returned plain on GET; password-set boolean returned instead                        |
@@ -127,6 +130,7 @@ ngrok http 3001
 | **At-least-once semantics; checkpoint after batch**                     | Checkpoint (historyId / deltaLink / archivePageToken) persisted to DB **after** the batch is processed. `externalThreadId @unique` + `externalMessageId @unique` make replays safe and idempotent. |
 | **AppEventsService bridges OAuth → backfill trigger**                   | `EmailOAuthService.exchangeCode()` emits `OAUTH_CONNECTED`; `EmailSyncBackfillService` listens in constructor. Avoids circular module dependency (EmailSyncModule imports EmailOAuthModule; adding EmailSyncModule as dep of EmailOAuthModule would close the cycle). |
 | **`EmailSyncLivePoller` gated by `EMAIL_SYNC_LIVE_POLL=1`**            | Dev environments don't need live polling. Explicit opt-in prevents runaway API calls during local testing. |
+| **`Message.customerEmailedAt DateTime?`** nullable watermark (not boolean) for delta-quoting | Records *when* a message's content reached the customer's inbox; matches `analyzedAt`/`deletedAt` conventions. Confirmation/agent-reply emails quote only `customerEmailedAt = NULL` messages (the delta), not the full thread — keeps outbound emails short. Quote/mark logic centralized in `EmailService` (`loadUndeliveredHistory`, `renderQuotedHistory`, `markMessagesEmailed`), not duplicated per worker. No backfill for pre-existing NULL rows — accepted one-time "previous messages" recap on first post-deploy reply. (2026-06-15, plan `in-ticket-flow-i-dreamy-toast`) |
 | **Unlimited archive; `threadsTotal` from Gmail profile as estimate**   | Removed the 300-thread foreground cap. `GET /users/me/profile` returns `threadsTotal` which is persisted to `archiveTotalEstimate` before processing starts — gives accurate `X / Y` from the first poll. |
 | **`gmailHistoryId` set at archive START (not just end)**               | Setting checkpoint only at end meant emails arriving during a long archive were never picked up by the live poller. Setting it before processing starts ensures the poller catches everything from that point forward once the archive finishes. |
 | **Per-thread error isolation in live poller**                          | A single bad thread (`messageId` unique violation, network error, etc.) was throwing out of `pollOne`, preventing the checkpoint from updating — causing infinite re-processing of the same threads on every 30s poll. Each thread now has its own try/catch; checkpoint always advances. |
@@ -173,6 +177,16 @@ ngrok http 3001
 | **`Ticket.convertedAt` stamped in `convert()`** | Enables Time-to-Triage metric (`convertedAt − createdAt`). Portal tickets never pass through `convert()` so `convertedAt` is null for them (portal tickets start as `isTicket=true`). Analytics service filters `convertedAt NOT NULL` before computing the median. (2026-06-14) |
 | **`AppConfig.slaFirstResponseHours = 4` (read-only, no UI yet)** | SLA target is instance config, not a hard-coded constant in the service. Defaults to 4h; settable via DB; full Settings UI is a follow-up. (2026-06-14) |
 | **Resolution time uses `firstResolvedAt`, not `:RESOLVED` message scan** | The old code text-scanned message bodies for the magic string `:RESOLVED` and labeled the result "median" while computing a mean. Replaced with direct read of `Ticket.firstResolvedAt` (already set by the status-machine when a ticket first enters RESOLVED). (2026-06-14) |
+| **Gmail sends now use Gmail REST API, not SMTP XOAUTH2** | SMTP XOAUTH2 required the `https://mail.google.com/` scope (full mailbox control). Gmail REST API `users.messages.send` uses narrow `gmail.modify + gmail.send`. Nodemailer still builds MIME; raw RFC 2822 buffer is base64url-POSTed. Existing connected accounts must re-consent. Microsoft SMTP path is unchanged (parked). (2026-06-14, plan `in-this-app-we-nested-squirrel`) |
+| **Gmail send errors always propagate — no silent swallow** | `sendAgentReply`, `sendPortalReplyCopy`, `sendTicketConfirmation` previously caught errors internally and returned null/void, making the workers' retry + `email_delivery_failed` logic dead code. All three now throw on failure. Workers already have correct catch blocks. (2026-06-14) |
+| **Sync dispatcher/importer split via pg-boss queue** | Live poller was monolithic: fetch → ingest in-process → advance checkpoint only if all succeeded. A single permanently-failing thread jammed the entire inbox. Now: dispatcher enqueues one `email:ingest-thread` pg-boss job per thread, then always advances the checkpoint. `IngestThreadWorker` handles ingestion with per-job retry (5×). Dead-lettered jobs surface at `GET /sync/health`. (2026-06-14) |
+| **Live poll default-on** | `EMAIL_SYNC_LIVE_POLL === '1'` was the gate — absent (the default) meant sync was off. Changed to default-on: `EMAIL_SYNC_LIVE_POLL !== '0'` enables polling. Set `EMAIL_SYNC_LIVE_POLL=0` to disable. (2026-06-14) |
+| **Delete ticket action removed** | `DELETE /tickets/:id` (soft-delete, ADMIN only) removed. `findById()` now guards `deletedAt: null`. Previously the delete action existed but didn't prevent the ticket from being viewable (R101 known bug). Resolves the bug cleanly by removing the action. `deletedAt` column retained. (2026-06-14) |
+| **Confirmation SYSTEM_EVENT carries RFC messageId** | After `sendTicketConfirmation` sends, the `confirmation_sent:` SYSTEM_EVENT row is written with `messageId = <ticket-{emailThreadId}@domain>`. Customer replies to the confirmation are now matched at Level 2 (RFC Message-ID lookup) instead of falling through to Level-3 regex. (2026-06-14) |
+| **Bounce pattern widened** | `BOUNCE_PATTERN` extended from `mailer-daemon|postmaster` to also catch `bounce|bounces|noreply|no-reply|no.reply|donotreply|do-not-reply|auto-reply|autoreply`. Bounce handler failure is now logged at WARN rather than being silent. (2026-06-14) |
+| **SSO handoff uses HMAC shared secret (HS256) over OIDC/SAML** | Single-tenant, first-party host only. HMAC mirrors Intercom's identity-verification model; simpler than OIDC/SAML for self-hosted single-tenant use. RS256 for untrusted third-party hosts deferred to v2. (2026-06-17, plan in-this-app-for-composed-puppy) |
+| **SSO replay protection via `SsoUsedToken` table** | Single-column table keyed on `jti` (primary key). A direct `create()` followed by catching `P2002` (Prisma unique constraint violation) detects replays without a TOCTOU race. Row TTL cleanup (cron delete past `expiresAt`) deferred to v2. (2026-06-17) |
+| **SSO `externalId` lookup order: externalId → email (backfill) → create** | Prevents duplicate accounts when a user first signed up via portal (no externalId) and later arrives via SSO. On email-only match, `externalId` is backfilled so subsequent SSO logins hit the fast path. (2026-06-17) |
 
 ---
 
@@ -205,6 +219,33 @@ read the atlas. If you want to know how it got that way, read this.
 ---
 
 ## Session Log
+
+### 2026-06-15 — Worldgraph (AI-maintained app map + zoomable/storyboard viewer)
+
+- Added a top-level **`worldgraph/`** directory: a single-file, AI-maintained JSON map of the whole
+  platform (`atlas.world.json`) plus a standalone viewer — fully decoupled from the main app
+  (own `package.json`/install/lockfile/`pnpm-workspace.yaml`, **not** referenced by the root
+  `pnpm-workspace.yaml`, `turbo.json`, or `.github/workflows/test.yml`).
+- **`atlas.world.json`** — 105 nodes (12 `feature:*`, 22 `module:*`, 22 `entity:*`, 33 `route:*`,
+  5 `ext:*`, 11 `queue:*`) + 5 `journey:*` storyboards (`inbound-email`, `send-reply`,
+  `bot-first-response`, `ticket-resolution-csat`, `auth-signin`). Label-addressed by `kind:name`;
+  every node has a top-level `connects: string[]`, mirrored into `index.<label>.connects`.
+- **`atlas.world.schema.json`** (JSON Schema draft-07) + **`validate.ts`** (read-only, `tsx`):
+  checks schema conformance, label well-formedness, index/node `connects` consistency, and
+  dangling-label references via a generic recursive label scan. `pnpm worldgraph:check` from repo
+  root (or `pnpm validate` inside `worldgraph/`) → `atlas.world.json OK — 105 nodes, 5 journeys`.
+- **Viewer** (`worldgraph/viewer`, port 3003): standalone Next.js 15 + React Flow app with
+  Map / Detail / Storyboard views — dagre auto-layout, zustand selection/playhead state,
+  framer-motion storyboard captions, dark theme mirroring bridge's `--d-*` tokens. `pnpm
+  worldgraph:view` from repo root. Verified headless via Playwright (node click → detail panel,
+  journey selection → storyboard captions).
+- **CLAUDE.md**: added item 7 to the 30-second checklist (update `atlas.world.json` dossier +
+  `connects` + `index`, then `pnpm worldgraph:check`, on any feature/module/route/queue/external
+  change), a row to §4 Commands, a row to "Always Read These First", and a `worldgraph/` line in
+  §5 Project Structure.
+- Design note: simplified the plan's "union of typed reference arrays" requirement to a single
+  explicit `connects: string[]` per node (duplicated into `index`, equality-checked by the
+  validator) — same guarantees, far less per-kind bookkeeping across 105 hand-authored nodes.
 
 ### 2026-06-08 — Delivery QA flow (catalog-driven manual release-testing reports)
 
@@ -2184,3 +2225,262 @@ auth flows — **no feature flags, no `maintenanceMode` gating**.
   same suites pass individually. Not a regression from this change.
 - `pnpm lint` not run — pre-existing environment issue in this sandbox (`@tmr/api` has no ESLint
   config for ESLint 6.4.0; `next lint` for `@tmr/portal` wants an interactive `eslint --init`).
+
+---
+
+## Session Log — 2026-06-14 (plan: in-this-app-we-nested-squirrel)
+
+**Scope**: Email sending migration + sync hardening + cleanup (5 work items)
+
+### Changes
+
+**Item 1 — Gmail REST API send (scope narrowing)**
+- `apps/api/src/modules/email/email.service.ts` — replaced SMTP XOAUTH2 send path for Google
+  OAuth with Gmail REST API `users.messages.send`. New helpers: `buildMimeBuffer()` (nodemailer
+  streamTransport → raw RFC 2822 Buffer), `gmailApiSend()` (base64url-POST to Gmail API), `send()`
+  (unified routing: test capture → Gmail API → Microsoft SMTP → plain SMTP). Removed the old
+  `getTransporter()` (renamed to `getSmtpTransporter()` for non-Gmail use); kept SMTP path for
+  Microsoft OAuth and plain-SMTP fallback.
+- `sendTicketConfirmation`, `sendAgentReply`, `sendPortalReplyCopy` now **throw on failure** (no
+  more try/catch swallowing). Return types changed from `Promise<void>` / `Promise<string | null>`
+  to `Promise<string>` (returns the RFC Message-ID).
+- All non-critical send methods (`sendAgentInvite`, `sendEscalationNotification`,
+  `sendEmailVerification`, `sendPasswordReset`, `sendRaw`) updated to use the unified `send()`
+  helper so they work with Gmail API too (keep their own try/catch).
+- `apps/api/src/modules/email-oauth/email-oauth.service.ts` — Google OAuth scope narrowed from
+  `https://mail.google.com/ email profile` to
+  `https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send email profile`.
+  **Existing connected accounts must reconnect** to receive the narrower scope.
+
+**Item 2 — Delete ticket action removed**
+- `apps/api/src/modules/tickets/tickets.controller.ts` — removed `@Delete(':id')` endpoint.
+- `apps/api/src/modules/tickets/tickets.service.ts` — removed `softDelete()` method; added
+  `deletedAt: null` guard to `findById()` so soft-deleted tickets return 404 (fixes R101).
+- `apps/bridge/src/app/tickets/[id]/page.tsx` — removed "🗑 Archive ticket" button.
+
+**Item 3 — Sync dispatcher/importer split + on-by-default + alerting**
+- `apps/api/src/modules/queue/queue.module.ts` — added `EMAIL_INGEST_THREAD_QUEUE` constant.
+- `apps/api/src/modules/queue/queue.service.ts` — added `IngestThreadJobData` interface and
+  `enqueueIngestThread()` (singletonKey = `cfgId:threadId`, 5× retry + backoff).
+- `apps/api/src/modules/email-sync/live-poller.service.ts` — refactored to thin dispatcher:
+  enqueue all changed threads → advance checkpoint (always). Removed in-process ingestion +
+  conditional checkpoint hold. Changed `enabled` gate from `=== '1'` to `!== '0'` (on by default).
+  `ThreadIngestionService` dependency removed; `QueueService` added.
+- `apps/api/src/modules/email-sync/ingest-thread.worker.ts` — new `IngestThreadWorker`:
+  consumes `email:ingest-thread`, calls `ThreadIngestionService.fetchAndUpsertThread`.
+- `apps/api/src/modules/email-sync/email-sync.module.ts` — added `IngestThreadWorker`.
+- `apps/api/src/modules/email-sync/email-sync.controller.ts` — added `GET /sync/health`
+  endpoint (returns `{ failedIngestJobs: N }` via raw Prisma query on `pgboss.job`).
+- `apps/bridge/src/app/settings/email/page.tsx` — added `useSyncHealth()` hook and banner
+  showing failed job count when > 0 (polls `/sync/health` every 60s).
+
+**Item 4 — Confirmation email paper trail**
+- `apps/api/src/modules/email/workers/send-confirmation.worker.ts` — stores the RFC
+  `messageId` returned by `sendTicketConfirmation()` on the `confirmation_sent:` SYSTEM_EVENT row.
+
+**Item 5 — Widened bounce detection**
+- `apps/api/src/modules/email-sync/thread-ingestion.service.ts` — `BOUNCE_PATTERN` extended to
+  include `bounce|bounces|noreply|no-reply|no.reply|donotreply|do-not-reply|auto-reply|autoreply`.
+  Bounce handler wrapped in try/catch with WARN logging on failure.
+
+### Docs
+- `docs/atlas/email.md` — Gmail API send path, scope change, dispatcher/importer flow diagram,
+  `GET /sync/health` endpoint, paper-trail note on confirmation, widened bounce pattern,
+  `EMAIL_SYNC_LIVE_POLL` default-on, re-auth requirement for existing accounts.
+- `docs/atlas/tickets.md` — delete action removed (Notable Decisions updated).
+- `tests/regression-catalogue.md` — R101 promoted from 🟡 to 🔴 (fix landed); R184 superseded
+  (behavior changed); new R213-R216 entries.
+
+### Tests
+- `pnpm type-check` ✅ (API + bridge).
+- `pnpm test:unit` — 143/143 ✅.
+- `pnpm test:integration` — running at session end.
+
+### Known gaps
+- `pnpm atlas:gen` not run (no new routes/models, only one endpoint added: `GET /sync/health`).
+  Run before pushing.
+- R213-R216 test bodies to be written.
+- Existing accounts must re-consent for narrower Google scope — a reconnect flow banner is a
+  follow-up (not blocking; old tokens continue to work until they expire, at which point the
+  auto-refresh will fail and the admin will see an OAuth error).
+
+### Follow-up fix (same session) — Gmail thread-id capture (R217)
+- **Bug found after migration:** agent replies on **portal-originated** tickets were sent as new
+  Gmail threads. Root cause: the Gmail REST API only threads a sent message when the request body
+  carries the conversation's `threadId` — matching `References`/`In-Reply-To` headers alone are not
+  enough (unlike SMTP). Portal tickets have no `externalThreadId` until an inbound email arrives, so
+  `gmailApiSend` sent with no `threadId` every time, and it also **discarded** the `threadId` Gmail
+  returned.
+- **Fix** (`apps/api/src/modules/email/email.service.ts`): `gmailApiSend` now returns the
+  `GmailSendResponse` (`{id, threadId}`); `send()` returns it; new private `stampGmailThreadId()`
+  persists the returned `threadId` onto `Ticket.externalThreadId` via `updateMany(where: {externalThreadId: null})`
+  (never clobbers a thread id from inbound ingestion). Called from `sendTicketConfirmation`,
+  `sendAgentReply`, `sendPortalReplyCopy`. First outbound (the confirmation) establishes the thread;
+  the reply worker re-fetches the ticket so later replies pass the stamped `threadId`.
+- **Tests:** `tests/unit/api/email-thread-stamping.spec.ts` (R217, 3 cases) ✅; `pnpm test:unit` 146/146 ✅.
+- **Docs:** `docs/atlas/email.md` Threading row + R217 in regression catalogue.
+- **Known edge:** if the bot reply and the confirmation send concurrently on a brand-new portal
+  ticket (both before either stamps), they can land in two Gmail threads (first stamp wins, second
+  no-ops). Rare; not addressed.
+
+---
+
+## Session Log — 2026-06-14 (plan: i-recenty-migrated-to-effervescent-locket)
+
+### Fix — recipient-side threading broken by Gmail's Message-ID rewrite (R218)
+
+- **Bug:** every agent reply and ticket-confirmation pair showed up as **two separate
+  conversations** in the recipient's mailbox, even after R217's `threadId` stamping fixed the
+  *sending* account's view.
+- **Root cause (confirmed via "Show original"):** recipient mail clients thread on RFC headers
+  (`Message-ID`/`In-Reply-To`/`References`), not Gmail's `threadId`. Gmail **rewrites the
+  sender-supplied `Message-ID`** on send — our synthetic `<ticket-...@gmail.com>` /
+  generated ids were replaced with `<...@mail.gmail.com>`. The reply's `In-Reply-To`/`References`
+  still pointed at the dead synthetic id, which no delivered message has, so the recipient's
+  client started a new thread.
+- **Fix** (`apps/api/src/modules/email/email.service.ts`):
+  - `gmailApiSend` now does a follow-up `GET /gmail/v1/users/me/messages/{id}?format=metadata&metadataHeaders=Message-ID`
+    after sending, and attaches the Gmail-assigned id as `GmailSendResponse.rfcMessageId` (best
+    effort — logs and continues if the lookup fails). No new OAuth scope needed (`gmail.modify`
+    already grants read).
+  - `buildThreadHeaders` no longer filters to `type: 'REPLY', isInternal: false` — it now chains
+    `References`/`In-Reply-To` from **all** stored `Message.messageId` values (internal notes
+    naturally have none), so the confirmation's real id is included as the thread root.
+  - `sendTicketConfirmation` / `sendAgentReply` / `sendPortalReplyCopy` now return
+    `result?.rfcMessageId ?? <synthetic/generated id>`. Workers already persist the returned id
+    onto the message row, so the real-id chain self-assembles with no worker changes.
+  - **Bonus:** the confirmation's real Message-ID is now also usable for inbound Level-1 matching
+    in `ThreadIngestionService` (a customer reply's `In-Reply-To` now matches a stored
+    `Message.messageId` directly, not just the Level-2 synthetic-pattern fallback).
+- **Scope / known gap:** fix targets the **Gmail REST** send path only. Microsoft Graph and plain
+  SMTP also rewrite the sender Message-ID but have no equivalent "fetch the assigned id"
+  follow-up in `EmailService` — those paths still fall back to the synthetic/generated id for
+  `References`/`In-Reply-To`. Recorded in `docs/atlas/email.md` Known gaps.
+- **Tests:** extended `tests/unit/api/email-thread-stamping.spec.ts` with R218 (2 cases) — asserts
+  the Gmail-assigned id is returned for the confirmation, and that a subsequent agent reply chains
+  `References`/`In-Reply-To` from the real stored confirmation id (not the synthetic root).
+  `pnpm test:unit` (email-thread-stamping.spec.ts) — 5/5 ✅.
+- **Docs:** `docs/atlas/email.md` — Threading row, sequence diagram, confirmation paper-trail
+  section, and new Known gap (Graph/SMTP); R218 added to `tests/regression-catalogue.md`.
+
+---
+
+## Session Log — 2026-06-15 (plan: in-ticket-flow-i-dreamy-toast)
+
+### Feature — delta-quoting for outbound emails (R219)
+
+- **Bug:** a portal ticket's confirmation email contained only the fixed confirmation boilerplate
+  — the customer's own ticket description never reached their inbox. Similarly, an agent's reply
+  email never quoted the customer's prior message(s), so a customer who'd sent follow-ups before
+  an agent answered saw a reply with no visible context.
+- **Fix** — added a nullable watermark `Message.customerEmailedAt DateTime?` (+
+  `@@index([ticketId, customerEmailedAt])`, migration `20260615000000_add_message_customer_emailed_at`,
+  applied via the documented shadow-DB workaround — hand-written SQL + `prisma db execute` +
+  `prisma migrate resolve --applied`). `EmailService` gained:
+  - `loadUndeliveredHistory(ticketId, excludeMessageId?)` — customer-facing `REPLY` messages with
+    `customerEmailedAt = NULL`, `deletedAt = NULL`, `isInternal = false`, and
+    `OR: [{ sentVia: null }, { sentVia: { not: 'EMAIL' } }]` (the OR form is required — Prisma's
+    bare `{ not: 'EMAIL' }` on a nullable enum compiles to `<> 'EMAIL'`, which excludes `NULL`
+    rows under SQL three-valued logic and would silently skip every portal message).
+  - `renderQuotedHistory(messages)` — `On <date>, <author> wrote:` + `> `-quoted body, attributing
+    to `authorUser`/`authorAgent`/`authorBotName` (bot suffixed `(bot)`).
+  - `markMessagesEmailed(messageIds)` — idempotent `updateMany` setting `customerEmailedAt = now()`.
+  - `sendTicketConfirmation` and `sendAgentReply` now return `{ messageId, quotedMessageIds }`
+    (was a bare string). Confirmation appends the delta under `Your message:`; agent reply
+    excludes its own triggering message and appends the delta under `--- Previous messages:`.
+- **Watermark wiring:**
+  - `ThreadIngestionService` sets `customerEmailedAt: msg.sentAt` when creating a `Message` from
+    an inbound email — that message *is* the email the customer received, never re-quote it.
+  - `SendConfirmationWorker` calls `markMessagesEmailed(quotedMessageIds)` after sending.
+  - `SendReplyWorker` (non-portal-copy branch) and `BotService` (auto-reply path) call
+    `markMessagesEmailed([messageId, ...quotedMessageIds])`.
+- **Tests:**
+  - New `tests/unit/api/email-delta-quote.spec.ts` (8 tests) — `loadUndeliveredHistory`
+    where-clause/ordering/exclude behavior, `renderQuotedHistory` attribution, empty-delta
+    handling, `markMessagesEmailed` idempotency.
+  - Updated `tests/unit/api/email-thread-stamping.spec.ts` and `tests/unit/api/worker-guards.spec.ts`
+    for the new `{ messageId, quotedMessageIds }` return shape.
+  - New integration describe block "S11 — Delta-quoting" in `tests/integration/email-ticket-flow.spec.ts`
+    (3 tests): confirmation quotes-then-marks the portal description; agent reply quotes prior
+    undelivered customer messages once, not on a subsequent reply; an inbound email message is
+    pre-marked and never quoted.
+  - `pnpm exec vitest run --config tests/vitest.unit.config.ts` — 156/156 ✅. `pnpm --filter @tmr/api type-check` ✅.
+  - Integration: `email-ticket-flow.spec.ts` + `email-poller.spec.ts` — 42/43 ✅ (R84 pre-existing
+    failure, confirmed via `git stash` to fail identically on master — unrelated, out of scope).
+- **Known edge case (documented, not fixed):** pre-existing rows all have `customerEmailedAt = NULL`
+  at deploy. The first agent reply on an old portal ticket will quote the entire prior un-marked
+  history once — accepted as a harmless one-time "thread so far" recap. No backfill performed.
+- **Docs:** `docs/atlas/email.md` — new "Delta-quoting" section + sequence diagram, Data model
+  touched (`customerEmailedAt`), Notable Decisions (3 rows), Known gaps (text-only quoting,
+  no backfill). Decisions table row above. `worldgraph/atlas.world.json` `feature:email` dossier
+  updated. R219 added to `tests/regression-catalogue.md`. `pnpm atlas:gen` run.
+
+---
+
+### 2026-06-16 — Portal reply ack + remove agent-reply quoting
+
+**Summary:** Replaced the self-addressed portal-reply mirror (`sendPortalReplyCopy`) with a direct
+customer-facing ack (`sendPortalReplyAck`), and removed all quoted history from agent/bot reply
+emails.
+
+**Code changes:**
+- `EmailService.sendPortalReplyAck(ticket, message, appConfig)` — new method. Sends "Received your
+  response" email To the customer, Reply-To = support address, threaded into the conversation via
+  `buildThreadHeaders` + `externalThreadId`. Returns the RFC Message-ID for dedup stamping.
+- `EmailService.sendAgentReply` — removed `loadUndeliveredHistory` + `renderQuotedHistory` + the
+  `--- Previous messages:` block. Body is now: reply text, "View full thread:" link, sign-off.
+  Returns `quotedMessageIds: []` (shape preserved so worker compiles unchanged).
+- `SendReplyWorker` (`kind === 'portal-copy'` branch) — calls `sendPortalReplyAck` instead of
+  `sendPortalReplyCopy`. Log message updated to "portal ack".
+- `MessagesService` comment updated from "Mirror customer portal REPLY into the support mailbox"
+  to describe the ack.
+**Tests:**
+- `tests/unit/api/email-delta-quote.spec.ts` rewritten — tests now assert agent/bot reply emails
+  contain **no** `--- Previous messages:` block; new `sendPortalReplyAck` describe block (5 tests:
+  To=customer, Reply-To=support, greeting, name-null fallback, returns Message-ID string). All
+  160 unit tests pass.
+**Docs:**
+- `docs/atlas/email.md` — "Portal reply mirror" section renamed to "Portal reply ack"; body
+  updated; "Delta-quoting" section rewritten (confirmation-only quoting; agent replies no quoted
+  block); Notable Decisions (G1 row, delta-quoting row) updated; Known gaps updated.
+- `STATE.md` Decisions table row added.
+
+---
+
+### 2026-06-17 — Embedded Portal SSO (plan: in-this-app-for-composed-puppy)
+
+Implemented a generic host-app → portal single-sign-on handoff using HMAC HS256 JWTs, replay-protection, and user upsert logic.
+
+**Schema (`packages/db/prisma/schema.prisma` + migration `20260617000000_add_sso`):**
+- `User.externalId String? @unique` — stable host user ID for upsert lookup
+- `UserSource.SSO` — new enum value
+- `AppConfig.ssoEnabled Boolean @default(false)` + `ssoSecretEnc String?`
+- `SsoUsedToken` model — `jti` primary key + `expiresAt DateTime` (with index) for replay protection
+
+**API (`apps/api/src/modules/auth/`):**
+- `auth.dto.ts` — `ssoSchema` / `SsoDto` (Zod)
+- `auth.service.ts` — `SsoTokenClaims` interface, `SSO_MAX_IAT_SKEW_S = 60`, private `verifyExternalJwt()` (header decode, alg check, `timingSafeEqual` HMAC verify, exp/iat/jti guards), public `ssoAuth()` (config load → decrypt secret → verify → replay-protect → upsert → issueToken)
+- `auth.controller.ts` — `POST /auth/sso` with `@RateLimit(AUTH_RATE_LIMIT)`
+- `auth.module.ts` — added `AppConfigModule` import so `AppConfigService` is injectable
+
+**Config service (`apps/api/src/modules/config/config.service.ts`):**
+- `UPDATABLE_FIELDS` now includes `ssoEnabled` + `ssoSecretEnc`
+- `getSafe()` redacts `ssoSecretEnc`; exposes `ssoSecretSet: boolean` (mirrors `botKeySet` pattern)
+- `update()` encrypts `ssoSecretEnc` via `credentials-cipher.ts` on write
+
+**Portal (`apps/portal/src/app/auth/sso/page.tsx`):**
+- New handoff page: reads `?token=&redirect=` from search params, POSTs to `/auth/sso`, calls `signIn(res.token, res.user)`, redirects to `redirect ?? '/tickets'`
+- `handledRef` strict-mode guard (same pattern as Google callback)
+
+**Bridge (`apps/bridge/src/app/settings/sso/page.tsx`):**
+- Settings UI: `ssoEnabled` toggle, shared secret field (shows `ssoSecretSet`, supports set/replace/clear), read-only Node.js integration snippet with Copy button, security checklist callout
+- Settings nav (`settings/layout.tsx`) — added "Embedded Portal" link to Integrations section
+
+**Tests:**
+- `tests/unit/api/sso-auth.spec.ts` — R221–R226 (Vitest, direct class instantiation, no DB/Docker)
+- `tests/integration/sso-auth.spec.ts` — R227–R231 (Jest/Supertest + Testcontainers harness)
+
+**Docs/registry:**
+- `tests/regression-catalogue.md` — R221–R231 added
+- `docs/atlas/auth.md` — SSO section added (sequence diagram, key files, security invariants, notable decisions, known gaps); Notable Decisions and Known Gaps updated
+- `worldgraph/atlas.world.json` — `feature:auth` dossier + index updated; `entity:SsoUsedToken` node added; `route:POST /api/v1/auth/sso` node added

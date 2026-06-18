@@ -62,7 +62,7 @@ export class EmailOAuthService {
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: 'https://mail.google.com/ email profile',
+        scope: 'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send email profile',
         access_type: 'offline',
         prompt: 'consent',
         state,

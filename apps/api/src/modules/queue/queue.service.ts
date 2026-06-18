@@ -14,6 +14,7 @@ import {
   EMAIL_SEND_CONFIRMATION_QUEUE,
   EMAIL_SEND_VERIFICATION_QUEUE,
   EMAIL_SEND_PASSWORD_RESET_QUEUE,
+  EMAIL_INGEST_THREAD_QUEUE,
 } from './queue.module'
 
 export interface AnalyzeMessageJobData {
@@ -69,6 +70,11 @@ export interface KbScanJobData {
 
 // No data needed for embed job — worker reads all SCANNED chunks from DB
 export type KbEmbedJobData = Record<string, never>
+
+export interface IngestThreadJobData {
+  cfgId: string
+  threadId: string
+}
 
 /**
  * Postgres-backed job queue via pg-boss.
@@ -233,4 +239,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       retryBackoff: true,
     })
   }
+
+  async enqueueIngestThread(data: IngestThreadJobData): Promise<void> {
+    await this.readyPromise
+    // singletonKey collapses duplicate enqueues for the same thread — ingestion is idempotent
+    await this.boss.send(EMAIL_INGEST_THREAD_QUEUE, data, {
+      retryLimit: 5,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `${data.cfgId}:${data.threadId}`,
+    })
+  }
+
 }

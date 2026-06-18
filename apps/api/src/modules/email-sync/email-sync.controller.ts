@@ -64,4 +64,20 @@ export class EmailSyncController {
     }
     return { polled: cfgs.length }
   }
+
+  /** Returns the count of email:ingest-thread jobs in the pg-boss failed state. */
+  @Get('health')
+  async health() {
+    try {
+      const rows = await this.db.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) AS count
+        FROM pgboss.job
+        WHERE name = 'email:ingest-thread'
+          AND state = 'failed'
+      `
+      return { failedIngestJobs: Number(rows[0]?.count ?? 0) }
+    } catch {
+      return { failedIngestJobs: 0 }
+    }
+  }
 }

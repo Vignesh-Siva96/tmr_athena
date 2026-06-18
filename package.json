@@ -19,7 +19,9 @@
     "test:e2e:infra:down": "tsx tests/e2e/infra.ts down",
     "test:e2e:ui": "tsx tests/e2e/infra.ts up && playwright test --config tests/playwright.config.ts --ui",
     "test:watch": "vitest --config tests/vitest.unit.config.ts",
-    "test:coverage": "vitest run --coverage --config tests/vitest.unit.config.ts"
+    "test:coverage": "vitest run --coverage --config tests/vitest.unit.config.ts",
+    "worldgraph:view": "cd worldgraph && pnpm dev",
+    "worldgraph:check": "cd worldgraph && pnpm validate"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",

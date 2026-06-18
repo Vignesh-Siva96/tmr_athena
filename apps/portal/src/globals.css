@@ -111,6 +111,31 @@ h3 { letter-spacing: -0.01em; line-height: 1.25; }
 .pill-resolved { color: #15803D; background: #F0FDF4; }
 .pill-urgent { color: #B91C1C; background: #FCE9E9; }
 
+/* ─── Rich-text lists ────────────────────────────────────────────────────────
+   Tailwind Preflight (@tailwind base) resets ul/ol to list-style:none with no
+   margin/padding, which makes execCommand('insertUnorderedList') produce an
+   invisible bulleted list inside contentEditable editors (and rendered HTML).
+   Restore standard list rendering for editable boxes and rendered rich text. */
+[contenteditable] ul,
+.rich-text ul,
+.msg-html ul {
+  list-style: disc;
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+}
+[contenteditable] ol,
+.rich-text ol,
+.msg-html ol {
+  list-style: decimal;
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+}
+[contenteditable] li,
+.rich-text li,
+.msg-html li {
+  margin: 0.15em 0;
+}
+
 /* Skeleton shimmer */
 @keyframes shimmer {
   0% { background-position: -200% 0; }

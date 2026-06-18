@@ -49,6 +49,10 @@ Two docs travel with the code. Keep both current as part of shipping a change.
 4. **About to say "done" or end the session?** → Append a Session Log entry to STATE.md summarizing what changed.
 5. **Touched any service method, controller route, or schema field?** → Add or update the matching test in `tests/integration/`, `tests/e2e/`, or `tests/unit/`. If you fixed a bug, add a row to `tests/regression-catalogue.md` and a named test that fails on the pre-fix code. See [tests/README.md](tests/README.md) for the framework.
 6. **Changed a `package.json` script, a port, or added/removed a top-level dir or module?** → Update §4 Commands / §5 Project Structure in this file.
+7. **Touched any feature behavior, flow, module, table, route, queue, or external integration?** →
+   update [`worldgraph/atlas.world.json`](worldgraph/atlas.world.json) (the node's dossier + its
+   `index` entry + `connects`), then run `tsx worldgraph/validate.ts` (or `pnpm worldgraph:check`
+   from the repo root). See [`worldgraph/README.md`](worldgraph/README.md) for the label grammar.
 
 If none apply, say "no docs/tests needed" explicitly so it's clear you checked.
 
@@ -92,6 +96,7 @@ were deleted — architecture lives in `docs/atlas/architecture.md`.
 | Folder structure, naming, code style rules | `.claude/conventions.md` | mostly accurate |
 | Design tokens, colors, fonts, spacing | each app's `src/globals.css` + `.claude/design-system.md` | accurate |
 | Portal / Dashboard page specs | `apps/portal/SPECS.md`, `apps/bridge/SPECS.md` | reference |
+| AI-maintained app map + storyboard viewer | `worldgraph/atlas.world.json` (+ `worldgraph/README.md`) | ✅ current |
 
 ---
 
@@ -140,6 +145,7 @@ Run from the repo root unless noted. Package manager is **pnpm** (Node ≥20); w
 | Tests — all layers | `pnpm test` |
 | Tests — one layer | `pnpm test:unit` · `test:contract` · `test:integration` · `test:e2e` · `test:coverage` |
 | Regenerate atlas | `pnpm atlas:gen` |
+| Validate worldgraph / view worldgraph map+storyboard (:3003) | `pnpm worldgraph:check` · `pnpm worldgraph:view` |
 | New release QA report (manual test checklist) | `pnpm qa:new "<release-name>" [--features a,b]` → `tests/manual/reports/<date>_<slug>/` (checklist composed from `tests/manual/_catalog/catalog.json`; see [tests/manual/README.md](tests/manual/README.md)) |
 | DB migrate / push / seed / studio | `pnpm --filter @tmr/db db:migrate` · `db:push` · `db:seed` · `db:studio` |
 
@@ -173,6 +179,9 @@ Dev URLs — Portal http://localhost:3000 · API http://localhost:3001 · Bridge
 │   └── config/                ← Shared ESLint, TS, Tailwind configs
 ├── scripts/                   ← atlas-gen.ts (`pnpm atlas:gen`), backfill-ai-analytics.ts
 ├── tests/                     ← unit / integration / e2e + regression-catalogue.md (see tests/README.md)
+├── worldgraph/                ← AI-maintained app map (atlas.world.json) + viewer (:3003)
+│                                fully decoupled: own package.json/install, not in pnpm-workspace.yaml
+│                                or turbo — see worldgraph/README.md
 └── docker/                    ← docker-compose.yml, nginx.conf
 ```
 

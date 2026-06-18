@@ -11,6 +11,7 @@ import { ProviderFactory } from './providers/provider-factory'
 import { EmailSyncBackfillService } from './email-sync-backfill.service'
 import { EmailSyncController } from './email-sync.controller'
 import { LivePollerService } from './live-poller.service'
+import { IngestThreadWorker } from './ingest-thread.worker'
 
 @Module({
   imports: [AppConfigModule, EmailModule, EmailOAuthModule, AppEventsModule, FilesModule, ScheduleModule.forRoot()],
@@ -21,6 +22,7 @@ import { LivePollerService } from './live-poller.service'
     ProviderFactory,
     EmailSyncBackfillService,
     LivePollerService,
+    IngestThreadWorker,
   ],
   exports: [
     CustomerResolverService,
@@ -28,6 +30,7 @@ import { LivePollerService } from './live-poller.service'
     ProviderFactory,
     EmailSyncBackfillService,
     LivePollerService,
+    IngestThreadWorker,
   ],
 })
 export class EmailSyncModule {}

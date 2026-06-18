@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, ForbiddenException } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, ForbiddenException } from '@nestjs/common'
 import { TicketsService } from './tickets.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
@@ -93,13 +93,4 @@ export class TicketsController {
     return this.ticketsService.discard(id, agent.id)
   }
 
-  @Delete(':id')
-  @UseGuards(AgentGuard)
-  softDelete(
-    @CurrentAgent() agent: Agent,
-    @Param('id') id: string,
-  ) {
-    if (!agent || agent.role !== 'ADMIN') throw new ForbiddenException('Admin access required')
-    return this.ticketsService.softDelete(id)
-  }
 }

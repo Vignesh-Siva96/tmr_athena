@@ -2,12 +2,21 @@
  * email-poller.spec — integration tests for LivePollerService orchestration.
  *
  * R112–R118: gate behaviour, happy path, RUNNING-config skip, no-checkpoint
- * skip, per-thread error isolation, stale-checkpoint recovery, and dedup.
- * R184: T2.1 — checkpoint NOT advanced when any thread fails to ingest.
+ * skip, per-thread enqueue (dispatcher design), stale-checkpoint recovery, dedup.
+ * R184: checkpoint always advances after dispatcher split — no longer held on failure.
+ *
+ * Architecture note (dispatcher/importer split):
+ *   pollOne() is now a thin dispatcher. It calls pollChanges(), enqueues one
+ *   pg-boss job per unique threadId via QueueService.enqueueIngestThread(), then
+ *   advances the checkpoint. Actual ingestion (fetchAndUpsertThread) happens in
+ *   IngestThreadWorker — a separate worker that retries on failure via pg-boss.
+ *   Consequence: pollOne() ALWAYS advances the checkpoint regardless of
+ *   per-thread ingestion failures (failures surface in the pg-boss dead-letter
+ *   queue, not here).
  *
  * Approach: jest.spyOn(providerFactory, 'for') returns an in-memory stub that
- * implements IMailProvider. Real ThreadIngestionService + real DB run so we
- * assert true DB side-effects (tickets created, checkpoint advanced).
+ * implements IMailProvider. QueueService.enqueueIngestThread is spied on so we
+ * verify job enqueueing without a live pg-boss worker.
  *
  * Single-tenant note: findActiveOauth() returns 0–1 rows (one AppConfig
  * singleton), so multi-config isolation is not a real scenario and is skipped.
@@ -18,7 +27,7 @@ import './setup'
 import { LivePollerService } from '../../apps/api/src/modules/email-sync/live-poller.service'
 import { ProviderFactory } from '../../apps/api/src/modules/email-sync/providers/provider-factory'
 import { AppConfigService } from '../../apps/api/src/modules/config/config.service'
-import { ThreadIngestionService } from '../../apps/api/src/modules/email-sync/thread-ingestion.service'
+import { QueueService } from '../../apps/api/src/modules/queue/queue.service'
 import type { IMailProvider, ParsedThread } from '../../apps/api/src/modules/email-sync/providers/mail-provider.interface'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -113,35 +122,28 @@ describe('R112 — gate off: EMAIL_SYNC_LIVE_POLL !== "1" → pollAll() does no 
 
 // ─── R113 — Happy path ────────────────────────────────────────────────────────
 
-describe('R113 — happy path: one changed thread → ticket ingested + checkpoint advanced', () => {
+describe('R113 — happy path: one changed thread → job enqueued + checkpoint advanced', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('R113 — pollOne() ingests thread and advances gmailHistoryId to newCheckpoint', async () => {
+  it('R113 — pollOne() enqueues ingest job and advances gmailHistoryId to newCheckpoint', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '1000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
-
-    const thread = buildParsedThread({
-      threadId: 'poller-r113-t1',
-      messageId: 'poller-r113-m1',
-      rfcMessageId: '<r113@gmail.com>',
-      from: 'r113-customer@example.com',
-      subject: 'Help with setup',
-      body: 'I need help with the setup.',
-    })
 
     const stub = makeStubProvider({
       pollChanges: async () => ({ changedThreadIds: ['poller-r113-t1'], newCheckpoint: '1001' }),
-      fetchThread: async () => thread,
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
+    const enqueueSpy = jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
-    const ticket = await harness.prisma.ticket.findFirst({ where: { externalThreadId: 'poller-r113-t1' } })
-    expect(ticket).not.toBeNull()
-    expect(ticket!.source).toBe('EMAIL')
+    // Dispatcher enqueues the job — ingestion happens in the worker, not here
+    expect(enqueueSpy).toHaveBeenCalledTimes(1)
+    expect(enqueueSpy).toHaveBeenCalledWith({ cfgId: cfg.id, threadId: 'poller-r113-t1' })
 
+    // Checkpoint always advances after enqueue
     const updated = await harness.prisma.appConfig.findUnique({ where: { id: cfg.id } })
     expect(updated!.gmailHistoryId).toBe('1001')
   })
@@ -196,82 +198,59 @@ describe('R115 — no checkpoint (gmailHistoryId and graphDeltaLink both null) �
   })
 })
 
-// ─── R116 — Per-thread error isolation ────────────────────────────────────────
-// T2.1 changed the behavior: when ANY thread fails, the checkpoint is held
-// (not advanced) so the next poll retries the failed thread from the same
-// cursor position. The second (successful) thread is still ingested — the
-// per-thread loop continues — but the batch as a whole is considered failed.
+// ─── R116 — Dispatcher enqueues all threads; checkpoint always advances ───────
+// After the dispatcher/importer split, pollOne() is a thin dispatcher: it enqueues
+// jobs for ALL changed thread IDs via pg-boss and then advances the checkpoint.
+// Ingestion failures are handled in IngestThreadWorker with per-job retries.
+// The checkpoint is NOT held when a thread fails — that was the old T2.1 behavior.
 
-describe('R116 — per-thread error isolation: failed thread holds checkpoint', () => {
+describe('R116 — dispatcher: all threads enqueued regardless of order; checkpoint always advances', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('R116 — first fetchAndUpsertThread throws → second thread ingested; checkpoint held at original', async () => {
+  it('R116 — two thread IDs from pollChanges → both enqueued; checkpoint advances to newCheckpoint', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '2000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
-    const ingestion = harness.get<ThreadIngestionService>(ThreadIngestionService)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
-
-    const goodThread = buildParsedThread({
-      threadId: 'r116-t2',
-      messageId: 'r116-m2',
-      rfcMessageId: '<r116-t2@gmail.com>',
-      from: 'r116-customer@example.com',
-      subject: 'Second thread',
-      body: 'This one should be ingested.',
-    })
 
     const stub = makeStubProvider({
       pollChanges: async () => ({ changedThreadIds: ['r116-t1', 'r116-t2'], newCheckpoint: '2001' }),
-      fetchThread: async (threadId: string) => {
-        if (threadId === 'r116-t1') throw new Error('should not reach fetchThread for t1')
-        return goodThread
-      },
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
-
-    // Make fetchAndUpsertThread throw for t1, fall back to real impl for t2.
-    const realImpl = ingestion.fetchAndUpsertThread.bind(ingestion)
-    const ingestSpy = jest.spyOn(ingestion, 'fetchAndUpsertThread')
-      .mockRejectedValueOnce(new Error('simulated ingestion failure for t1'))
-      .mockImplementation(realImpl)
+    const enqueueSpy = jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
-    // Both thread IDs were attempted
-    expect(ingestSpy).toHaveBeenCalledTimes(2)
-    expect(ingestSpy).toHaveBeenCalledWith(stub, 'r116-t1', { isBackfill: false })
-    expect(ingestSpy).toHaveBeenCalledWith(stub, 'r116-t2', { isBackfill: false })
+    // Both threads enqueued — ingestion failures surface in worker retries, not here
+    expect(enqueueSpy).toHaveBeenCalledTimes(2)
+    expect(enqueueSpy).toHaveBeenCalledWith({ cfgId: cfg.id, threadId: 'r116-t1' })
+    expect(enqueueSpy).toHaveBeenCalledWith({ cfgId: cfg.id, threadId: 'r116-t2' })
 
-    // Second thread was ingested despite the first failing
-    const ticket = await harness.prisma.ticket.findFirst({ where: { externalThreadId: 'r116-t2' } })
-    expect(ticket).not.toBeNull()
-
-    // !! KEY BEHAVIOR AFTER T2.1 FIX !!
-    // Checkpoint must NOT advance when any thread failed — stays at '2000' so
-    // the next poll retries t1 from the same Gmail historyId cursor.
+    // Checkpoint always advances after dispatching
     const updated = await harness.prisma.appConfig.findUnique({ where: { id: cfg.id } })
-    expect(updated!.gmailHistoryId).toBe('2000')
+    expect(updated!.gmailHistoryId).toBe('2001')
   })
 })
 
-// ─── R184 — T2.1: checkpoint only advances when all threads succeed ───────────
+// ─── R184 — checkpoint always advances after dispatcher split ─────────────────
+// Old behavior (T2.1): checkpoint held when any thread failed.
+// New behavior (dispatcher): checkpoint advances unconditionally after enqueue.
+// Per-thread retry is now pg-boss's responsibility (IngestThreadWorker).
 
-describe('R184 — T2.1: checkpoint only advances when ALL threads in the batch succeed', () => {
+describe('R184 — dispatcher: checkpoint advances regardless of downstream ingest outcome', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('R184 — all threads succeed → checkpoint advances to newCheckpoint', async () => {
+  it('R184 — multiple threads enqueued → checkpoint advances to newCheckpoint', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '5000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
-
-    const t1 = buildParsedThread({ threadId: 'r184-t1', messageId: 'r184-m1', rfcMessageId: '<r184-t1@gmail.com>', from: 'r184a@example.com', subject: 'Thread 1', body: 'First' })
-    const t2 = buildParsedThread({ threadId: 'r184-t2', messageId: 'r184-m2', rfcMessageId: '<r184-t2@gmail.com>', from: 'r184b@example.com', subject: 'Thread 2', body: 'Second' })
 
     const stub = makeStubProvider({
       pollChanges: async () => ({ changedThreadIds: ['r184-t1', 'r184-t2'], newCheckpoint: '5001' }),
-      fetchThread: async (id: string) => id === 'r184-t1' ? t1 : t2,
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
+    jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
@@ -279,25 +258,26 @@ describe('R184 — T2.1: checkpoint only advances when ALL threads in the batch 
     expect(updated!.gmailHistoryId).toBe('5001')
   })
 
-  it('R184 — any single thread failure → checkpoint stays at original value', async () => {
+  it('R184 — checkpoint advances even when enqueue is called for a single thread', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '6000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
-    const ingestion = harness.get<ThreadIngestionService>(ThreadIngestionService)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
 
     const stub = makeStubProvider({
-      pollChanges: async () => ({ changedThreadIds: ['r184-fail-t1'], newCheckpoint: '6001' }),
-      fetchThread: async () => { throw new Error('simulated fetch failure') },
+      pollChanges: async () => ({ changedThreadIds: ['r184-only-t1'], newCheckpoint: '6001' }),
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
-    jest.spyOn(ingestion, 'fetchAndUpsertThread')
-      .mockRejectedValue(new Error('simulated ingest failure'))
+    const enqueueSpy = jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
+    expect(enqueueSpy).toHaveBeenCalledTimes(1)
+    expect(enqueueSpy).toHaveBeenCalledWith({ cfgId: cfg.id, threadId: 'r184-only-t1' })
+
+    // Checkpoint advances — ingestion outcomes are decoupled from the poll loop
     const updated = await harness.prisma.appConfig.findUnique({ where: { id: cfg.id } })
-    // Must remain at '6000', not '6001'
-    expect(updated!.gmailHistoryId).toBe('6000')
+    expect(updated!.gmailHistoryId).toBe('6001')
   })
 })
 
@@ -309,6 +289,7 @@ describe('R117 — stale checkpoint: recoverFromStaleCheckpoint called and its c
   it('R117 — stale error → recoverFromStaleCheckpoint({sinceDays:7}) called; recovery checkpoint persisted', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '3000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
 
     const staleError = new Error('stale checkpoint')
@@ -320,6 +301,7 @@ describe('R117 — stale checkpoint: recoverFromStaleCheckpoint called and its c
       recoverFromStaleCheckpoint: recoverSpy,
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
+    jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
@@ -333,35 +315,27 @@ describe('R117 — stale checkpoint: recoverFromStaleCheckpoint called and its c
 
 // ─── R118 — Dedup of duplicate thread IDs ────────────────────────────────────
 
-describe('R118 — dedup: duplicate thread IDs in pollChanges → ingestion runs once per unique ID', () => {
+describe('R118 — dedup: duplicate thread IDs in pollChanges → enqueue runs once per unique ID', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('R118 — three IDs with one duplicate → fetchAndUpsertThread called exactly twice', async () => {
+  it('R118 — three IDs with one duplicate → enqueueIngestThread called exactly twice', async () => {
     const cfg = await seedPollerConfig({ gmailHistoryId: '4000' })
     const factory = harness.get<ProviderFactory>(ProviderFactory)
-    const ingestion = harness.get<ThreadIngestionService>(ThreadIngestionService)
+    const queue = harness.get<QueueService>(QueueService)
     const poller = harness.get<LivePollerService>(LivePollerService)
 
-    const threads: Record<string, ParsedThread> = {
-      't1': buildParsedThread({ threadId: 't1', messageId: 'm1', rfcMessageId: '<r118-t1@gmail.com>', from: 'r118a@example.com', subject: 'First', body: 'First thread' }),
-      't2': buildParsedThread({ threadId: 't2', messageId: 'm2', rfcMessageId: '<r118-t2@gmail.com>', from: 'r118b@example.com', subject: 'Second', body: 'Second thread' }),
-    }
-
     const stub = makeStubProvider({
-      // 't1' appears twice — dedup must collapse to one call
+      // 't1' appears twice — dedup must collapse to one enqueue call
       pollChanges: async () => ({ changedThreadIds: ['t1', 't1', 't2'], newCheckpoint: '4001' }),
-      fetchThread: async (threadId: string) => threads[threadId],
     })
     jest.spyOn(factory, 'for').mockReturnValue(stub)
-
-    const realImpl = ingestion.fetchAndUpsertThread.bind(ingestion)
-    const ingestSpy = jest.spyOn(ingestion, 'fetchAndUpsertThread').mockImplementation(realImpl)
+    const enqueueSpy = jest.spyOn(queue, 'enqueueIngestThread').mockResolvedValue()
 
     await poller.pollOne(cfg)
 
-    // Exactly 2 calls despite 3 IDs (the duplicate 't1' is deduplicated)
-    expect(ingestSpy).toHaveBeenCalledTimes(2)
-    const calledIds = ingestSpy.mock.calls.map((call) => call[1])
+    // Exactly 2 enqueue calls despite 3 IDs (the duplicate 't1' is deduplicated)
+    expect(enqueueSpy).toHaveBeenCalledTimes(2)
+    const calledIds = enqueueSpy.mock.calls.map((call) => call[0].threadId)
     expect(calledIds).toContain('t1')
     expect(calledIds).toContain('t2')
     expect(calledIds.filter((id) => id === 't1')).toHaveLength(1)

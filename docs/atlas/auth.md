@@ -1,8 +1,8 @@
 ---
 title: Auth
-stack: [Custom JWT (HMAC-SHA256), localStorage, Google OAuth (portal wired)]
+stack: [Custom JWT (HMAC-SHA256), localStorage, Google OAuth (portal wired), HMAC-SSO handoff]
 status: working
-last-reviewed: 2026-06-14
+last-reviewed: 2026-06-17
 ---
 
 # Auth
@@ -27,6 +27,7 @@ flowchart LR
   Portal --> SU[POST /auth/signup]
   Portal --> Guest[POST /auth/guest<br/>email-only flow]
   Portal --> GO[POST /auth/google<br/>OAuth redirect dance]
+  Portal --> SSO[POST /auth/sso<br/>host-app handoff]
 
   Agent[Agent] --> Bridge
   Bridge --> AS[POST /auth/agent/signin]
@@ -183,6 +184,59 @@ Do NOT use the `GOOGLE_OAUTH_CLIENT_ID` (that's the Gmail REST OAuth client). Us
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Portal | Public client ID for constructing the consent URL |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | API | Server-side code exchange |
 
+## Embedded Portal SSO (host-app handoff)
+
+Allows a host application to link its already-authenticated users directly into the portal with no second login. The host backend mints a short-lived HS256 JWT signed with a shared secret; the portal page `/auth/sso` exchanges it for a normal portal session.
+
+### Flow
+
+```mermaid
+sequenceDiagram
+  participant HostBackend as Host backend
+  participant User
+  participant Portal as Portal (/auth/sso)
+  participant API as API (POST /auth/sso)
+
+  HostBackend->>HostBackend: sign({ email, name, externalId, iat, exp, jti }, SSO_SECRET, HS256)
+  HostBackend->>User: Render "Support" CTA → /auth/sso?token=<jwt>
+  User->>Portal: Click CTA
+  Portal->>API: POST /auth/sso { token }
+  API->>API: Verify HS256 sig + exp + iat skew + jti uniqueness (replay protection)
+  API->>API: Upsert User by externalId → email → create (source=SSO)
+  API-->>Portal: { user, token, isNew }
+  Portal->>Portal: signIn(token, user) → router.replace('/tickets')
+```
+
+### Configuration (Bridge → Settings → Embedded Portal)
+
+1. Enable the toggle (`ssoEnabled = true`).
+2. Set the shared secret (`ssoSecretEnc` — encrypted at rest with AES-256-GCM).
+3. Use the Node.js integration snippet in the settings page to mint tokens server-side.
+
+### Security invariants
+
+- Token must use `alg: HS256`. RS256 is not supported in v1.
+- `exp` must be ≤ 120 s from `iat` (enforced at mint time by convention; API enforces expiry).
+- `jti` is required and consumed on first exchange (`SsoUsedToken` table) — each token is single-use.
+- The shared secret is **never** returned by `GET /config` (only `ssoSecretSet: boolean` is exposed).
+- Tokens must be minted server-side only. Never expose the secret to the browser.
+
+### Key files
+
+| File | Role |
+|---|---|
+| [`apps/api/src/modules/auth/auth.service.ts`](../../apps/api/src/modules/auth/auth.service.ts) | `ssoAuth()` + `verifyExternalJwt()` |
+| [`apps/api/src/modules/auth/auth.controller.ts`](../../apps/api/src/modules/auth/auth.controller.ts) | `POST /auth/sso` |
+| [`apps/portal/src/app/auth/sso/page.tsx`](../../apps/portal/src/app/auth/sso/page.tsx) | Handoff page — POSTs token, calls `signIn`, redirects |
+| [`apps/bridge/src/app/settings/sso/page.tsx`](../../apps/bridge/src/app/settings/sso/page.tsx) | Settings UI — toggle, secret field, integration snippet |
+| [`packages/db/prisma/schema.prisma`](../../packages/db/prisma/schema.prisma) | `SsoUsedToken` model, `User.externalId`, `AppConfig.ssoEnabled/ssoSecretEnc`, `UserSource.SSO` |
+
+### Environment variables
+
+| Var | Purpose |
+|---|---|
+| `EMAIL_CREDS_KEY` | AES-256-GCM key used to encrypt `ssoSecretEnc` at rest (same key as OAuth tokens) |
+
 ## Notable decisions
 
 - **Custom JWT** instead of `better-auth`. Better Auth's schema conflicted with our custom Prisma models. We implemented HMAC-SHA256 sign + verify in ~40 lines.
@@ -196,8 +250,13 @@ Do NOT use the `GOOGLE_OAUTH_CLIENT_ID` (that's the Gmail REST OAuth client). Us
 - **`MagicToken` reused for both verification and password reset**, distinguished by a new `type: MagicTokenType` column (`EMAIL_VERIFICATION` | `PASSWORD_RESET`) rather than adding a second token model.
 - **No feature flag / `maintenanceMode` gating on these flows**: `SendVerificationWorker` and `SendPasswordResetWorker` do not call `isFeatureSuppressed` — email verification and password reset are core auth flows that must always work, even if other email features are suppressed.
 - **`forgot-password` always returns 200** regardless of whether the account exists, to avoid leaking which emails have accounts (enumeration).
+- **SSO uses HMAC shared secret over OIDC/SAML** — single-tenant, first-party host only. OIDC/SAML are over-engineered for this use case; HMAC mirrors Intercom's "identity verification" model. RS256 (for untrusted third-party hosts) can be added as a second mode later.
+- **SSO replay protection via `SsoUsedToken` table** — a single-column keyed on `jti` (primary key). Unique-constraint violation (`P2002`) = replay → rejected. Row TTL cleanup (cron delete past `expiresAt`) is deferred to v2.
+- **SSO `externalId` is a stable host user ID** — stored on `User.externalId` (unique index). Lookup order: `externalId` → `email` (backfills `externalId` on first match) → create new. Prevents duplicate accounts when the same user signs in via different paths.
 
 ## Known gaps
 
 - **Agent Google OAuth not wired**. Bridge's `POST /auth/agent/google` exists but the Bridge UI button has no click handler.
 - **Token rotation / refresh tokens** — JWTs are long-lived; no rotation strategy.
+- **SSO `SsoUsedToken` cleanup** — expired rows are never deleted. A cheap periodic cron (`DELETE FROM "SsoUsedToken" WHERE "expiresAt" < now()`) should be added in v2.
+- **SSO RS256 mode** — v1 only supports HS256 (shared secret). For untrusted third-party host apps, an RS256 mode where the host provides their public key would be needed.

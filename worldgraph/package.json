@@ -1,0 +1,15 @@
+{
+  "name": "worldgraph",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI-maintained map of the TMR Support Platform (atlas.world.json) + viewer",
+  "scripts": {
+    "validate": "tsx validate.ts",
+    "dev": "cd viewer && pnpm dev"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.0.0"
+  }
+}

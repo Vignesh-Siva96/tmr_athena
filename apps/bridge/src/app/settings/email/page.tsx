@@ -8,6 +8,23 @@ import { MethodPicker } from '@/components/settings/email/MethodPicker'
 import { ArchiveProgressCard } from '@/components/dashboard/ArchiveProgressCard'
 import { Skeleton } from '@/components/Skeleton'
 
+function useSyncHealth(token: string | null, connected: boolean) {
+  const [failedJobs, setFailedJobs] = useState(0)
+  useEffect(() => {
+    if (!token || !connected) return
+    let active = true
+    const check = () => {
+      api.get<{ failedIngestJobs: number }>('/sync/health', token)
+        .then(r => { if (active) setFailedJobs(r.failedIngestJobs) })
+        .catch(() => undefined)
+    }
+    check()
+    const id = setInterval(check, 60_000)
+    return () => { active = false; clearInterval(id) }
+  }, [token, connected])
+  return failedJobs
+}
+
 interface EmailConfig {
   oauthProvider: 'GOOGLE' | 'MICROSOFT' | null
   oauthEmail: string | null
@@ -54,6 +71,7 @@ export default function EmailSettingsPage() {
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const failedIngestJobs = useSyncHealth(token, cfg?.oauthConnected ?? false)
 
   // Check for OAuth callback params
   useEffect(() => {
@@ -165,6 +183,11 @@ export default function EmailSettingsPage() {
           </div>
           {token && (
             <ArchiveProgressCard token={token} />
+          )}
+          {failedIngestJobs > 0 && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--r-sm)', background: 'var(--d-danger-bg, rgba(239,68,68,0.08))', border: '1px solid var(--d-danger)', fontSize: 13, color: 'var(--d-danger)' }}>
+              {failedIngestJobs} conversation{failedIngestJobs !== 1 ? 's' : ''} failed to sync. Check server logs for details.
+            </div>
           )}
           {isAdmin && (
             <button

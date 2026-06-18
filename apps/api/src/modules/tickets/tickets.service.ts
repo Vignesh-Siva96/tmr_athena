@@ -200,7 +200,7 @@ export class TicketsService {
 
   async findById(ticketId: string, caller: CallerContext): Promise<unknown> {
     const ticket = await this.db.ticket.findUnique({
-      where: { id: ticketId },
+      where: { id: ticketId, deletedAt: null },
       include: {
         ...TICKET_DETAIL_INCLUDE,
         messages: {
@@ -308,12 +308,4 @@ export class TicketsService {
     return { success: true }
   }
 
-  // ─── Soft delete ──────────────────────────────────────────────────────────
-
-  async softDelete(ticketId: string): Promise<{ success: boolean }> {
-    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
-    if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
-    await this.db.ticket.update({ where: { id: ticketId }, data: { deletedAt: new Date() } })
-    return { success: true }
-  }
 }

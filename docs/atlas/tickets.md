@@ -135,7 +135,7 @@ New agent-only endpoint: `GET /users?limit&offset&search&category` returns pagin
 | File | Role |
 |---|---|
 | [`apps/api/src/modules/tickets/tickets.controller.ts`](../../apps/api/src/modules/tickets/tickets.controller.ts) | HTTP surface |
-| [`apps/api/src/modules/tickets/tickets.service.ts`](../../apps/api/src/modules/tickets/tickets.service.ts) | Create / list / search / stats / status transitions / soft-delete |
+| [`apps/api/src/modules/tickets/tickets.service.ts`](../../apps/api/src/modules/tickets/tickets.service.ts) | Create / list / search / stats / status transitions (delete action removed) |
 | [`apps/api/src/modules/tickets/tickets.dto.ts`](../../apps/api/src/modules/tickets/tickets.dto.ts) | Zod schemas for create / update / list |
 | [`apps/portal/src/app/submit/page.tsx`](../../apps/portal/src/app/submit/page.tsx) | Customer Submit form |
 | [`apps/bridge/src/app/inbox/page.tsx`](../../apps/bridge/src/app/inbox/page.tsx) | Unified Inbox — **Domain → conversations** (2-level, sender shown inline per row); no tab strip; Convert/Dismiss in ticket detail sidebar |
@@ -238,7 +238,7 @@ Both gated pages (`/inbox`, `/tickets/[id]`) render `<EmailNotConfiguredGate>` i
 - **Single-tenant** — `orgId` was removed early. Ticket numbers use a single global sequence.
 - **`Attachment.ticketId` is optional** — files are uploaded *before* the ticket exists, then linked at create-time. See [files.md](files.md).
 - **Status transitions are inferred from messages**, not set explicitly by agents — see [messages.md](messages.md) for the rules. Agents *can* set status manually too via `PATCH /tickets/:id`.
-- **Soft delete only** — archive sets `deletedAt`. The UI filters them out; admins could surface them.
+- **Soft delete column kept, action removed** — `deletedAt` timestamp exists on the table (and `findById` guards against it), but there is no `DELETE /tickets/:id` endpoint or UI affordance to set it. The previous ADMIN-only archive action was removed to close the "deleted ticket still openable" bug (R101). Tickets that were soft-deleted before this change remain soft-deleted in the DB but are not surfaced anywhere.
 - **Email-card format is Bridge-only** — Portal keeps chat bubbles. `MessageCard` lives in `apps/bridge/src/components/dashboard/` and is not in `packages/ui`.
 - **Single Inbox at `/inbox`** — the old flat `/inbox` (bulk-select list) and the domain-grouped `/tickets` list were merged. `/inbox` is now the domain-grouped view; the old `/tickets` list page is deleted. `/tickets/[id]` and `/tickets/domain/[domain]` remain unchanged.
 - **Expand state, not collapse state** — `expandedDomains` set (empty = all collapsed) avoids the "newly added domain is unexpectedly expanded" problem that the earlier `collapsedDomains` approach had.

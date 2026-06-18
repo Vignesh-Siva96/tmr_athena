@@ -25,7 +25,7 @@ export class SendReplyWorker implements OnModuleInit {
         const meta = job as unknown as PgBoss.JobWithMetadata<EmailSendReplyJobData>
         const { ticketId, messageId, kind } = job.data
         this.logger.debug(
-          `Sending ${kind === 'portal-copy' ? 'portal copy' : 'reply'} email for message ${messageId} on ticket ${ticketId} (attempt ${meta.retrycount + 1}/${meta.retrylimit + 1})`,
+          `Sending ${kind === 'portal-copy' ? 'portal ack' : 'reply'} email for message ${messageId} on ticket ${ticketId} (attempt ${meta.retrycount + 1}/${meta.retrylimit + 1})`,
         )
 
         const appConfig = await this.db.appConfig.findFirst()
@@ -71,17 +71,19 @@ export class SendReplyWorker implements OnModuleInit {
         }
 
         try {
-          let msgId: string | null = null
+          let msgId: string
           if (kind === 'portal-copy') {
-            // G1: self-addressed mirror — From/To=support, Reply-To=customer, threaded in inbox
-            msgId = await this.email.sendPortalReplyCopy(ticket, message, appConfig)
+            // G1: "Received your response" ack — From/To=customer, Reply-To=support, threaded
+            msgId = await this.email.sendPortalReplyAck(ticket, message, appConfig)
           } else {
-            msgId = await this.email.sendAgentReply(ticket, message, appConfig)
+            const result = await this.email.sendAgentReply(ticket, message, appConfig)
+            msgId = result.messageId
+            // Mark the agent message + everything quoted in it as delivered, so a later
+            // reply doesn't re-quote them.
+            await this.email.markMessagesEmailed([messageId, ...result.quotedMessageIds])
           }
-          if (msgId) {
-            // Store the returned Message-ID on the Message row so the poller deduplicates the copy
-            await this.db.message.update({ where: { id: messageId }, data: { messageId: msgId } })
-          }
+          // Store the returned Message-ID on the Message row so the poller deduplicates the copy
+          await this.db.message.update({ where: { id: messageId }, data: { messageId: msgId } })
         } catch (err) {
           const isFinalAttempt = meta.retrycount >= meta.retrylimit
           if (isFinalAttempt) {

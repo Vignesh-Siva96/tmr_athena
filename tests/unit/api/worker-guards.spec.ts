@@ -35,7 +35,7 @@ describe('R192 — SendReplyWorker: refuses to email INTERNAL_NOTE or non-REPLY 
   let handler: HandlerFn
 
   beforeEach(async () => {
-    sendAgentReply = vi.fn().mockResolvedValue('<msg-id@domain>')
+    sendAgentReply = vi.fn().mockResolvedValue({ messageId: '<msg-id@domain>', quotedMessageIds: [] })
 
     const boss = makeBoss()
     const mockQueue = {
@@ -56,7 +56,7 @@ describe('R192 — SendReplyWorker: refuses to email INTERNAL_NOTE or non-REPLY 
         create: vi.fn().mockResolvedValue({}),
       },
     }
-    const mockEmail = { sendAgentReply }
+    const mockEmail = { sendAgentReply, markMessagesEmailed: vi.fn().mockResolvedValue(undefined) }
 
     const { SendReplyWorker } = await import(
       '../../../apps/api/src/modules/email/workers/send-reply.worker'

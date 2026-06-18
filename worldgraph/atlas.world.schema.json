@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tmr.internal/worldgraph/atlas.world.schema.json",
+  "title": "Atlas Worldgraph",
+  "type": "object",
+  "required": ["version", "updated", "index", "nodes", "journeys"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "updated": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "index": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["summary", "connects"],
+        "additionalProperties": false,
+        "properties": {
+          "summary": { "type": "string" },
+          "connects": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "connects"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["feature", "module", "entity", "route", "external", "queue"]
+          },
+          "connects": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "title": { "type": "string" },
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "stack": { "type": "array", "items": { "type": "string" } },
+          "modules": { "type": "array", "items": { "type": "string" } },
+          "entities": { "type": "array", "items": { "type": "string" } },
+          "routes": { "type": "array", "items": { "type": "string" } },
+          "externals": { "type": "array", "items": { "type": "string" } },
+          "queues": { "type": "array", "items": { "type": "string" } },
+          "keyFiles": { "type": "array", "items": { "type": "string" } },
+          "why": { "type": "string" },
+          "gaps": { "type": "array", "items": { "type": "string" } },
+          "path": { "type": "string" },
+          "imports": { "type": "array", "items": { "type": "string" } },
+          "usedBy": { "type": "array", "items": { "type": "string" } },
+          "table": { "type": "string" },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "type"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" }
+              }
+            }
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["to", "kind"],
+              "additionalProperties": false,
+              "properties": {
+                "to": { "type": "string" },
+                "kind": { "type": "string", "enum": ["hasMany", "hasOne", "belongsTo"] },
+                "field": { "type": "string" }
+              }
+            }
+          },
+          "writtenBy": { "type": "array", "items": { "type": "string" } },
+          "method": { "type": "string" },
+          "handler": { "type": "string" },
+          "module": { "type": "string" },
+          "feature": { "type": "string" },
+          "producer": { "type": "string" },
+          "consumer": { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "journeys": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title", "beats"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "beats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["node", "say"],
+              "additionalProperties": false,
+              "properties": {
+                "node": { "type": "string" },
+                "say": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -15,6 +15,7 @@ import {
   verifyEmailSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  ssoSchema,
   type SignupDto,
   type SigninDto,
   type GoogleAuthDto,
@@ -24,6 +25,7 @@ import {
   type VerifyEmailDto,
   type ForgotPasswordDto,
   type ResetPasswordDto,
+  type SsoDto,
 } from './auth.dto'
 
 // Auth endpoints are unauthenticated by nature (that's the point) — without a cap,
@@ -106,5 +108,12 @@ export class AuthController {
   async resetPassword(@Body(new ZodValidationPipe(resetPasswordSchema)) dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.password)
     return { message: 'Password updated successfully.' }
+  }
+
+  @Post('sso')
+  @HttpCode(200)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  ssoAuth(@Body(new ZodValidationPipe(ssoSchema)) dto: SsoDto) {
+    return this.authService.ssoAuth(dto)
   }
 }

@@ -56,3 +56,8 @@ export const resetPasswordSchema = z.object({
     .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
 })
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>
+
+export const ssoSchema = z.object({
+  token: z.string().min(1),
+})
+export type SsoDto = z.infer<typeof ssoSchema>

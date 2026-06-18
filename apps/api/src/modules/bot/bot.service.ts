@@ -206,11 +206,14 @@ export class BotService {
       })
 
       if (fullTicket && config) {
-        await this.email.sendAgentReply(
+        const result = await this.email.sendAgentReply(
           fullTicket,
           { ...botMessage, authorAgent: null },
           config,
         )
+        // Mark the bot's reply + everything quoted in it as delivered, so a later
+        // reply doesn't re-quote them.
+        await this.email.markMessagesEmailed([botMessage.id, ...result.quotedMessageIds])
       }
     } catch (err) {
       this.logger.error(`BotService.respondTo failed for ticket ${ticketId}: ${String(err)}`)

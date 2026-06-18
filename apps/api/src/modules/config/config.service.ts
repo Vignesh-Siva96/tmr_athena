@@ -15,6 +15,7 @@ const UPDATABLE_FIELDS = [
   'mirrorPortalRepliesToEmail',
   'maintenanceMode', 'featConfirmationEmail', 'featBotReply', 'featAiAnalysis',
   'featCsatSurvey', 'featGithubIssueCreation',
+  'ssoEnabled', 'ssoSecretEnc',
 ] as const satisfies readonly (keyof UpdateAppConfigDto)[]
 
 const dropdownOptionSchema = z.object({
@@ -57,6 +58,9 @@ export const updateAppConfigSchema = z.object({
   featAiAnalysis: z.boolean().optional(),
   featCsatSurvey: z.boolean().optional(),
   featGithubIssueCreation: z.boolean().optional(),
+  // SSO
+  ssoEnabled: z.boolean().optional(),
+  ssoSecretEnc: z.string().nullable().optional(),
 }).superRefine((data, ctx) => {
   if (data.portalAuthLayout === 'BRANDED') {
     if (!data.portalHeroHeadline?.trim()) {
@@ -89,17 +93,18 @@ export class AppConfigService {
     })
   }
 
-  /** Returns config with OAuth tokens and bot API key redacted (never exposed via API) */
+  /** Returns config with OAuth tokens, bot API key, and SSO secret redacted (never exposed via API) */
   async getSafe(): Promise<
-    Omit<AppConfig, 'oauthAccessTokenEnc' | 'oauthRefreshTokenEnc' | 'botApiKeyEnc'> &
-    { oauthConnected: boolean; botKeySet: boolean }
+    Omit<AppConfig, 'oauthAccessTokenEnc' | 'oauthRefreshTokenEnc' | 'botApiKeyEnc' | 'ssoSecretEnc'> &
+    { oauthConnected: boolean; botKeySet: boolean; ssoSecretSet: boolean }
   > {
     const cfg = await this.get()
-    const { oauthAccessTokenEnc, oauthRefreshTokenEnc, botApiKeyEnc, ...rest } = cfg
+    const { oauthAccessTokenEnc, oauthRefreshTokenEnc, botApiKeyEnc, ssoSecretEnc, ...rest } = cfg
     return {
       ...rest,
       oauthConnected: !!(oauthAccessTokenEnc && oauthRefreshTokenEnc),
       botKeySet: botApiKeyEnc !== null && botApiKeyEnc !== undefined,
+      ssoSecretSet: ssoSecretEnc !== null && ssoSecretEnc !== undefined,
     }
   }
 
@@ -112,11 +117,15 @@ export class AppConfigService {
     for (const key of UPDATABLE_FIELDS) {
       if (key in dto) data[key] = dto[key]
     }
-    // Encrypt the bot API key at rest — it was previously stored as plaintext despite
-    // the `Enc` suffix implying it already was. Empty string clears the key (stored as null).
+    // Encrypt the bot API key at rest. Empty string clears the key (stored as null).
     if ('botApiKeyEnc' in data) {
       const raw = data['botApiKeyEnc'] as string | null
       data['botApiKeyEnc'] = raw ? encrypt(raw) : null
+    }
+    // Encrypt the SSO shared secret at rest. Empty string / null clears it.
+    if ('ssoSecretEnc' in data) {
+      const raw = data['ssoSecretEnc'] as string | null
+      data['ssoSecretEnc'] = raw ? encrypt(raw) : null
     }
 
     const updated = await this.db.appConfig.update({ where: { id: config.id }, data })

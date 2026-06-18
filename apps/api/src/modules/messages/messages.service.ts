@@ -118,7 +118,7 @@ export class MessagesService {
         .catch((err: unknown) => console.error('Failed to enqueue reply email:', err))
     }
 
-    // G1: Mirror customer portal REPLY into the support mailbox so the inbox thread stays complete.
+    // G1: Send "Received your response" ack to the customer so the email thread stays complete.
     if (caller.role === 'user' && !isInternal && dto.type === 'REPLY') {
       this.queueService
         .enqueueEmailSendReply({ ticketId, messageId: message.id, kind: 'portal-copy' })

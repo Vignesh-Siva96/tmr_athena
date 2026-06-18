@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { useAppConfig } from '@/lib/brand'
 import { LifeBuoy, LogOut } from 'lucide-react'
 import { VerificationBanner } from './VerificationBanner'
+import { usePathname } from 'next/navigation'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -18,6 +19,7 @@ function getInitials(name: string | null, email: string): string {
 export function PortalNav() {
   const { user, signOut } = useAuth()
   const config = useAppConfig()
+  const pathname = usePathname()
 
   return (
     <>
@@ -77,13 +79,15 @@ export function PortalNav() {
       <nav style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Link
-              href="/tickets"
-              style={{ fontSize: 13, fontWeight: 500, color: 'var(--p-text-2)', textDecoration: 'none', padding: '5px 10px', borderRadius: 'var(--r-sm)' }}
-              className="portal-nav-link"
-            >
-              My tickets
-            </Link>
+            {pathname !== '/tickets' && !pathname?.startsWith('/tickets/') && (
+              <Link
+                href="/tickets"
+                style={{ fontSize: 13, fontWeight: 500, color: 'var(--p-text-2)', textDecoration: 'none', padding: '5px 10px', borderRadius: 'var(--r-sm)' }}
+                className="portal-nav-link"
+              >
+                My tickets
+              </Link>
+            )}
             <div
               style={{
                 width: 30,

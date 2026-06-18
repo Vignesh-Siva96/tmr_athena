@@ -4,14 +4,12 @@ interface TicketConfirmationProps {
   ticketNumber: string
   ticketTitle: string
   orgName: string
-  portalUrl: string
 }
 
 export function TicketConfirmationEmail({
   ticketNumber,
   ticketTitle,
   orgName,
-  portalUrl,
 }: TicketConfirmationProps) {
   return (
     <div>
@@ -19,7 +17,6 @@ export function TicketConfirmationEmail({
       <p>Ticket: {ticketNumber}</p>
       <p>Subject: {ticketTitle}</p>
       <p>The {orgName} team will get back to you shortly.</p>
-      <a href={portalUrl}>View your ticket</a>
     </div>
   )
 }

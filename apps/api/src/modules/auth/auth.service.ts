@@ -4,9 +4,11 @@ import * as crypto from 'crypto'
 import { PrismaService } from '../database/prisma.service'
 import { getJwtSecret } from '../../common/auth/jwt-secret'
 import { QueueService } from '../queue/queue.service'
-import { MagicTokenType } from '@tmr/db'
-import type { User, Agent } from '@tmr/db'
-import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto } from './auth.dto'
+import { MagicTokenType } from '@prisma/client'
+import type { User, Agent } from '@prisma/client'
+import { decrypt } from '../../common/crypto/credentials-cipher'
+import { AppConfigService } from '../config/config.service'
+import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto, SsoDto } from './auth.dto'
 
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // 24h
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1h
@@ -94,12 +96,25 @@ function oauthGet<T>(url: string, headers: Record<string, string>): Promise<T> {
   }).then(readCappedJson<T>)
 }
 
+/** Decoded claims from a host-minted SSO handoff JWT (HS256). */
+interface SsoTokenClaims {
+  email: string
+  name?: string
+  externalId?: string
+  jti: string
+  iat: number
+  exp: number
+}
+
+const SSO_MAX_IAT_SKEW_S = 60 // reject tokens minted more than 60s in the future
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly db: PrismaService,
     private readonly config: ConfigService,
     private readonly queue: QueueService,
+    private readonly appConfigService: AppConfigService,
   ) {}
 
   private get jwtSecret(): string {
@@ -357,5 +372,105 @@ export class AuthService {
       where: { id: user.id },
       data: { password: hashedPassword, isVerified: true },
     })
+  }
+
+  /** Verifies a host-minted HS256 handoff JWT, returning its claims on success. */
+  private verifyExternalJwt(token: string, secret: string): SsoTokenClaims {
+    const parts = token.split('.')
+    if (parts.length !== 3) throw new UnauthorizedException('Invalid SSO token format')
+    const [headerB64, bodyB64, sigB64] = parts as [string, string, string]
+
+    // Decode and validate header
+    let header: { alg?: string }
+    try {
+      header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf-8')) as { alg?: string }
+    } catch {
+      throw new UnauthorizedException('Invalid SSO token header')
+    }
+    if (header.alg !== 'HS256') throw new UnauthorizedException('SSO token must use HS256')
+
+    // Verify signature using timing-safe comparison
+    const signingInput = `${headerB64}.${bodyB64}`
+    const expected = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url')
+    const expectedBuf = Buffer.from(expected)
+    const actualBuf = Buffer.from(sigB64)
+    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+      throw new UnauthorizedException('SSO token signature invalid')
+    }
+
+    // Decode claims
+    let claims: Partial<SsoTokenClaims>
+    try {
+      claims = JSON.parse(Buffer.from(bodyB64, 'base64url').toString('utf-8')) as Partial<SsoTokenClaims>
+    } catch {
+      throw new UnauthorizedException('Invalid SSO token payload')
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    if (!claims.exp || claims.exp < now) throw new UnauthorizedException('SSO token has expired')
+    if (!claims.iat || claims.iat > now + SSO_MAX_IAT_SKEW_S) throw new UnauthorizedException('SSO token issued in the future')
+    if (!claims.email) throw new UnauthorizedException('SSO token missing email claim')
+    if (!claims.jti) throw new UnauthorizedException('SSO token missing jti claim')
+
+    return claims as SsoTokenClaims
+  }
+
+  async ssoAuth(dto: SsoDto): Promise<{ user: Omit<User, 'password'>; token: string; isNew: boolean }> {
+    const cfg = await this.appConfigService.get()
+    if (!cfg.ssoEnabled || !cfg.ssoSecretEnc) {
+      throw new UnauthorizedException('SSO is not enabled')
+    }
+
+    const secret = decrypt(cfg.ssoSecretEnc)
+    const claims = this.verifyExternalJwt(dto.token, secret)
+
+    // Replay protection — insert jti; unique-key violation means replayed token
+    try {
+      await this.db.ssoUsedToken.create({
+        data: { jti: claims.jti, expiresAt: new Date(claims.exp * 1000) },
+      })
+    } catch (err: unknown) {
+      const isPrismaUnique = (err as { code?: string }).code === 'P2002'
+      if (isPrismaUnique) throw new UnauthorizedException('SSO token has already been used')
+      throw err
+    }
+
+    // Upsert: find by externalId → email → create
+    let isNew = false
+    let user: User | null = null
+
+    if (claims.externalId) {
+      user = await this.db.user.findUnique({ where: { externalId: claims.externalId } })
+    }
+
+    if (!user) {
+      const byEmail = await this.db.user.findUnique({ where: { email: claims.email } })
+      if (byEmail) {
+        user = await this.db.user.update({
+          where: { id: byEmail.id },
+          data: {
+            ...(claims.externalId && !byEmail.externalId ? { externalId: claims.externalId } : {}),
+            lastActiveAt: new Date(),
+          },
+        })
+      } else {
+        isNew = true
+        user = await this.db.user.create({
+          data: {
+            email: claims.email,
+            name: claims.name,
+            externalId: claims.externalId,
+            source: 'SSO',
+            isVerified: true,
+            lastActiveAt: new Date(),
+          },
+        })
+      }
+    } else {
+      await this.db.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } })
+    }
+
+    const sessionToken = this.issueToken({ sub: user.id, role: 'user' })
+    return { user: omitPassword(user), token: sessionToken, isNew }
   }
 }

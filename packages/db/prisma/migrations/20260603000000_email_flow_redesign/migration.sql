@@ -6,7 +6,10 @@
 -- 5. Drop Ticket.number
 
 -- Step 1: Create UserCategory enum and add User.category
-CREATE TYPE "UserCategory" AS ENUM ('CUSTOMER', 'MARKETING', 'PROMOTIONAL');
+DO $$ BEGIN
+  CREATE TYPE "UserCategory" AS ENUM ('CUSTOMER', 'MARKETING', 'PROMOTIONAL');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 ALTER TABLE "User" ADD COLUMN "category" "UserCategory" NOT NULL DEFAULT 'CUSTOMER';
 
 -- Backfill User.category: mark PROMOTIONAL for users whose ALL tickets are isBulk=true

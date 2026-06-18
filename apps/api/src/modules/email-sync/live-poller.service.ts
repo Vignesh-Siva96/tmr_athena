@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { AppConfigService } from '../config/config.service'
 import { ProviderFactory } from './providers/provider-factory'
-import { ThreadIngestionService } from './thread-ingestion.service'
+import { QueueService } from '../queue/queue.service'
 import { ConfigService } from '@nestjs/config'
 import type { AppConfig } from '@tmr/db'
 
@@ -14,10 +14,11 @@ export class LivePollerService {
   constructor(
     private readonly appConfig: AppConfigService,
     private readonly providerFactory: ProviderFactory,
-    private readonly ingestion: ThreadIngestionService,
+    private readonly queue: QueueService,
     private readonly config: ConfigService,
   ) {
-    this.enabled = this.config.get<string>('EMAIL_SYNC_LIVE_POLL') === '1'
+    // Default-on: absent or any value other than '0' enables polling
+    this.enabled = this.config.get<string>('EMAIL_SYNC_LIVE_POLL') !== '0'
   }
 
   @Cron('*/30 * * * * *')
@@ -32,6 +33,10 @@ export class LivePollerService {
       return
     }
 
+    if (cfgs.length > 0 && !this.enabled) {
+      this.logger.warn('Inbox is connected but EMAIL_SYNC_LIVE_POLL=0 — live sync is disabled. Set EMAIL_SYNC_LIVE_POLL to any value other than "0" to enable.')
+    }
+
     for (const cfg of cfgs) {
       const archiveStatus = (cfg as unknown as { archiveStatus?: string }).archiveStatus
       if (archiveStatus === 'RUNNING') continue
@@ -43,6 +48,12 @@ export class LivePollerService {
     }
   }
 
+  /**
+   * Thin dispatcher: fetches changed thread IDs from the provider, enqueues one
+   * `email:ingest-thread` job per thread (durable in Postgres), then advances the
+   * checkpoint. Order matters — enqueue before advancing so a crash never loses a
+   * thread. Per-thread retry + dead-lettering is handled by the IngestThreadWorker.
+   */
   async pollOne(cfg: AppConfig): Promise<void> {
     const provider = this.providerFactory.for(cfg)
     const checkpoint = (cfg as unknown as { gmailHistoryId?: string; graphDeltaLink?: string }).gmailHistoryId
@@ -70,30 +81,11 @@ export class LivePollerService {
     const uniqueThreadIds = [...new Set(delta.changedThreadIds)]
     this.logger.log(`Poll result: ${uniqueThreadIds.length} changed threads, newCheckpoint=${delta.newCheckpoint}`)
 
-    const failedThreadIds: string[] = []
+    // Enqueue all threads as durable jobs BEFORE advancing the checkpoint.
+    // If the process crashes after enqueueing but before the checkpoint write,
+    // the same threads will be re-found on the next poll and deduplicated via singletonKey.
     for (const threadId of uniqueThreadIds) {
-      this.logger.log(`Processing thread ${threadId}`)
-      try {
-        await this.ingestion.fetchAndUpsertThread(provider, threadId, { isBackfill: false })
-      } catch (err) {
-        // Keep going — one bad thread shouldn't block the rest of this batch — but
-        // remember it so we don't move the checkpoint past it (see below).
-        failedThreadIds.push(threadId)
-        this.logger.warn(`Failed to ingest thread ${threadId}: ${String(err)}`)
-      }
-    }
-
-    if (failedThreadIds.length > 0) {
-      // The provider checkpoint is an opaque cursor (Gmail historyId / Graph delta link) —
-      // there's no way to "partially" advance it past only the threads that succeeded.
-      // Advancing it here would permanently skip the failed threads (they fall outside the
-      // next poll's delta range). Leave the checkpoint where it is; the next poll re-fetches
-      // this same range and retries them. `recoverFromStaleCheckpoint` still handles the case
-      // where the provider rejects a too-old cursor.
-      this.logger.warn(
-        `Not advancing checkpoint for ${cfg.id} — ${failedThreadIds.length} thread(s) failed to ingest: ${failedThreadIds.join(', ')}`,
-      )
-      return
+      await this.queue.enqueueIngestThread({ cfgId: cfg.id, threadId })
     }
 
     await this.appConfig.setCheckpoint(

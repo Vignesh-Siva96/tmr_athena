@@ -58,16 +58,18 @@ export class SendConfirmationWorker implements OnModuleInit {
         }
 
         try {
-          await this.email.sendTicketConfirmation(ticket, appConfig)
+          const { messageId: msgId, quotedMessageIds } = await this.email.sendTicketConfirmation(ticket, appConfig)
           await this.db.message.create({
             data: {
               ticketId,
               type: 'SYSTEM_EVENT',
               body: `confirmation_sent:${ticket.user.email}`,
               isInternal: true,
+              messageId: msgId,
             },
           })
-          this.logger.log(`Confirmation email sent for ticket ${ticketId}`)
+          await this.email.markMessagesEmailed(quotedMessageIds)
+          this.logger.log(`Confirmation email sent for ticket ${ticketId} msgId=${msgId}`)
         } catch (err) {
           const isFinalAttempt = meta.retrycount >= meta.retrylimit
           if (isFinalAttempt) {

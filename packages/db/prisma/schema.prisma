@@ -59,6 +59,10 @@ model AppConfig {
   botApiKeyEnc             String?
   botFallbackAgentId       String?
 
+  // SSO (host-app embedded portal handoff)
+  ssoEnabled   Boolean @default(false)
+  ssoSecretEnc String?
+
   // Knowledge base
   kbRootUrl            String?
   kbCrawlStatus        KbCrawlStatus @default(IDLE)
@@ -162,7 +166,8 @@ model User {
   avatarUrl String?
   password  String?
   isGuest   Boolean  @default(false)
-  googleId  String?  @unique
+  googleId    String?  @unique
+  externalId  String?  @unique
 
   source      UserSource   @default(PORTAL)
   category    UserCategory @default(CUSTOMER)
@@ -186,6 +191,7 @@ enum UserSource {
   PORTAL
   EMAIL
   INVITE
+  SSO
 }
 
 enum UserCategory {
@@ -403,6 +409,9 @@ model Message {
   sentimentLabel SentimentLabel?
   analyzedAt     DateTime?
 
+  // set when this message's content was delivered to the customer's email
+  customerEmailedAt DateTime?
+
   attachments Attachment[]
   aiUsages    AiUsage[]
   signals     CustomerSignal[]
@@ -410,6 +419,7 @@ model Message {
   @@index([ticketId])
   @@index([ticketId, createdAt])
   @@index([messageId])
+  @@index([ticketId, customerEmailedAt])
 }
 
 enum MessageType {
@@ -721,6 +731,16 @@ model KnowledgeChunk {
 
   @@index([sourceId])
   @@index([deepUrl])
+}
+
+// ─── SSO REPLAY PROTECTION ───────────────────────────────────────────────────
+
+model SsoUsedToken {
+  jti       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 // ─── BOT INTERACTIONS (observability) ────────────────────────────────────────

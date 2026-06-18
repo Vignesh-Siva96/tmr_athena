@@ -5,7 +5,6 @@ interface AgentReplyProps {
   ticketTitle: string
   replyBody: string
   orgName: string
-  portalUrl: string
   replyToAddress: string
 }
 
@@ -14,7 +13,6 @@ export function AgentReplyEmail({
   ticketTitle,
   replyBody,
   orgName,
-  portalUrl,
   replyToAddress: _replyToAddress,
 }: AgentReplyProps) {
   return (
@@ -23,7 +21,6 @@ export function AgentReplyEmail({
       <p>Subject: {ticketTitle}</p>
       <div dangerouslySetInnerHTML={{ __html: replyBody }} />
       <p>— {orgName} Support Team</p>
-      <a href={portalUrl}>View in portal</a>
     </div>
   )
 }
