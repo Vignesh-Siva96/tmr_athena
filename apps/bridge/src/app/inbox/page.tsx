@@ -18,11 +18,13 @@ type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' 
 
 interface TicketUser { id: string; name: string | null; email: string; category?: UserCategory }
 interface Assignee { id: string; name: string; avatarUrl: string | null }
+interface Tag { id: string; name: string; color: string }
 
 interface TicketListItem {
   id: string; ref: string; displayId: string; isTicket: boolean; title: string
   status: TicketStatus; priority: TicketPriority; category: TicketCategory
   field2?: string | null; assignee?: Assignee | null; user: TicketUser
+  tags?: Tag[]
   hasUnreadReply: boolean; updatedAt: string
   lastMessage?: { body: string; createdAt: string } | null
   dismissedAt?: string | null
@@ -99,6 +101,8 @@ function InboxInner() {
   const [searchInput, setSearchInput] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
+  const [availableTags, setAvailableTags] = useState<Tag[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -143,6 +147,7 @@ function InboxInner() {
     const params = new URLSearchParams({ limit: '100', offset: String(offset), sortBy: 'updatedAt', sortOrder: 'desc' })
     if (statusFilter) params.set('status', statusFilter)
     if (categoryFilter) params.set('category', categoryFilter)
+    if (tagFilter) params.set('tagIds', tagFilter)
     if (debouncedSearch) params.set('search', debouncedSearch)
 
     api.get<TicketsResponse>(`/tickets?${params.toString()}`, token)
@@ -188,7 +193,12 @@ function InboxInner() {
         if (!background && !append) setIsLoading(false)
         if (append) setIsLoadingMore(false)
       })
-  }, [token, statusFilter, categoryFilter, debouncedSearch])
+  }, [token, statusFilter, categoryFilter, tagFilter, debouncedSearch])
+
+  useEffect(() => {
+    if (!token) return
+    api.get<{ data: Tag[] }>('/tags', token).then((res) => setAvailableTags(res.data)).catch(() => {})
+  }, [token])
 
   useEffect(() => { loadTickets() }, [loadTickets])
 
@@ -291,8 +301,19 @@ function InboxInner() {
                 </select>
                 <ChevronDown size={11} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--d-text-3)', pointerEvents: 'none' }} />
               </div>
-              {(statusFilter || categoryFilter) && (
-                <button type="button" onClick={() => { setStatusFilter(''); setCategoryFilter('') }}
+              {/* Tag filter */}
+              {availableTags.length > 0 && (
+                <div style={{ position: 'relative' }}>
+                  <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}
+                    style={{ height: 30, padding: '0 28px 0 10px', background: 'var(--d-surface)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: tagFilter ? 'var(--d-text)' : 'var(--d-text-3)', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', appearance: 'none' }}>
+                    <option value="">All tags</option>
+                    {availableTags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <ChevronDown size={11} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--d-text-3)', pointerEvents: 'none' }} />
+                </div>
+              )}
+              {(statusFilter || categoryFilter || tagFilter) && (
+                <button type="button" onClick={() => { setStatusFilter(''); setCategoryFilter(''); setTagFilter('') }}
                   style={{ height: 30, padding: '0 10px', background: 'transparent', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-4)', cursor: 'pointer', fontFamily: 'inherit' }}>
                   Clear
                 </button>
@@ -387,6 +408,9 @@ function InboxInner() {
                                   {t.title}
                                 </span>
                                 <CategoryPill category={t.category} size="xs" />
+                                {t.tags && t.tags.map((tag) => (
+                                  <span key={tag.id} style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 999, color: tag.color, background: `${tag.color}20`, border: `1px solid ${tag.color}40`, flexShrink: 0 }}>{tag.name}</span>
+                                ))}
                                 {t.isTicket && (
                                   <span data-testid="ticket-ref" className="mono" style={{ fontSize: 11, fontWeight: 500, color: 'var(--d-text-4)', flexShrink: 0 }}>{t.displayId}</span>
                                 )}

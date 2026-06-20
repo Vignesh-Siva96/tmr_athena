@@ -8,6 +8,10 @@ export const listTicketsSchema = z.object({
   status: TicketStatus.optional(),
   category: TicketCategory.optional(),
   assigneeId: z.string().optional(),
+  tagIds: z.preprocess(
+    (v) => (typeof v === 'string' ? [v] : v),
+    z.array(z.string()).optional(),
+  ),
   search: z.string().optional(),
   isTicket: z.preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean().optional()),
   limit: z.coerce.number().int().min(1).max(100).default(25),

@@ -23,6 +23,8 @@ import { TestUtilsModule } from './modules/test-utils/test-utils.module'
 import { BotModule } from './modules/bot/bot.module'
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module'
 import { ShiftsModule } from './modules/shifts/shifts.module'
+import { TagsModule } from './modules/tags/tags.module'
+import { CannedResponsesModule } from './modules/canned-responses/canned-responses.module'
 import { validateEnv } from './common/config/validate-env'
 
 const isTestEnv = process.env['NODE_ENV'] === 'test'
@@ -56,6 +58,8 @@ const isTestEnv = process.env['NODE_ENV'] === 'test'
     BotModule,
     KnowledgeBaseModule,
     ShiftsModule,
+    TagsModule,
+    CannedResponsesModule,
     // Test-only: in-memory mail capture + /__test/captured-mail endpoint.
     // Loaded only when NODE_ENV === 'test' so production never exposes it.
     ...(isTestEnv ? [TestUtilsModule] : []),

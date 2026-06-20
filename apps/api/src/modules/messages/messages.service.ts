@@ -128,8 +128,8 @@ export class MessagesService {
     // Broadcast SSE event so the agent dashboard updates in real time
     this.sse.broadcast({ type: 'message-created', ticketId, messageId: message.id })
 
-    // Enqueue AI sentiment analysis for customer replies
-    if (!isInternal && caller.role === 'user' && dto.type === 'REPLY') {
+    // Enqueue AI sentiment analysis for customer replies on real tickets only
+    if (!isInternal && caller.role === 'user' && dto.type === 'REPLY' && ticket.isTicket) {
       this.queueService.enqueueAnalyzeMessage({ messageId: message.id, ticketId }).catch(() => {})
     }
 

@@ -71,12 +71,25 @@ Stored in `gemini.service.ts` → `PRICES` (duplicated in `bot/generator.service
 ## Enqueue points
 
 ```
-MessagesService.create()           → enqueueAnalyzeMessage()  (customer REPLY only)
-TicketsService.update()            → enqueueClassifyTicket()   (on → RESOLVED)
-                                   → enqueueRequestCsat()      (on → RESOLVED, 30 min delay)
+MessagesService.create()           → enqueueAnalyzeMessage()  (customer REPLY, isTicket=true only)
+TicketsService.update()            → enqueueClassifyTicket()   (on → RESOLVED, isTicket=true only)
+                                   → enqueueRequestCsat()      (on → RESOLVED, isTicket=true only, 30 min delay)
+TicketsService.convert()           → enqueueAnalyzeMessage()  (backfill for prior unanalyzed customer messages)
 TicketsService.create()            → enqueueBotRespond()       (new portal ticket, non-backfill)
-ThreadIngestionService (new email) → enqueueBotRespond()       (new email ticket, non-backfill)
+ThreadIngestionService (new email) → enqueueAnalyzeMessage()  (customer REPLY, isTicket=true only — conversations skip)
 ```
+
+## isTicket gating rule
+
+**All AI/analysis features run only on real tickets (`isTicket = true`).** Email conversations
+that arrive as `NEW` (pre-triage) and `DISMISSED` conversations receive no AI processing.
+
+The gate is applied at every enqueue point **and** again defensively in each worker, so a future
+enqueue path that forgets the guard is still protected at execution time.
+
+On `convert()` (NEW conversation → real ticket) the service retroactively enqueues
+`ai:analyze-message` for all prior unanalyzed customer messages so sentiment history is complete.
+Messages that already have `analyzedAt` set are skipped (idempotent).
 
 ## Athena (first-response bot)
 

@@ -97,6 +97,12 @@ All operational metrics count **real tickets only** (`isTicket = true`). Convers
 
 ## Customer insights page (5 bands)
 
+**isTicket scoping:** All customer-intelligence queries in `CustomersService` are scoped to
+`isTicket = true`. Sentiment, CSAT, topic, signal, effort, health-score, and category-mix
+aggregations exclude `NEW` conversations and `DISMISSED` rows — mirroring the same convention as
+the operations dashboard. Raw SQL queries add `AND "isTicket" = true`; Prisma queries add
+`isTicket: true` to the `where` clause (or `ticket: { isTicket: true }` on related models).
+
 Every chart title has an `InfoTooltip` (hover `ⓘ` icon) with a one-sentence description of the metric.
 
 1. **KPI strip (6 cards)** — avg sentiment (30d), CSAT user, CSAT AI, at-risk count, reopen rate, **churn signals (30d)**. Each `KpiCard` accepts an `info` prop rendered as an `InfoTooltip`.

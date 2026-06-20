@@ -30,9 +30,10 @@ export class AnalyzeMessageWorker implements OnModuleInit {
 
       const message = await this.db.message.findUnique({
         where: { id: messageId },
-        include: { ticket: { select: { id: true, priority: true, assigneeId: true, ref: true, title: true } } },
+        include: { ticket: { select: { id: true, isTicket: true, priority: true, assigneeId: true, ref: true, title: true } } },
       })
       if (!message || message.analyzedAt || !message.authorUserId) return
+      if (!message.ticket?.isTicket) return
 
       try {
         const result = await this.gemini.analyzeMessage(message.body, { ticketId, messageId })

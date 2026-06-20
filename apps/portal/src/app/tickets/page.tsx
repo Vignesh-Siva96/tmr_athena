@@ -19,7 +19,6 @@ interface TicketListItem {
   category: TicketCategory
   field2?: string | null
   field1?: string | null
-  tags: { id: string; name: string; color: string }[]
   lastMessage?: { body: string; createdAt: string } | null
   hasUnreadReply: boolean
   updatedAt: string

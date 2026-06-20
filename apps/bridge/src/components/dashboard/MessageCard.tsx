@@ -41,6 +41,7 @@ function parseEvent(body: string): string {
   if (body.startsWith('status_changed:')) { const [, f, t] = body.split(':'); return `Status changed ${f} → ${t}` }
   if (body.startsWith('github_linked:')) return `Linked to GitHub issue ${body.slice('github_linked:'.length)}`
   if (body.startsWith('assigned:')) { const w = body.slice('assigned:'.length); return w === 'unassigned' ? 'Ticket unassigned' : 'Ticket assigned' }
+  if (body === 'tags_changed') return 'Tags updated'
   if (body.startsWith('escalated:')) return `Escalated to human — ${body.slice('escalated:'.length)}`
   if (body.startsWith('email_delivery_failed:')) return `⚠ Email delivery failed — ${body.slice('email_delivery_failed:'.length)}`
   return body

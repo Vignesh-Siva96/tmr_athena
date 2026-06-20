@@ -17,9 +17,11 @@ interface NavItem {
 
 const STATIC_NAV_ITEMS: { section: string; items: NavItem[] }[] = [
   { section: 'Workspace', items: [
-    { href: '/settings/general',  label: 'General' },
-    { href: '/settings/branding', label: 'Branding' },
-    { href: '/settings/agents',   label: 'Agents' },
+    { href: '/settings/general',          label: 'General' },
+    { href: '/settings/branding',         label: 'Branding' },
+    { href: '/settings/agents',           label: 'Agents' },
+    { href: '/settings/tags',             label: 'Tags' },
+    { href: '/settings/canned-responses', label: 'Canned Responses' },
   ]},
   { section: 'Integrations', items: [
     { href: '/settings/github', label: 'GitHub', badge: null, badgeColor: 'var(--d-success)' },

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-06-16",
+  "updated": "2026-06-19",
   "index": {
     "module:AgentsModule": {
       "summary": "NestJS module \u2014 apps/api/src/modules/agents",
@@ -141,7 +141,8 @@
     "module:TicketsModule": {
       "summary": "NestJS module \u2014 apps/api/src/modules/tickets",
       "connects": [
-        "feature:tickets"
+        "feature:tickets",
+        "module:TagsModule"
       ]
     },
     "module:UsersModule": {
@@ -803,7 +804,7 @@
       ]
     },
     "feature:analytics": {
-      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form.",
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true \u2014 NEW conversations and DISMISSED rows are excluded from both dashboards.",
       "connects": [
         "entity:AiUsage",
         "entity:CustomerNote",
@@ -821,7 +822,7 @@
       ]
     },
     "feature:ai": {
-      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call.",
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true \u2014 NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment.",
       "connects": [
         "entity:AiUsage",
         "entity:CustomerSignal",
@@ -909,6 +910,19 @@
         "route:GET /api/v1/shifts",
         "route:POST /api/v1/kb/embed/confirm",
         "route:POST /api/v1/kb/scan/start"
+      ]
+    },
+    "module:TagsModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/tags (tag CRUD: name-unique, fixed palette, agent-only)",
+      "connects": [
+        "entity:Tag",
+        "module:TicketsModule"
+      ]
+    },
+    "module:CannedResponsesModule": {
+      "summary": "NestJS module \u2014 apps/api/src/modules/canned-responses (canned response CRUD; slash-command insertion in composer)",
+      "connects": [
+        "entity:CannedResponse"
       ]
     }
   },
@@ -1204,7 +1218,8 @@
         "feature:tickets"
       ],
       "connects": [
-        "feature:tickets"
+        "feature:tickets",
+        "module:TagsModule"
       ]
     },
     "module:UsersModule": {
@@ -3390,7 +3405,7 @@
     "feature:analytics": {
       "kind": "feature",
       "title": "Analytics",
-      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form.",
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true \u2014 NEW conversations and DISMISSED rows are excluded from both dashboards.",
       "stack": [
         "NestJS",
         "Prisma",
@@ -3444,7 +3459,7 @@
     "feature:ai": {
       "kind": "feature",
       "title": "AI Ticket Analysis",
-      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call.",
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true \u2014 NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment.",
       "stack": [
         "Gemini",
         "pg-boss"
@@ -3765,6 +3780,29 @@
         "entity:User",
         "feature:auth",
         "module:AuthModule"
+      ]
+    },
+    "module:TagsModule": {
+      "kind": "module",
+      "name": "TagsModule",
+      "path": "apps/api/src/modules/tags",
+      "imports": [],
+      "usedBy": [
+        "module:TicketsModule"
+      ],
+      "connects": [
+        "entity:Tag",
+        "module:TicketsModule"
+      ]
+    },
+    "module:CannedResponsesModule": {
+      "kind": "module",
+      "name": "CannedResponsesModule",
+      "path": "apps/api/src/modules/canned-responses",
+      "imports": [],
+      "usedBy": [],
+      "connects": [
+        "entity:CannedResponse"
       ]
     }
   },

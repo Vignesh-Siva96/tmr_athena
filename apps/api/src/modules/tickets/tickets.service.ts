@@ -93,6 +93,7 @@ export class TicketsService {
 
     if (query.category) where.category = query.category as TicketCategory
     if (query.assigneeId) where.assigneeId = query.assigneeId
+    if (query.tagIds?.length) where.tags = { some: { id: { in: query.tagIds } } }
     if (query.search) {
       where.OR = [
         { title: { contains: query.search, mode: 'insensitive' as Prisma.QueryMode } },
@@ -110,7 +111,8 @@ export class TicketsService {
           user: { select: { id: true, name: true, email: true, category: true } },
           assignee: { select: { id: true, name: true, avatarUrl: true } },
           dismissedBy: { select: { id: true, name: true } },
-          tags: true,
+          // Tags are agent-only — never expose to Portal callers
+          ...(caller.role === 'agent' ? { tags: true } : {}),
           messages: {
             where: { deletedAt: null, isInternal: false, type: 'REPLY' },
             orderBy: { createdAt: 'desc' },
@@ -220,13 +222,19 @@ export class TicketsService {
     // Portal must not deep-link pre-triage conversation threads
     if (caller.role === 'user' && !ticket.isTicket) throw new NotFoundException('Ticket not found')
 
-    return { ticket: { ...ticket, displayId: formatRef(ticket.ref) } }
+    // Strip agent-only fields for Portal callers
+    const { tags: _tags, ...ticketForPortal } = ticket as typeof ticket & { tags?: unknown }
+    const payload = caller.role === 'user' ? ticketForPortal : ticket
+    return { ticket: { ...payload, displayId: formatRef(ticket.ref) } }
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
 
   async update(ticketId: string, dto: UpdateTicketDto): Promise<{ ticket: unknown }> {
-    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId } })
+    const ticket = await this.db.ticket.findUnique({
+      where: { id: ticketId },
+      include: { tags: { select: { id: true } } },
+    })
     if (!ticket || ticket.deletedAt) throw new NotFoundException('Ticket not found')
 
     await this.db.$transaction(async (tx) => {
@@ -254,13 +262,21 @@ export class TicketsService {
       if (dto.assigneeId !== undefined && dto.assigneeId !== ticket.assigneeId) {
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `assigned:${dto.assigneeId ?? 'unassigned'}` } })
       }
+      if (dto.tagIds !== undefined) {
+        const prevIds = new Set(ticket.tags.map((t) => t.id))
+        const nextIds = new Set(dto.tagIds)
+        const changed = prevIds.size !== nextIds.size || [...prevIds].some((id) => !nextIds.has(id))
+        if (changed) {
+          await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', isInternal: true, body: 'tags_changed' } })
+        }
+      }
     })
 
     // Broadcast SSE event so the agent dashboard updates in real time
     this.sse.broadcast({ type: 'ticket-updated', ticketId })
 
-    // Enqueue AI classify + CSAT request when ticket reaches RESOLVED
-    if (dto.status === 'RESOLVED' && ticket.status !== 'RESOLVED') {
+    // Enqueue AI classify + CSAT request when a real ticket reaches RESOLVED
+    if (dto.status === 'RESOLVED' && ticket.status !== 'RESOLVED' && ticket.isTicket) {
       this.queueService.enqueueClassifyTicket({ ticketId }).catch(() => {})
       this.queueService.enqueueRequestCsat({ ticketId }).catch(() => {})
     }
@@ -283,6 +299,21 @@ export class TicketsService {
       })
       await this.activateTicket(ticketId)
       this.sse.broadcast({ type: 'ticket-updated', ticketId })
+
+      // Backfill sentiment for customer messages that arrived before conversion
+      const priorMessages = await this.db.message.findMany({
+        where: {
+          ticketId,
+          isInternal: false,
+          deletedAt: null,
+          authorUserId: { not: null },
+          analyzedAt: null,
+        },
+        select: { id: true },
+      })
+      for (const msg of priorMessages) {
+        this.queueService.enqueueAnalyzeMessage({ messageId: msg.id, ticketId }).catch(() => {})
+      }
     }
 
     // Both branches return full shape so the Bridge page never receives a partial payload

@@ -38,7 +38,7 @@ export class ClassifyTicketWorker implements OnModuleInit {
           },
         },
       })
-      if (!ticket) return
+      if (!ticket || !ticket.isTicket) return
 
       const msgSummary = ticket.messages
         .map((m) => `[${m.authorAgentId ? 'Agent' : 'Customer'}]: ${m.body.slice(0, 200)}`)

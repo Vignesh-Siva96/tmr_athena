@@ -323,8 +323,8 @@ export class ThreadIngestionService {
       }
     }
 
-    // Enqueue AI analysis for live mail only
-    if (!options.isBackfill && ticketId && newMessageId) {
+    // Enqueue AI analysis for live mail only on real tickets (isTicket = true)
+    if (!options.isBackfill && ticketId && newMessageId && ticketIsTicket) {
       await this.queue.enqueueAnalyzeMessage({ messageId: newMessageId, ticketId })
     }
 

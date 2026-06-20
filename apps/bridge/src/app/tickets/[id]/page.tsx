@@ -24,10 +24,12 @@ interface Attachment { id: string; filename: string; size: number; url: string; 
 interface Message { id: string; type: MessageType; body: string; bodyHtml?: string | null; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; authorBotName?: string | null; attachments: Attachment[]; createdAt: string }
 interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; reviewers: number; daysOpen: number }
 interface AiRating { aiRating: number | null; aiEffortScore: number | null; aiSummary: string | null }
+interface Tag { id: string; name: string; color: string }
 interface TicketDetail {
   id: string; ref: string; displayId: string; isTicket: boolean; title: string; status: TicketStatus; priority: TicketPriority; category: TicketCategory
   field1?: string | null; field2?: string | null; source: string
   user: Author; assignee?: Author | null; messages: Message[]; attachments: Attachment[]
+  tags: Tag[]
   githubIssue?: GithubIssue | null; rating?: AiRating | null; createdAt: string; updatedAt: string
 }
 
@@ -228,6 +230,100 @@ function PriorityPicker({ value, onChange }: { value: TicketPriority; onChange: 
   )
 }
 
+function TagPicker({
+  ticketId,
+  tags,
+  token,
+  onUpdate,
+}: {
+  ticketId: string
+  tags: Tag[]
+  token: string | null
+  onUpdate: (tags: Tag[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [allTags, setAllTags] = useState<Tag[]>([])
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open || !token) return
+    api.get<{ data: Tag[] }>('/tags', token).then((res) => setAllTags(res.data)).catch(() => {})
+  }, [open, token])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggleTag = async (tag: Tag) => {
+    if (!token) return
+    const has = tags.some((t) => t.id === tag.id)
+    const next = has ? tags.filter((t) => t.id !== tag.id) : [...tags, tag]
+    try {
+      await api.patch(`/tickets/${ticketId}`, { tagIds: next.map((t) => t.id) }, token)
+      onUpdate(next)
+    } catch (err) { console.error(err) }
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      {tags.map((t) => (
+        <span
+          key={t.id}
+          style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: t.color, background: `${t.color}20`, border: `1px solid ${t.color}40`, cursor: 'pointer' }}
+          onClick={() => { void toggleTag(t) }}
+          title={`Remove ${t.name}`}
+        >
+          {t.name}
+        </span>
+      ))}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="Add tag"
+        style={{ height: 22, padding: '0 6px', background: 'var(--d-raised)', border: '1px solid var(--d-border)', borderRadius: 999, fontSize: 11, color: 'var(--d-text-3)', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3 }}
+      >
+        + Tag
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 28, left: 0, zIndex: 60,
+          background: 'var(--d-raised-2)', border: '1px solid var(--d-border)',
+          borderRadius: 'var(--r-md)', padding: 6, minWidth: 160,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+        }}>
+          {allTags.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--d-text-4)', padding: '6px 8px' }}>No tags — create them in Settings.</div>
+          ) : allTags.map((tag) => {
+            const selected = tags.some((t) => t.id === tag.id)
+            return (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => { void toggleTag(tag) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  padding: '7px 10px', borderRadius: 6, border: 'none',
+                  background: selected ? `${tag.color}18` : 'transparent',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: tag.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: selected ? tag.color : 'var(--d-text-2)', flex: 1, textAlign: 'left', fontWeight: selected ? 600 : 400 }}>{tag.name}</span>
+                {selected && <span style={{ fontSize: 10, color: tag.color }}>✓</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AgentTicketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -251,6 +347,11 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
   const [replyAttachments, setReplyAttachments] = useState<Array<{ id: string; filename: string }>>([])
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [cannedResponses, setCannedResponses] = useState<Array<{ id: string; name: string; body: string }>>([])
+  const [slashQuery, setSlashQuery] = useState<string | null>(null)
+  const [slashPickerIdx, setSlashPickerIdx] = useState(0)
+  const slashPickerRef = useRef<HTMLDivElement>(null)
+  const [slashPickerRect, setSlashPickerRect] = useState<{ top: number; left: number } | null>(null)
 
   useEffect(() => { if (!authLoading && !agent) router.push('/auth') }, [authLoading, agent, router])
 
@@ -398,11 +499,12 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
   }
 
   useEffect(() => {
-    if (!showCompose) return
+    if (!showCompose) { setSlashQuery(null); return }
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowCompose(false)
         setBody('')
+        setSlashQuery(null)
         if (editorRef.current) editorRef.current.innerHTML = ''
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void sendMessage()
@@ -464,6 +566,89 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     } catch (err) { console.error(err) }
   }
 
+  const updateTags = (tags: Tag[]) => {
+    setTicket((prev) => prev ? { ...prev, tags } : prev)
+    // Refetch full ticket so the tags_changed system-event message appears in the thread
+    if (token && ticket) {
+      api.get<{ ticket: TicketDetail }>(`/tickets/${ticket.id}`, token)
+        .then((res) => setTicket(res.ticket))
+        .catch(() => {})
+    }
+  }
+
+  // Load canned responses once when composer first opens
+  useEffect(() => {
+    if (!showCompose || !token || cannedResponses.length > 0) return
+    api.get<{ data: Array<{ id: string; name: string; body: string }> }>('/canned-responses', token)
+      .then((res) => setCannedResponses(res.data))
+      .catch(() => {})
+  }, [showCompose, token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detect /query in the contentEditable editor
+  const handleEditorInput = (html: string) => {
+    setBody(html)
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) { setSlashQuery(null); return }
+    const range = sel.getRangeAt(0)
+    const node = range.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) { setSlashQuery(null); return }
+    const text = node.textContent ?? ''
+    const cursor = range.startOffset
+    // Walk backwards from cursor to find a / that starts the token
+    const before = text.slice(0, cursor)
+    const slashIdx = before.lastIndexOf('/')
+    if (slashIdx === -1) { setSlashQuery(null); return }
+    const between = before.slice(0, slashIdx)
+    if (between.length > 0 && !/\s$/.test(between)) { setSlashQuery(null); return }
+    const query = before.slice(slashIdx + 1)
+    if (/\s/.test(query)) { setSlashQuery(null); return }
+    // Position picker near caret
+    const caretRect = range.getBoundingClientRect()
+    if (caretRect.width === 0 && caretRect.height === 0) {
+      const editorEl = editorRef.current
+      if (editorEl) {
+        const r = editorEl.getBoundingClientRect()
+        setSlashPickerRect({ top: r.bottom + 4, left: r.left })
+      }
+    } else {
+      setSlashPickerRect({ top: caretRect.bottom + 4, left: caretRect.left })
+    }
+    setSlashQuery(query)
+    setSlashPickerIdx(0)
+  }
+
+  const filteredCanned = slashQuery !== null
+    ? cannedResponses.filter((r) => r.name.toLowerCase().includes(slashQuery.toLowerCase()))
+    : []
+
+  const insertCannedResponse = (cr: { name: string; body: string }) => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.focus()
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    const node = range.startContainer
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? ''
+      const cursor = range.startOffset
+      const before = text.slice(0, cursor)
+      const slashIdx = before.lastIndexOf('/')
+      if (slashIdx !== -1) {
+        // Delete the /query text
+        const deleteRange = document.createRange()
+        deleteRange.setStart(node, slashIdx)
+        deleteRange.setEnd(node, cursor)
+        deleteRange.deleteContents()
+        sel.removeAllRanges()
+        sel.addRange(deleteRange)
+      }
+    }
+    document.execCommand('insertHTML', false, cr.body)
+    setBody(editor.innerHTML)
+    setSlashQuery(null)
+  }
+
   if (!emailConfigLoading && !isConnected) return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--d-bg)' }}>
       <DashboardSidebar />
@@ -515,6 +700,8 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span>
             <CategoryPill category={ticket.category} size="sm" />
             {ticket.assignee && (<><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>Assigned to {ticket.assignee.name}</span></>)}
+            {ticket.tags && ticket.tags.length > 0 && <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span>}
+            <TagPicker ticketId={ticket.id} tags={ticket.tags ?? []} token={token} onUpdate={updateTags} />
           </div>
         </div>
 
@@ -630,20 +817,61 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   </div>
                 </div>
                 {/* Rich text editor */}
-                <div
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  className="rt-editor"
-                  data-testid="reply-editor"
-                  data-placeholder={composeTab === 'note' ? 'Write an internal note…' : 'Write a reply…'}
-                  onInput={(e) => setBody((e.currentTarget as HTMLDivElement).innerHTML)}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); applyFormat('bold') }
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); applyFormat('italic') }
-                  }}
-                  style={{ width: '100%', minHeight: 130, padding: '12px 14px', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.7, color: 'var(--d-text)', background: 'transparent', display: 'block', boxSizing: 'border-box', overflowY: 'auto', wordBreak: 'break-word' }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="rt-editor"
+                    data-testid="reply-editor"
+                    data-placeholder={composeTab === 'note' ? 'Write an internal note…' : 'Write a reply…'}
+                    onInput={(e) => handleEditorInput((e.currentTarget as HTMLDivElement).innerHTML)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); applyFormat('bold') }
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); applyFormat('italic') }
+                      if (slashQuery !== null && filteredCanned.length > 0) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setSlashPickerIdx((i) => Math.min(i + 1, filteredCanned.length - 1)) }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashPickerIdx((i) => Math.max(i - 1, 0)) }
+                        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertCannedResponse(filteredCanned[slashPickerIdx]!) }
+                        else if (e.key === 'Escape') { setSlashQuery(null) }
+                      }
+                    }}
+                    onBlur={() => { setTimeout(() => setSlashQuery(null), 150) }}
+                    style={{ width: '100%', minHeight: 130, padding: '12px 14px', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.7, color: 'var(--d-text)', background: 'transparent', display: 'block', boxSizing: 'border-box', overflowY: 'auto', wordBreak: 'break-word' }}
+                  />
+                  {/* Slash-command picker popover */}
+                  {slashQuery !== null && filteredCanned.length > 0 && slashPickerRect && (
+                    <div
+                      ref={slashPickerRef}
+                      style={{
+                        position: 'fixed', top: slashPickerRect.top, left: slashPickerRect.left, zIndex: 999,
+                        background: 'var(--d-raised-2)', border: '1px solid var(--d-border)',
+                        borderRadius: 'var(--r-md)', padding: 4, minWidth: 220, maxHeight: 220, overflowY: 'auto',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                      }}
+                    >
+                      {filteredCanned.map((cr, i) => (
+                        <button
+                          key={cr.id}
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); insertCannedResponse(cr) }}
+                          onMouseEnter={() => setSlashPickerIdx(i)}
+                          style={{
+                            display: 'block', width: '100%', padding: '8px 10px',
+                            borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                            background: i === slashPickerIdx ? 'var(--d-accent-bg)' : 'transparent',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-accent)' }}>/{cr.name}</span>
+                          <span style={{ fontSize: 11, color: 'var(--d-text-4)', marginLeft: 8 }}>
+                            {cr.body.replace(/<[^>]*>/g, '').slice(0, 50)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {/* Attachment chips */}
                 {replyAttachments.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 14px 0', borderTop: '1px solid var(--d-border-2)' }}>

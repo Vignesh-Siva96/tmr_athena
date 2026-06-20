@@ -38,30 +38,30 @@ export class CustomersService {
       sentimentByLabelRaw,
       topicTrendRaw,
     ] = await this.db.$transaction([
-      // Avg sentiment last 30d
+      // Avg sentiment last 30d (real tickets only)
       this.db.message.aggregate({
-        where: { sentimentScore: { not: null }, createdAt: { gte: thirtyDaysAgo }, deletedAt: null },
+        where: { sentimentScore: { not: null }, createdAt: { gte: thirtyDaysAgo }, deletedAt: null, ticket: { isTicket: true } },
         _avg: { sentimentScore: true },
         _count: { sentimentScore: true },
       }),
 
-      // CSAT user avg
+      // CSAT user avg (real tickets only)
       this.db.ticketRating.aggregate({
-        where: { userRating: { not: null } },
+        where: { userRating: { not: null }, ticket: { isTicket: true } },
         _avg: { userRating: true },
         _count: { userRating: true },
       }),
 
-      // CSAT AI avg
+      // CSAT AI avg (real tickets only)
       this.db.ticketRating.aggregate({
-        where: { aiRating: { not: null } },
+        where: { aiRating: { not: null }, ticket: { isTicket: true } },
         _avg: { aiRating: true },
         _count: { aiRating: true },
       }),
 
-      // Reopen stats
+      // Reopen stats (real tickets only)
       this.db.ticket.aggregate({
-        where: { deletedAt: null, createdAt: { gte: thirtyDaysAgo } },
+        where: { deletedAt: null, isTicket: true, createdAt: { gte: thirtyDaysAgo } },
         _count: { id: true },
         _sum: { reopenCount: true },
       }),
@@ -76,26 +76,27 @@ export class CustomersService {
           top."ticketCount",
           AVG(m."sentimentScore") AS "avgSentiment"
         FROM "Topic" top
-        LEFT JOIN "Ticket" t ON t."topicId" = top.id AND t."deletedAt" IS NULL
+        LEFT JOIN "Ticket" t ON t."topicId" = top.id AND t."deletedAt" IS NULL AND t."isTicket" = true
         LEFT JOIN "Message" m ON m."ticketId" = t.id AND m."deletedAt" IS NULL AND m."sentimentScore" IS NOT NULL
         GROUP BY top.id, top.name, top."ticketCount"
         ORDER BY top."ticketCount" DESC
         LIMIT 10
       `,
 
-      // Topic ticket count this week
+      // Topic ticket count this week (real tickets only)
       this.db.ticket.groupBy({
         by: ['topicId'],
-        where: { deletedAt: null, topicId: { not: null }, createdAt: { gte: sevenDaysAgo } },
+        where: { deletedAt: null, isTicket: true, topicId: { not: null }, createdAt: { gte: sevenDaysAgo } },
         _count: { id: true },
         orderBy: { topicId: 'asc' },
       }),
 
-      // Topic ticket count previous week
+      // Topic ticket count previous week (real tickets only)
       this.db.ticket.groupBy({
         by: ['topicId'],
         where: {
           deletedAt: null,
+          isTicket: true,
           topicId: { not: null },
           createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
         },
@@ -103,22 +104,23 @@ export class CustomersService {
         orderBy: { topicId: 'asc' },
       }),
 
-      // Friction by field2 (BUG_REPORT only)
+      // Friction by field2 (BUG_REPORT only, real tickets only)
       this.db.ticket.groupBy({
         by: ['field2'],
-        where: { deletedAt: null, category: 'BUG_REPORT', field2: { not: null } },
+        where: { deletedAt: null, isTicket: true, category: 'BUG_REPORT', field2: { not: null } },
         _count: { id: true },
         orderBy: { _count: { id: 'desc' } },
         take: 15,
       }),
 
-      // Sentiment trend raw
+      // Sentiment trend raw (real tickets only)
       this.db.$queryRaw<{ date: Date; avgScore: number; msgCount: bigint }[]>`
         SELECT
           DATE_TRUNC('day', m."createdAt") as date,
           AVG(m."sentimentScore") as "avgScore",
           COUNT(*)::bigint as "msgCount"
         FROM "Message" m
+        JOIN "Ticket" t ON t.id = m."ticketId" AND t."isTicket" = true
         WHERE m."sentimentScore" IS NOT NULL
           AND m."deletedAt" IS NULL
           AND m."createdAt" >= ${thirtyDaysAgo}
@@ -126,7 +128,7 @@ export class CustomersService {
         ORDER BY 1
       `,
 
-      // Category mix over 90 days
+      // Category mix over 90 days (real tickets only)
       this.db.$queryRaw<{ date: Date; category: string; count: bigint }[]>`
         SELECT
           DATE_TRUNC('day', "createdAt") as date,
@@ -134,12 +136,13 @@ export class CustomersService {
           COUNT(*)::bigint as count
         FROM "Ticket"
         WHERE "deletedAt" IS NULL
+          AND "isTicket" = true
           AND "createdAt" >= ${ninetyDaysAgo}
         GROUP BY 1, 2
         ORDER BY 1
       `,
 
-      // Avg conversation depth by category
+      // Avg conversation depth by category (real tickets only)
       this.db.$queryRaw<{ category: string; avgDepth: number }[]>`
         SELECT
           t.category,
@@ -151,11 +154,11 @@ export class CustomersService {
           WHERE type = 'REPLY' AND "isInternal" = false AND "deletedAt" IS NULL
           GROUP BY "ticketId"
         ) msg_counts ON msg_counts."ticketId" = t.id
-        WHERE t."deletedAt" IS NULL
+        WHERE t."deletedAt" IS NULL AND t."isTicket" = true
         GROUP BY t.category
       `,
 
-      // Users with tickets for health score
+      // Users with real tickets for health score
       this.db.user.findMany({
         where: { isGuest: false },
         select: {
@@ -164,7 +167,7 @@ export class CustomersService {
           email: true,
           lastActiveAt: true,
           tickets: {
-            where: { deletedAt: null },
+            where: { deletedAt: null, isTicket: true },
             select: {
               id: true,
               status: true,
@@ -181,19 +184,19 @@ export class CustomersService {
         take: 500,
       }),
 
-      // Churn signal count 30d
+      // Churn signal count 30d (real tickets only)
       this.db.customerSignal.count({
-        where: { type: 'CHURN_RISK', createdAt: { gte: thirtyDaysAgo } },
+        where: { type: 'CHURN_RISK', createdAt: { gte: thirtyDaysAgo }, ticket: { isTicket: true } },
       }),
 
-      // Advocacy signal count 30d
+      // Advocacy signal count 30d (real tickets only)
       this.db.customerSignal.count({
-        where: { type: 'ADVOCACY', createdAt: { gte: thirtyDaysAgo } },
+        where: { type: 'ADVOCACY', createdAt: { gte: thirtyDaysAgo }, ticket: { isTicket: true } },
       }),
 
-      // Recent churn signals (10) with user + ticket
+      // Recent churn signals (10) with user + ticket (real tickets only)
       this.db.customerSignal.findMany({
-        where: { type: 'CHURN_RISK' },
+        where: { type: 'CHURN_RISK', ticket: { isTicket: true } },
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
@@ -206,9 +209,9 @@ export class CustomersService {
         },
       }),
 
-      // Recent advocacy signals (10) with user + ticket
+      // Recent advocacy signals (10) with user + ticket (real tickets only)
       this.db.customerSignal.findMany({
-        where: { type: 'ADVOCACY' },
+        where: { type: 'ADVOCACY', ticket: { isTicket: true } },
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
@@ -221,52 +224,52 @@ export class CustomersService {
         },
       }),
 
-      // Effort avg 30d
+      // Effort avg 30d (real tickets only)
       this.db.ticketRating.aggregate({
-        where: { aiEffortScore: { not: null }, createdAt: { gte: thirtyDaysAgo } },
+        where: { aiEffortScore: { not: null }, createdAt: { gte: thirtyDaysAgo }, ticket: { isTicket: true } },
         _avg: { aiEffortScore: true },
       }),
 
-      // Effort distribution (group by score)
+      // Effort distribution (group by score, real tickets only)
       this.db.ticketRating.groupBy({
         by: ['aiEffortScore'],
-        where: { aiEffortScore: { not: null } },
+        where: { aiEffortScore: { not: null }, ticket: { isTicket: true } },
         _count: { aiEffortScore: true },
         orderBy: { aiEffortScore: 'asc' },
       }),
 
-      // Effort × CSAT scatter
+      // Effort × CSAT scatter (real tickets only)
       this.db.ticketRating.findMany({
-        where: { aiEffortScore: { not: null }, aiRating: { not: null } },
+        where: { aiEffortScore: { not: null }, aiRating: { not: null }, ticket: { isTicket: true } },
         select: { ticketId: true, aiRating: true, aiEffortScore: true },
         take: 500,
       }),
 
-      // Churn signal count per user 90d (for health score)
+      // Churn signal count per user 90d (for health score, real tickets only)
       this.db.customerSignal.groupBy({
         by: ['userId'],
-        where: { type: 'CHURN_RISK', createdAt: { gte: ninetyDaysAgo } },
+        where: { type: 'CHURN_RISK', createdAt: { gte: ninetyDaysAgo }, ticket: { isTicket: true } },
         _count: { id: true },
         orderBy: { userId: 'asc' },
       }),
 
-      // Advocacy signal count per user 90d (for health score)
+      // Advocacy signal count per user 90d (for health score, real tickets only)
       this.db.customerSignal.groupBy({
         by: ['userId'],
-        where: { type: 'ADVOCACY', createdAt: { gte: ninetyDaysAgo } },
+        where: { type: 'ADVOCACY', createdAt: { gte: ninetyDaysAgo }, ticket: { isTicket: true } },
         _count: { id: true },
         orderBy: { userId: 'asc' },
       }),
 
-      // Sentiment label breakdown 30d
+      // Sentiment label breakdown 30d (real tickets only)
       this.db.message.groupBy({
         by: ['sentimentLabel'],
-        where: { sentimentLabel: { not: null }, createdAt: { gte: thirtyDaysAgo }, deletedAt: null },
+        where: { sentimentLabel: { not: null }, createdAt: { gte: thirtyDaysAgo }, deletedAt: null, ticket: { isTicket: true } },
         _count: { sentimentLabel: true },
         orderBy: { sentimentLabel: 'asc' },
       }),
 
-      // Per-topic daily ticket counts (top 8, last 30d)
+      // Per-topic daily ticket counts (top 8, last 30d, real tickets only)
       this.db.$queryRaw<{ topicId: string; topicName: string; date: Date; count: bigint }[]>`
         SELECT
           t."topicId",
@@ -276,6 +279,7 @@ export class CustomersService {
         FROM "Ticket" t
         JOIN "Topic" top ON top.id = t."topicId"
         WHERE t."deletedAt" IS NULL
+          AND t."isTicket" = true
           AND t."topicId" IS NOT NULL
           AND t."createdAt" >= ${thirtyDaysAgo}
         GROUP BY 1, 2, 3

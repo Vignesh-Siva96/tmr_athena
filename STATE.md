@@ -94,6 +94,10 @@ ngrok http 3001
 | **Email-card format is Bridge-only; portal keeps chat bubbles**          | Portal is customer-facing — chat bubbles feel friendlier and match the portal's light-theme aesthetic. The new email-card format suits the agent tool. `MessageCard` is in `apps/bridge/` only, not `packages/ui`. |
 | **Maintenance mode: master overrides individual feature flags**          | `maintenanceMode=true` suppresses all five automated features regardless of their individual flags; individual flags only matter when master is OFF. Guard rule: `isFeatureSuppressed(config, feature)` in `apps/api/src/modules/config/feature-flags.ts`. (2026-06-14) |
 | **Bot suppressed = leave for humans silently**                           | When `botReply` is suppressed (maintenance or flag), the bot does NOT write a BotInteraction, does NOT escalate, and does NOT post any note — ticket stays NEW/unassigned for humans. Silent skip only. (2026-06-14) |
+| **Tags: fixed color palette (8 colors), any agent manages, agent-only** | Tags are agent-facing productivity — no Portal exposure. Fixed palette keeps UI consistent; no admin gate needed since tags have no security sensitivity. `tags_changed` SYSTEM_EVENT is `isInternal:true` so portal `isInternal=false` filter already hides it. (2026-06-19) |
+| **Tags: `Tag.orgId` drift fixed by migration `20260619000000_tag_drop_orgid`** | Initial migration created `orgId NOT NULL` + `(orgId,name)` unique index; schema.prisma was already single-tenant (no orgId) but no reconciliation migration was ever added. Inserts would fail at runtime. Fixed by dropping the column and creating `Tag_name_key`. (2026-06-19) |
+| **Canned responses: one shared library, any agent, HTML body, no variables** | Shared library avoids per-agent clutter. HTML stored as-is (authored by trusted agents, inserted into agent composer only — never sent to Portal). No variable placeholders in v1 (adds complexity; defer). (2026-06-19) |
+| **Canned responses: slash command `/name` in composer (not a separate button)** | Slash command is minimal UI surface, discoverable without cluttering the toolbar, and works for both reply and note tabs. Picker positioned near caret via Selection/getBoundingClientRect. (2026-06-19) |
 | **CSAT survey is its own toggle** (`featCsatSurvey`)                    | Separate from `featAiAnalysis` — operators may want AI classification running but no survey emails, e.g. during incident windows. Five individual flags total. (2026-06-14) |
 | **Bridge renders `bodyHtml` preferentially** (parity with Portal); quoted HTML history collapsed via `splitQuotedHtml()` (`div.gmail_quote` / `blockquote[type=cite]` detection) | Customer/agent replies in Bridge only rendered the plain-text `body`, so Gmail signatures/tables/images were lost. Worse, `isHtmlBody()`'s any-tag regex misdetected Gmail plain-text autolinks (`<https://…>`) as HTML, pushing the body through `dangerouslySetInnerHTML` and flattening it onto one line. `isHtmlBody()` now matches a known-tag allowlist. (2026-06-10, plan `when-a-email-received-soft-abelson`, R199/R200) |
 | **GraphProvider `bodyPlain` via structure-preserving `htmlToText()`** (`email-sync/util/html-to-text.ts`, no new dependency) | The old naive `replace(/<[^>]*>/g,' ')` + collapse-all-whitespace flattened the whole email onto one line in the stored `Message.body`. (2026-06-10, R201) |
@@ -187,6 +191,7 @@ ngrok http 3001
 | **SSO handoff uses HMAC shared secret (HS256) over OIDC/SAML** | Single-tenant, first-party host only. HMAC mirrors Intercom's identity-verification model; simpler than OIDC/SAML for self-hosted single-tenant use. RS256 for untrusted third-party hosts deferred to v2. (2026-06-17, plan in-this-app-for-composed-puppy) |
 | **SSO replay protection via `SsoUsedToken` table** | Single-column table keyed on `jti` (primary key). A direct `create()` followed by catching `P2002` (Prisma unique constraint violation) detects replays without a TOCTOU race. Row TTL cleanup (cron delete past `expiresAt`) deferred to v2. (2026-06-17) |
 | **SSO `externalId` lookup order: externalId → email (backfill) → create** | Prevents duplicate accounts when a user first signed up via portal (no externalId) and later arrives via SSO. On email-only match, `externalId` is backfilled so subsequent SSO logins hit the fast path. (2026-06-17) |
+| **AI/analysis features gated on `isTicket=true`; sentiment was leaking onto NEW conversations** | `ThreadIngestionService` enqueued `ai:analyze-message` for every inbound email regardless of `isTicket`. Raw `NEW` conversations and `DISMISSED` rows now receive no AI processing. Guards at every enqueue point (`ThreadIngestionService`, `MessagesService`, `TicketsService`) plus defense-in-depth inside the workers (`AnalyzeMessageWorker`, `ClassifyTicketWorker`). On `convert()`, prior unanalyzed customer messages are retroactively queued for sentiment (idempotent). Customer-intelligence analytics (`CustomersService`) scoped to `isTicket=true` across all queries. (2026-06-18, plan `great-one-thing-these-hazy-seahorse`) |
 
 ---
 
@@ -2484,3 +2489,70 @@ Implemented a generic host-app → portal single-sign-on handoff using HMAC HS25
 - `tests/regression-catalogue.md` — R221–R231 added
 - `docs/atlas/auth.md` — SSO section added (sequence diagram, key files, security invariants, notable decisions, known gaps); Notable Decisions and Known Gaps updated
 - `worldgraph/atlas.world.json` — `feature:auth` dossier + index updated; `entity:SsoUsedToken` node added; `route:POST /api/v1/auth/sso` node added
+
+
+---
+
+## Session — 2026-06-18 (Plan great-one-thing-these-hazy-seahorse: AI/analysis gating on isTicket)
+
+**Problem fixed:** Sentiment analysis (`ai:analyze-message`) was being enqueued for every inbound customer email regardless of `isTicket`. Raw `NEW` conversations (pre-triage email threads) and `DISMISSED` ones were accumulating `sentimentScore`, `CustomerSignal`, priority bumps, and churn-risk notifications. The customer-intelligence dashboard also included those rows in its aggregates.
+
+**Changes:**
+
+1. **`ThreadIngestionService`** — Added `&& ticketIsTicket` to the `ai:analyze-message` enqueue guard (the live fix; the variable was already in scope).
+2. **`MessagesService`** — Added `&& ticket.isTicket` to the customer-reply sentiment enqueue guard (portal path; `ticket` already loaded).
+3. **`TicketsService.update()`** — Added `&& ticket.isTicket` defensive guard before enqueueing classify + CSAT on RESOLVED (a non-ticket can't reach RESOLVED via normal UI, but now explicitly guarded).
+4. **`TicketsService.convert()`** — After `activateTicket()`, retroactively enqueues `ai:analyze-message` for all prior unanalyzed customer messages (`analyzedAt = null`). Idempotent; already-analyzed messages skipped.
+5. **`AnalyzeMessageWorker`** — Added `isTicket` to the ticket select and early-return if `!message.ticket?.isTicket`.
+6. **`ClassifyTicketWorker`** — Added `!ticket.isTicket` to the early-return guard.
+7. **`CustomersService`** — All 20+ queries (sentiment aggregates, CSAT aggregates, topic queries, signal counts, health-score user lookup, effort aggregates, category mix, conversation depth, sentiment label breakdown, topic trend, per-topic WoW delta, friction by field2) scoped to `isTicket=true`. Raw SQL queries add `AND "isTicket" = true`; Prisma ORM queries add `isTicket: true` or `ticket: { isTicket: true }`.
+
+**Tests added:** `tests/integration/ai-gating.spec.ts` — R110–R114 (spy-based, no real Gemini calls).
+
+**Docs updated:** `docs/atlas/ai.md` (isTicket gating rule section), `docs/atlas/analytics.md` (customer insights isTicket scoping note), `tests/regression-catalogue.md` (R232–R236), `STATE.md` (this entry + Decisions table row).
+
+**No schema changes** — no new migration, no atlas:gen run required.
+
+---
+
+## Session — 2026-06-19 (Plan in-this-app-we-glistening-nova: Ticket Tags + Canned Responses)
+
+**Two agent-facing productivity features built from existing schema scaffolding.**
+
+### Part A — Tags
+
+**Problem:** The `Tag` model, `Ticket.tags` relation, and `tagIds` update path were all in the schema but had no API, no settings page, no picker UI, and a DB drift that would have caused every insert to fail (`orgId NOT NULL` column in DB vs. single-tenant `schema.prisma` without orgId).
+
+**Changes:**
+
+1. **Migration `20260619000000_tag_drop_orgid`** — Drops `orgId` column + `(orgId,name)` unique index; creates `Tag_name_key`. Resolves the init-migration drift.
+2. **`apps/api/src/modules/tags/`** — New module: `tags.dto.ts` (fixed palette enum `TAG_PALETTE`, create/update schemas), `tags.service.ts` (list with `_count.tickets`, create/update with P2002→409, delete with cascade), `tags.controller.ts` (GET/POST/PATCH/DELETE, `AgentGuard`), `tags.module.ts`; registered in `app.module.ts`.
+3. **`tickets.dto.ts`** — Added `tagIds` to `listTicketsSchema` (coerces single string to array).
+4. **`tickets.service.ts`** — (a) `list()`: adds `tagIds` filter `where.tags = { some: { id: { in: tagIds } } }`; conditionally includes `tags: true` only for agent callers. (b) `update()`: pre-fetch now includes `tags: { select: { id: true } }`; after update, if tagIds changed, creates internal `SYSTEM_EVENT` `tags_changed`. (c) `findById()`: strips `tags` from response for portal callers.
+5. **Bridge settings nav** — Added "Tags" and "Canned Responses" to Workspace section.
+6. **`apps/bridge/src/app/settings/tags/page.tsx`** — Settings page: list with swatch + name + "N tickets", create/edit with palette swatch row, delete with confirm showing ticket count.
+7. **`apps/bridge/src/app/tickets/[id]/page.tsx`** — `Tag` type + `tags: Tag[]` on `TicketDetail`; `TagPicker` popover (loads `/tags` on open, toggles with PATCH, renders badge pills); `updateTags` handler refetches ticket after change; tag badges in thread header; `tags_changed` renders as "Tags updated" in `MessageCard.tsx`.
+8. **`apps/bridge/src/app/inbox/page.tsx`** — `Tag` type + `tags?: Tag[]` on `TicketListItem`; tag filter `<select>` loaded from `/tags`; tag badges rendered in conversation rows; `tagFilter` state wired into API params.
+9. **Portal cleanup** — Removed unused `tags: { id, name, color }[]` field from `TicketListItem` in `apps/portal/src/app/tickets/page.tsx`.
+10. **`MessageCard.tsx`** — Added `if (body === 'tags_changed') return 'Tags updated'` to `parseEvent()`.
+
+### Part B — Canned Responses
+
+**Problem:** The `CannedResponse` model (`id, name, body`) was in the schema but referenced nowhere.
+
+**Changes:**
+
+1. **`apps/api/src/modules/canned-responses/`** — New module: `canned-responses.dto.ts` (create/update schemas), `canned-responses.service.ts` (straight CRUD ordered by name), `canned-responses.controller.ts` (GET/POST/PATCH/DELETE, `AgentGuard`), `canned-responses.module.ts`; registered in `app.module.ts`.
+2. **`apps/bridge/src/app/settings/canned-responses/page.tsx`** — Settings page with inline `RichEditor` component (toolbar + `contentEditable`, replicating composer pattern); list shows `/name` slug + truncated body preview; create/edit/delete.
+3. **Slash-command insertion** — In `apps/bridge/src/app/tickets/[id]/page.tsx`: canned responses loaded once when composer opens; `handleEditorInput` detects `/query` backwards from caret (start-of-line or after whitespace); `filteredCanned` computed from query; fixed picker popover (positioned via `getBoundingClientRect`) with arrow-key/Enter/Tab/Escape navigation; `insertCannedResponse` deletes the `/query` text then `execCommand('insertHTML')` the template body. Works for reply and note tabs.
+
+### Tests + docs
+
+- `tests/integration/tags.spec.ts` — R110–R116 (tags CRUD, duplicate-name 409, delete-in-use cascades, tagIds filter, Portal exclusion, tags_changed event, same-tags no-op).
+- `tests/integration/canned-responses.spec.ts` — R117–R118 (CRUD, portal 403).
+- `tests/regression-catalogue.md` — R237–R240 added.
+- `docs/atlas/tickets.md` — Tags section added; `tagIds` filter documented.
+- `docs/atlas/canned-responses.md` — New atlas page.
+- `worldgraph/atlas.world.json` — `module:TagsModule`, `module:CannedResponsesModule`, `entity:Tag`, `entity:CannedResponse` nodes added; `pnpm worldgraph:check` passes (109 nodes).
+- `pnpm atlas:gen` run — 27 modules, 95 routes, 23 models confirmed.
+- `pnpm type-check` (api, bridge, portal) — all pass with no errors.

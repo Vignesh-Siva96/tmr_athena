@@ -117,6 +117,25 @@ Agent default: returns all non-deleted non-DISMISSED rows (conversations + ticke
 
 Stats (`GET /tickets/stats`): `newCount` = conversations with `isTicket=false, status=NEW` (drives Inbox badge). Stats only count real tickets (`isTicket=true`) for `byStatus`/`byCategory`/`unassigned`.
 
+Additional list filter: `tagIds` — one or more tag IDs (multi-value, `?tagIds=X&tagIds=Y`); returns tickets that have at least one of the specified tags. **Portal callers cannot filter by tagIds** — tags are agent-only.
+
+## Tags
+
+Tags are reusable, color-coded labels agents assign to tickets for triage and filtering. The `Tag` model (`id`, `name @unique`, `color`, `tickets[]`) and the `_TagToTicket` join table were in the initial schema but never had an API until now.
+
+| | |
+|---|---|
+| API module | `apps/api/src/modules/tags/` — `GET/POST/PATCH/DELETE /tags` |
+| Auth | `AgentGuard` — any agent can manage tags |
+| Colors | Fixed palette: `TAG_PALETTE` in `tags.dto.ts` (8 colors); enforced at validation |
+| Naming | `name` unique at DB level; Prisma `P2002` → 409 Conflict |
+| Counts | `list()` includes `_count.tickets`; shown in settings UI |
+| Delete | Cascade-removes implicit join rows; warns in UI with ticket count |
+| Timeline | `PATCH /tickets/:id { tagIds }` triggers an internal `SYSTEM_EVENT` message with body `tags_changed` when the tag set actually changes — visible in Bridge only (`isInternal: true`) |
+| Portal exclusion | `tags` field is stripped from both `list()` and `findById()` responses for `role=user` callers |
+
+**DB drift fix**: the initial migration created `Tag.orgId TEXT NOT NULL` + `(orgId, name)` unique index which conflicted with `schema.prisma` (single-tenant, no orgId). Migration `20260619000000_tag_drop_orgid` drops the column and creates `Tag_name_key`.
+
 ## Customers page — `GET /users`
 
 New agent-only endpoint: `GET /users?limit&offset&search&category` returns paginated customers with aggregates:
