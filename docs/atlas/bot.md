@@ -153,7 +153,7 @@ When `Message.authorBotName` is set:
 | Page | Path |
 |---|---|
 | AI Assistant | `/settings/ai-assistant` |
-| Shifts | `/settings/shifts` |
+| Shifts | `/settings/agents` (Shifts section at the bottom of the Agents page; `/settings/shifts` now redirects here) |
 
 **AI Assistant page** — two cards:
 1. **Provider** — Gemini API key (set/update), provider selector, chat model override
@@ -161,7 +161,7 @@ When `Message.authorBotName` is set:
 
 Removed from UI (hardcoded): embedding model, test-connection button, enable/disable toggle, retrieval/confidence threshold sliders, bot name. **Fallback agent** moved to Settings → Agents page.
 
-**Shifts page** — org timezone selector + list of shifts with add/delete/toggle-active controls.
+**Shifts** — now a section at the bottom of the **Agents** settings page (`ShiftsSection` component), keeping on-call routing config next to the agents it routes to. Timezone selector + list of shifts with add/delete/toggle-active controls. The standalone `/settings/shifts` route is a redirect to `/settings/agents` for back-compat, and the separate Calendar rail icon was removed. The agent picker filters for `PRIMARY_AGENT`/`ADMIN`; the agents invite/role-change UI was fixed to use the real `AgentRole` values (was sending the non-existent `AGENT`, which Prisma rejected — silently blocking new primary agents from being schedulable).
 
 ---
 
@@ -212,8 +212,10 @@ Removed from UI (hardcoded): embedding model, test-connection button, enable/dis
 | `apps/api/src/modules/knowledge-base/indexer.service.ts` | Crawl→chunk→embed→upsert pipeline |
 | `apps/api/src/modules/knowledge-base/knowledge-base.controller.ts` | KB admin REST endpoints |
 | `apps/api/src/modules/shifts/shifts.controller.ts` | Shifts CRUD |
-| `apps/bridge/src/app/settings/ai-assistant/page.tsx` | AI assistant settings page |
-| `apps/bridge/src/app/settings/shifts/page.tsx` | Shifts management page |
+| `apps/bridge/src/app/(dashboard)/settings/ai-assistant/page.tsx` | AI assistant settings page |
+| `apps/bridge/src/app/(dashboard)/settings/agents/page.tsx` | Agents settings (fallback agent + Shifts section) |
+| `apps/bridge/src/app/(dashboard)/settings/agents/ShiftsSection.tsx` | Shifts management UI (rendered inside Agents page) |
+| `apps/bridge/src/app/(dashboard)/settings/shifts/page.tsx` | Redirect → `/settings/agents` (back-compat) |
 | `packages/db/prisma/schema.prisma` | `KnowledgeSource`, `KnowledgeChunk`, `BotInteraction`, `Shift`, updated `AppConfig` |
 
 ---

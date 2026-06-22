@@ -132,6 +132,18 @@ export class AppConfigService {
     return updated
   }
 
+  /** Count of non-deleted tickets per stored field1/field2 value. Lets the settings
+   * UI warn before deleting an option ("N tickets use this — they'll show the raw value"). */
+  async fieldUsage(): Promise<{ field1: Record<string, number>; field2: Record<string, number> }> {
+    const [f1, f2] = await Promise.all([
+      this.db.ticket.groupBy({ by: ['field1'], where: { deletedAt: null, field1: { not: null } }, _count: { id: true } }),
+      this.db.ticket.groupBy({ by: ['field2'], where: { deletedAt: null, field2: { not: null } }, _count: { id: true } }),
+    ])
+    const toMap = (rows: { field1?: string | null; field2?: string | null; _count: { id: number } }[], key: 'field1' | 'field2') =>
+      Object.fromEntries(rows.map((r) => [r[key] as string, r._count.id]))
+    return { field1: toMap(f1, 'field1'), field2: toMap(f2, 'field2') }
+  }
+
   async updateLogo(logoUrl: string): Promise<AppConfig> {
     const config = await this.get()
     return this.db.appConfig.update({ where: { id: config.id }, data: { logoUrl } })

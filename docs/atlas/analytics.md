@@ -65,7 +65,7 @@ All operational metrics count **real tickets only** (`isTicket = true`). Convers
 **Charts:**
 - **Created vs Resolved** (30d two-series area chart, replaces single-series volume)
 - **Status breakdown** (pie)
-- **By category**, **field1**, **field2** (horizontal bars, conditional on data)
+- **By category**, **field1**, **field2** (horizontal bars, conditional on data). The field1/field2 cards use the configured `field1Label`/`field2Label` as their titles and resolve each grouped `value → label` via `useFieldConfig`/`labelForValue` (`apps/bridge/src/lib/useFieldConfig.ts`); the API groups by the raw stored value, so a label rename in settings updates these charts retroactively. The customer-intelligence dashboard's "Bug reports by …" friction chart resolves labels the same way.
 - **Priority mix**
 - **Agent performance** (stacked horizontal bar)
 

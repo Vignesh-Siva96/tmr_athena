@@ -24,6 +24,7 @@ const TICKET_DETAIL_INCLUDE = {
     },
   },
   attachments: true,
+  participants: { select: { id: true, email: true, name: true, source: true } },
 } satisfies Prisma.TicketInclude
 
 interface CallerContext {
@@ -186,6 +187,9 @@ export class TicketsService {
 
     // Portal ticket → activate immediately (confirmation + bot)
     await this.activateTicket(ticket.id)
+
+    // Sync TMR product metadata for the customer (fire-and-forget, never blocks ticket creation)
+    this.queueService.enqueueFetchTmrMetadata({ userId: caller.id }).catch(() => {})
 
     // Broadcast SSE event so the agent dashboard updates in real time
     this.sse.broadcast({ type: 'ticket-created', ticketId: ticket.id })

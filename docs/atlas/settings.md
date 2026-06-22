@@ -105,7 +105,13 @@ Operators can define up to two generic dropdowns shown on the portal ticket subm
 
 `icon` is optional: an absolute URL is used as-is; a bare key is resolved to `{ASSETS_URL}/{key}.png` on the portal.
 
-The portal submit page renders an `OptionSelect` for each dropdown when the options array is non-empty. Ticket rows store the selected values in `Ticket.field1` and `Ticket.field2` (formerly `product`/`connector`, renamed in migration).
+The portal submit page renders an `OptionSelect` for each dropdown when the options array is non-empty. Ticket rows store the option's **`value`** (the stable key) in `Ticket.field1` and `Ticket.field2` (formerly `product`/`connector`, renamed in migration) — never the label.
+
+### value/label separation (do not collapse)
+
+`value` is a stable key; `label` is display-only. Everything that shows a field — the ticket detail right sidebar and both analytics dashboards — resolves `value → label` at render time via the shared `apps/bridge/src/lib/useFieldConfig.ts` (`useFieldConfig` hook + `labelForValue`), falling back to the raw value when no option matches (legacy data / since-deleted option). Because tickets and analytics (`groupBy field1/field2`) key on `value`, **renaming a label is purely cosmetic and retroactive** — no migration, no data touched.
+
+The branding form enforces this: it derives `value` from the label via `slugify` for **new** options only and **freezes** persisted keys (label edits no longer re-key). Deleting an in-use option is gated by a confirmation backed by `GET /api/v1/config/field-usage` (admin-only; per-value non-deleted ticket counts) — deletion keeps ticket data but makes those tickets display the raw key.
 
 ## Maintenance mode
 

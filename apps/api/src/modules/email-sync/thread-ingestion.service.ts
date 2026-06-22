@@ -35,6 +35,39 @@ export class ThreadIngestionService {
     this.sseService = sse
   }
 
+  /**
+   * Upsert a User record for the given email/name, reusing the same P2002-safe
+   * pattern as the thread-level customer upsert. Used for per-message attribution.
+   */
+  private async resolveSenderUser(
+    tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0],
+    email: string,
+    name: string | undefined,
+    isBulk: boolean,
+  ): Promise<{ id: string; email: string }> {
+    try {
+      return await tx.user.upsert({
+        where: { email },
+        create: {
+          email,
+          name: name ?? null,
+          source: 'EMAIL',
+          isVerified: false,
+          category: isBulk ? 'PROMOTIONAL' : 'CUSTOMER',
+        },
+        update: {},
+        select: { id: true, email: true },
+      })
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const existing = await tx.user.findUnique({ where: { email }, select: { id: true, email: true } })
+        if (!existing) throw err
+        return existing
+      }
+      throw err
+    }
+  }
+
   async fetchAndUpsertThread(
     provider: IMailProvider,
     threadId: string,
@@ -201,6 +234,13 @@ export class ThreadIngestionService {
         ticketStatus = existingTicket.status
       }
 
+      // Fetch the primary customer's email for participant filtering (ticket.userId user)
+      const ticketCustomer = await tx.user.findUnique({
+        where: { id: user.id },
+        select: { email: true },
+      })
+      const ticketCustomerEmail = (ticketCustomer?.email ?? user.email).toLowerCase()
+
       // Upsert each message, tracking the latest sentAt among new messages
       let latestNewMessageAt: Date | null = null
 
@@ -233,6 +273,13 @@ export class ThreadIngestionService {
           authorAgentId = agent?.id ?? null
         }
 
+        // Per-message sender attribution: resolve the actual sender to their own User record
+        let authorUserId: string | null = null
+        if (!isFromAgent) {
+          const senderUser = await this.resolveSenderUser(tx, msg.fromEmail, msg.fromName, msg.isBulk ?? false)
+          authorUserId = senderUser.id
+        }
+
         const created = await tx.message.create({
           data: {
             ticketId: ticketId!,
@@ -244,13 +291,32 @@ export class ThreadIngestionService {
             bodyHtml: msg.bodyHtml ?? null,
             bodyRaw: msg.bodyRaw ?? null,
             sentVia: 'EMAIL',
-            authorUserId: isFromAgent ? null : user.id,
+            authorUserId,
             authorAgentId: isFromAgent ? authorAgentId : null,
             createdAt: msg.sentAt,
             // Already in the customer's mailbox (this message WAS that email) — never quote it.
             customerEmailedAt: msg.sentAt,
           },
         })
+
+        // Auto-add external senders as INBOUND participants (req #2)
+        // Exclude: agents (already excluded by isFromAgent), ticket's primary customer, aliases
+        if (
+          !isFromAgent &&
+          msg.fromEmail.toLowerCase() !== ticketCustomerEmail &&
+          !customer.matchesAlias(msg.fromEmail)
+        ) {
+          await tx.ticketParticipant.upsert({
+            where: { ticketId_email: { ticketId: ticketId!, email: msg.fromEmail.toLowerCase() } },
+            create: {
+              ticketId: ticketId!,
+              email: msg.fromEmail.toLowerCase(),
+              name: msg.fromName ?? null,
+              source: 'INBOUND',
+            },
+            update: {},
+          })
+        }
 
         if (!isFromAgent) {
           newMessageId = created.id
@@ -326,6 +392,11 @@ export class ThreadIngestionService {
     // Enqueue AI analysis for live mail only on real tickets (isTicket = true)
     if (!options.isBackfill && ticketId && newMessageId && ticketIsTicket) {
       await this.queue.enqueueAnalyzeMessage({ messageId: newMessageId, ticketId })
+    }
+
+    // Sync TMR product metadata for new, live, non-bulk conversations (fire-and-forget)
+    if (!options.isBackfill && wasCreated && !firstMsgIsBulk) {
+      this.queue.enqueueFetchTmrMetadata({ userId: user.id }).catch(() => {})
     }
 
     if (!options.isBackfill && ticketId) {

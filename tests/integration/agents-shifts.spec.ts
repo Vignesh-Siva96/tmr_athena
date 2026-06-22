@@ -116,9 +116,47 @@ describe('R149 — agents routes non-admin returns 403', () => {
       .request()
       .post('/api/v1/agents/invite')
       .set('Authorization', `Bearer ${token}`)
-      .send({ email: 'x@example.com', name: 'X', role: 'AGENT' })
+      .send({ email: 'x@example.com', name: 'X', role: 'PRIMARY_AGENT' })
 
     expect(res.status).toBe(403)
+  })
+})
+
+// ─── R249 — invite persists a valid AgentRole ────────────────────────────────
+// Regression: the agents DTO previously accepted role 'AGENT', which is not a
+// member of the Prisma AgentRole enum (ADMIN | PRIMARY_AGENT | SECONDARY_AGENT),
+// so a non-admin invite was rejected by the DB. The Shifts agent picker filters
+// for PRIMARY_AGENT/ADMIN, so this silently prevented scheduling new agents.
+
+describe('R249 — invite with PRIMARY_AGENT role persists that role', () => {
+  it('creates a PRIMARY_AGENT (not rejected by the enum)', async () => {
+    const admin = await makeAgent({ role: 'ADMIN' })
+    const token = await signJwt({ id: admin.id, role: 'agent', orgRole: 'ADMIN' })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/agents/invite')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ email: 'primary@example.com', name: 'Primary Agent', role: 'PRIMARY_AGENT' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data.agent).toMatchObject({ role: 'PRIMARY_AGENT' })
+
+    const row = await harness.prisma.agent.findUniqueOrThrow({ where: { email: 'primary@example.com' } })
+    expect(row.role).toBe('PRIMARY_AGENT')
+  })
+
+  it('rejects an invalid role with 400', async () => {
+    const admin = await makeAgent({ role: 'ADMIN' })
+    const token = await signJwt({ id: admin.id, role: 'agent', orgRole: 'ADMIN' })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/agents/invite')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ email: 'bad@example.com', name: 'Bad', role: 'AGENT' })
+
+    expect(res.status).toBe(400)
   })
 })
 

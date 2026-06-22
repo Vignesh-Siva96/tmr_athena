@@ -32,6 +32,7 @@ flowchart LR
   Agent[Agent] --> Bridge
   Bridge --> AS[POST /auth/agent/signin]
   Bridge --> AG[POST /auth/agent/google<br/>not wired]
+  Bridge --> AI[POST /auth/agent/accept-invite<br/>token + new password]
 
   AuthGuard{{AuthGuard middleware}}
   AgentGuard{{AgentGuard middleware}}
@@ -253,6 +254,16 @@ sequenceDiagram
 - **SSO uses HMAC shared secret over OIDC/SAML** — single-tenant, first-party host only. OIDC/SAML are over-engineered for this use case; HMAC mirrors Intercom's "identity verification" model. RS256 (for untrusted third-party hosts) can be added as a second mode later.
 - **SSO replay protection via `SsoUsedToken` table** — a single-column keyed on `jti` (primary key). Unique-constraint violation (`P2002`) = replay → rejected. Row TTL cleanup (cron delete past `expiresAt`) is deferred to v2.
 - **SSO `externalId` is a stable host user ID** — stored on `User.externalId` (unique index). Lookup order: `externalId` → `email` (backfills `externalId` on first match) → create new. Prevents duplicate accounts when the same user signs in via different paths.
+
+## Agent invite accept flow
+
+When an admin invites an agent (`POST /agents/invite`):
+1. An `Agent` row is upserted with a random `inviteToken` and `inviteAccepted = false`.
+2. `AgentsService.invite()` fires `EmailService.sendAgentInvite()` fire-and-forget with a link to `/auth/accept-invite?token=<token>` (BRIDGE_URL).
+3. The agent visits the link, lands on `apps/bridge/src/app/auth/accept-invite/page.tsx`, and sets a password.
+4. The page POSTs to `POST /auth/agent/accept-invite { token, password }`.
+5. `AuthService.acceptAgentInvite()` looks up the agent by `inviteToken`, hashes the password, sets `inviteAccepted = true`, clears `inviteToken` (single-use), and returns `{ agent, token }` like `agentSignin`.
+6. Bridge stores the JWT and redirects to `/inbox`.
 
 ## Known gaps
 

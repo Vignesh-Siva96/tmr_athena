@@ -6,7 +6,7 @@ interface AgentUser {
   email: string
   name: string
   avatarUrl: string | null
-  role: 'ADMIN' | 'AGENT'
+  role: 'ADMIN' | 'PRIMARY_AGENT' | 'SECONDARY_AGENT'
 }
 
 interface AuthContextValue {

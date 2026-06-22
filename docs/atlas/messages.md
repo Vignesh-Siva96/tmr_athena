@@ -162,6 +162,32 @@ The transaction then re-fetches the message with `include: { attachments: true }
 
 Same pattern as the portal. The Paperclip button in the Bridge reply toolbar clicks a hidden `<input type="file">`. Selected files are uploaded to `POST /api/v1/files/upload?ticketId={id}`, returned attachment IDs are held in `replyAttachments` state, and chips appear above the toolbar with an `×` button. On send, `attachmentIds` is included in the `POST /tickets/:id/messages` payload.
 
+## CC on agent replies (sticky participants)
+
+### Data model
+
+- `Message.cc String[] @default([])` — immutable snapshot of the CC list that was on the wire for that send. Rendered as `Cc: …` in the Bridge timeline under each reply header.
+- `TicketParticipant` — relational table indexed `[ticketId, email]` (unique). The live CC list for the ticket. Source can be `AGENT` (added/edited by an agent reply) or `INBOUND` (auto-added when a third party replies into the thread from email).
+
+### Add / remove flow
+
+1. Agent opens the Reply composer — a CC chip row auto-populates from `ticket.participants`.
+2. Agent adds/removes chips. On Send, the full intended list is sent as `dto.cc`.
+3. `MessagesService.create()` — within the same transaction as `message.create()`:
+   - Writes `cc: ccInput` onto the Message row (snapshot).
+   - Reconciles `TicketParticipant`: `deleteMany` participants no longer in the list, then `createMany({ skipDuplicates: true })` for new ones with `source=AGENT`.
+4. The primary customer's email is silently dropped from CC before storage (E1).
+5. `dto.cc` omitted (old client) → participants untouched (E13). `dto.cc: []` → all participants cleared.
+
+### Validation
+
+- Zod (DTO): email format, max 20, lowercase+trim+dedup.
+- Service: CC only allowed on agent REPLY (not INTERNAL_NOTE, not user-role callers).
+
+### Inbound auto-add
+
+When `ThreadIngestionService` processes a message whose `from:` address is not the ticket's primary customer and not a known alias/agent, it upserts a `TicketParticipant` with `source=INBOUND`. The sender is also attributed their own `User` row (per-message attribution) rather than the thread-level customer.
+
 ## Known gaps
 
 - Markdown toolbar in the portal reply composer is cosmetic — buttons don't insert markdown at cursor. Bridge composer uses `contentEditable` + `document.execCommand` (wired).

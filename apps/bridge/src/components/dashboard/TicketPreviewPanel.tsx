@@ -8,10 +8,10 @@ type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
 export type UserCategory = 'CUSTOMER' | 'MARKETING' | 'PROMOTIONAL'
 
-export const STATUS_CLS: Record<TicketStatus, string> = { NEW: 'd-new', OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-res', DISMISSED: 'd-res' }
+export const STATUS_CLS: Record<TicketStatus, string> = { NEW: 'd-new', OPEN: 'd-open', IN_PROGRESS: 'd-prog', WAITING: 'd-wait', RESOLVED: 'd-res', CLOSED: 'd-closed', DISMISSED: 'd-closed' }
 export const STATUS_LABEL: Record<TicketStatus, string> = { NEW: 'New', OPEN: 'Open', IN_PROGRESS: 'In Progress', WAITING: 'Waiting', RESOLVED: 'Resolved', CLOSED: 'Closed', DISMISSED: 'Dismissed' }
 export const CAT_LABEL: Record<TicketCategory, string> = { BUG_REPORT: 'Bug', FEATURE_REQUEST: 'Feature', QUESTION: 'Question', BILLING: 'Billing', OTHER: 'Other' }
-export const CAT_COLOR: Record<TicketCategory, string> = { BUG_REPORT: '#EF4444', FEATURE_REQUEST: '#3B82F6', QUESTION: '#22C55E', BILLING: '#F59E0B', OTHER: '#71717A' }
+export const CAT_COLOR: Record<TicketCategory, string> = { BUG_REPORT: '#E5484D', FEATURE_REQUEST: '#3B82F6', QUESTION: '#21A359', BILLING: '#D99B1C', OTHER: '#8C9099' }
 export const PRIO_LABEL: Record<TicketPriority, string> = { NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' }
 
 export const CAT_ICON: Record<TicketCategory, React.ReactNode> = {
@@ -24,10 +24,10 @@ export const CAT_ICON: Record<TicketCategory, React.ReactNode> = {
 
 export function CategoryPill({ category, size = 'sm' }: { category: TicketCategory; size?: 'sm' | 'xs' }) {
   const fontSize = size === 'xs' ? 10 : 11
-  const padding = size === 'xs' ? '1px 5px' : '1px 6px'
   return (
-    <span style={{ fontSize, fontWeight: 500, padding, borderRadius: 4, color: CAT_COLOR[category], background: `${CAT_COLOR[category]}20`, display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-      {CAT_ICON[category]}{CAT_LABEL[category]}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: CAT_COLOR[category], flexShrink: 0 }} />
+      <span style={{ fontSize, fontWeight: 500, color: CAT_COLOR[category] }}>{CAT_LABEL[category]}</span>
     </span>
   )
 }

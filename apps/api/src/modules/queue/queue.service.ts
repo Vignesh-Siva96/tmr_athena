@@ -15,6 +15,7 @@ import {
   EMAIL_SEND_VERIFICATION_QUEUE,
   EMAIL_SEND_PASSWORD_RESET_QUEUE,
   EMAIL_INGEST_THREAD_QUEUE,
+  FETCH_TMR_METADATA_QUEUE,
 } from './queue.module'
 
 export interface AnalyzeMessageJobData {
@@ -74,6 +75,10 @@ export type KbEmbedJobData = Record<string, never>
 export interface IngestThreadJobData {
   cfgId: string
   threadId: string
+}
+
+export interface FetchTmrMetadataJobData {
+  userId: string
 }
 
 /**
@@ -248,6 +253,14 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       retryDelay: 60,
       retryBackoff: true,
       singletonKey: `${data.cfgId}:${data.threadId}`,
+    })
+  }
+
+  async enqueueFetchTmrMetadata(data: FetchTmrMetadataJobData): Promise<void> {
+    await this.readyPromise
+    await this.boss.send(FETCH_TMR_METADATA_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 10,
     })
   }
 

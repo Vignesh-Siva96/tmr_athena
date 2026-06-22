@@ -287,6 +287,7 @@ export class EmailService implements OnModuleInit {
       const to = Array.isArray(mail.to) ? mail.to.join(', ') : String(mail.to ?? '')
       h['To'] = to
       if (mail.replyTo) h['Reply-To'] = String(mail.replyTo)
+      if (mail.cc) h['Cc'] = Array.isArray(mail.cc) ? mail.cc.join(', ') : String(mail.cc)
       return h
     }
 
@@ -300,10 +301,16 @@ export class EmailService implements OnModuleInit {
             ? mail.to.map((r) => addrStr(r as AddrLike))
             : addrStr(mail.to as AddrLike)
           : ''
+        const cc = mail.cc
+          ? Array.isArray(mail.cc)
+            ? mail.cc.map((r) => addrStr(r as AddrLike))
+            : addrStr(mail.cc as AddrLike)
+          : undefined
         capture.capture({
           ts: new Date().toISOString(),
           from: mail.from ? addrStr(mail.from as AddrLike) : undefined,
           to,
+          ...(cc !== undefined ? { cc } : {}),
           subject: mail.subject ? String(mail.subject) : undefined,
           text: typeof mail.text === 'string' ? mail.text : undefined,
           html: typeof mail.html === 'string' ? mail.html : undefined,
@@ -472,6 +479,7 @@ export class EmailService implements OnModuleInit {
       `— ${appConfig.appName} Support Team`,
     ]
 
+    const msgCc = (message as MessageWithAgent & { cc?: string[] }).cc
     const result = await this.send(
       {
         from: this.getFromAddress(appConfig),
@@ -482,6 +490,7 @@ export class EmailService implements OnModuleInit {
         inReplyTo,
         references,
         text: bodyLines.join('\n'),
+        ...(msgCc?.length ? { cc: msgCc } : {}),
       },
       appConfig,
       gmailThreadId,

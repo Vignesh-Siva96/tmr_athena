@@ -71,6 +71,7 @@ ngrok http 3001
 | **`worldgraph/pnpm-workspace.yaml` with `packages: ["viewer"]`** | Without it, `cd worldgraph && pnpm install` was absorbed into the root pnpm workspace (no isolated `node_modules`/lockfile). This file makes `worldgraph/` its own pnpm workspace root, isolating its deps (and `viewer/`'s) from the monorepo's `pnpm-lock.yaml` entirely. (2026-06-15) |
 | **Single shared SSRF guard** — `apps/api/src/common/net/assert-public-url.ts` (`assertPublicUrl` + `fetchPublic` + `readBodyCapped`) | Three server-side `fetch()`s of admin/config-supplied URLs (`config.service.extractBrand`, KB crawler `fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod`) had no protection against internal targets (loopback, link-local incl. `169.254.169.254`, RFC1918 ranges, `localhost`), non-`http(s)` schemes, redirect chains, or oversized bodies. One module now: resolves the hostname via DNS at call time (covers DNS-rebinding), rejects private/loopback/link-local ranges + non-public schemes (`http` allowed only outside `production`), and `fetchPublic` re-validates every redirect hop (capped at 3) and caps response bytes (5 MB) via `readBodyCapped`. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.2) |
 | **Portal reply ack to customer, not self-addressed mirror** — `sendPortalReplyAck` replaces `sendPortalReplyCopy` | Self-addressed mirrors were awkward: the customer's portal message was quoted back at them in a later agent reply, and the mirror only landed in the support inbox. A direct "Received your response" ack To the customer puts the portal message in the thread on both sides cleanly. Agent/bot reply emails also drop all quoted history — the thread is in the email client's native chain. (2026-06-16) |
+| **Dropdown `value` is a frozen key; UI resolves `value → label` everywhere** (`apps/bridge/src/lib/useFieldConfig.ts`) | `Ticket.field1/field2` and analytics `groupBy` key on the option `value`, never the label. The ticket sidebar + both analytics dashboards were showing the raw value (e.g. `google-sheets`); they now resolve to the configured label via the shared `useFieldConfig`/`labelForValue`. Branding form derives `value` from the label (`slugify`) for **new** options only and freezes persisted keys, so a label rename is cosmetic + retroactive (no migration). Considered collapsing to labels-only — rejected: renaming would orphan existing tickets. Deleting an in-use option is gated by `GET /config/field-usage` (admin) counts. (2026-06-22) |
 | **IMAP IDLE client** replaces smtp-server inbound listener              | `ImapClientService` reads from org's existing inbox via IMAP IDLE, no MX changes needed                                           |
 | **VERP signed reply tokens** for threading                              | `reply+<emailThreadId>.<hmac8>@<domain>` — signed with AES-256-GCM key from `EMAIL_CREDS_KEY` env                                 |
 | **IMAP/SMTP creds stored encrypted in AppConfig**                       | AES-256-GCM via `credentials-cipher.ts`; never returned plain on GET; password-set boolean returned instead                        |
@@ -87,6 +88,7 @@ ngrok http 3001
 | **`NEXT_PUBLIC_*` vars loaded via dotenv in next.config.ts**            | Next.js only reads `.env` from its own project dir; monorepo root `.env` loaded explicitly via dotenv in both apps                 |
 | **Light/dark theme via `data-theme` attribute on `<html>`**             | CSS variables override on `html[data-theme="light"]`; dark is default and completely unaffected; preference stored in localStorage |
 | **GitHub OAuth callback at `/settings/github/callback`**                | Must be registered as Authorization callback URL in GitHub OAuth App settings                                                      |
+| **Logging: winston `WinstonLogger` → daily-rotate file + GCP Cloud Logging** (replaced hand-rolled `FileLogger`) | Wired as the Nest app logger in `main.ts`; mirrors `tmr_data_service/src/configs/logger.ts`. **No console transport** — output goes only to `apps/api/logs/app-YYYY-MM-DD.log` (preserving the exact `{ts,level,context,msg}` shape the CLAUDE.md `jq` debugging command parses) and to GCP. GCP creds via `GOOGLE_CLOUD_CREDENTIALS_PATH` keyFile (always-on but **non-fatal** — a missing/invalid key file logs to stderr via `defaultCallback` and never crashes the app). 256KB protobuf cap handled by porting `log-truncation.ts` + a `reduceLogInfoSize` guard. Keeps NestJS `ConsoleLogger` signatures so all 36 `new Logger(ctx)` call sites are unchanged. (2026-06-22) |
 | **Gemini 2.0 Flash for all AI operations**                              | Cheap ($0.075/$0.30 per 1M tokens) + fast for classification; no guardrails in Phase 1 — observe-only; see `docs/atlas/ai.md`     |
 | **AI analytics observe-only (no budget caps)**                          | Per user decision: visibility first, controls later once real spend numbers are known                                               |
 | **`firstResolvedAt` is immutable — set once, never overwritten**        | Preserves original resolution time even if ticket is reopened and resolved again                                                    |
@@ -97,6 +99,7 @@ ngrok http 3001
 | **Tags: fixed color palette (8 colors), any agent manages, agent-only** | Tags are agent-facing productivity — no Portal exposure. Fixed palette keeps UI consistent; no admin gate needed since tags have no security sensitivity. `tags_changed` SYSTEM_EVENT is `isInternal:true` so portal `isInternal=false` filter already hides it. (2026-06-19) |
 | **Tags: `Tag.orgId` drift fixed by migration `20260619000000_tag_drop_orgid`** | Initial migration created `orgId NOT NULL` + `(orgId,name)` unique index; schema.prisma was already single-tenant (no orgId) but no reconciliation migration was ever added. Inserts would fail at runtime. Fixed by dropping the column and creating `Tag_name_key`. (2026-06-19) |
 | **Canned responses: one shared library, any agent, HTML body, no variables** | Shared library avoids per-agent clutter. HTML stored as-is (authored by trusted agents, inserted into agent composer only — never sent to Portal). No variable placeholders in v1 (adds complexity; defer). (2026-06-19) |
+| **Bridge uses a `(dashboard)` route-group layout for the persistent sidebar; pages render content only** | Every dashboard page used to render the whole shell itself (`<div flex><DashboardSidebar/><main/></div>`), so sibling navigations (e.g. Inbox→Analytics) tore down and remounted the sidebar and held the old page painted until the new client page fetched its data — visible flicker + repeated `/tickets/stats`, `/github/status`, `/config` fetches. A `(dashboard)/layout.tsx` now renders the sidebar + outer flex once; pages and `loading.tsx` files render only the `<main>` content slot. Route groups don't change URLs. (2026-06-20) |
 | **Canned responses: slash command `/name` in composer (not a separate button)** | Slash command is minimal UI surface, discoverable without cluttering the toolbar, and works for both reply and note tabs. Picker positioned near caret via Selection/getBoundingClientRect. (2026-06-19) |
 | **CSAT survey is its own toggle** (`featCsatSurvey`)                    | Separate from `featAiAnalysis` — operators may want AI classification running but no survey emails, e.g. during incident windows. Five individual flags total. (2026-06-14) |
 | **Bridge renders `bodyHtml` preferentially** (parity with Portal); quoted HTML history collapsed via `splitQuotedHtml()` (`div.gmail_quote` / `blockquote[type=cite]` detection) | Customer/agent replies in Bridge only rendered the plain-text `body`, so Gmail signatures/tables/images were lost. Worse, `isHtmlBody()`'s any-tag regex misdetected Gmail plain-text autolinks (`<https://…>`) as HTML, pushing the body through `dangerouslySetInnerHTML` and flattening it onto one line. `isHtmlBody()` now matches a known-tag allowlist. (2026-06-10, plan `when-a-email-received-soft-abelson`, R199/R200) |
@@ -192,6 +195,7 @@ ngrok http 3001
 | **SSO replay protection via `SsoUsedToken` table** | Single-column table keyed on `jti` (primary key). A direct `create()` followed by catching `P2002` (Prisma unique constraint violation) detects replays without a TOCTOU race. Row TTL cleanup (cron delete past `expiresAt`) deferred to v2. (2026-06-17) |
 | **SSO `externalId` lookup order: externalId → email (backfill) → create** | Prevents duplicate accounts when a user first signed up via portal (no externalId) and later arrives via SSO. On email-only match, `externalId` is backfilled so subsequent SSO logins hit the fast path. (2026-06-17) |
 | **AI/analysis features gated on `isTicket=true`; sentiment was leaking onto NEW conversations** | `ThreadIngestionService` enqueued `ai:analyze-message` for every inbound email regardless of `isTicket`. Raw `NEW` conversations and `DISMISSED` rows now receive no AI processing. Guards at every enqueue point (`ThreadIngestionService`, `MessagesService`, `TicketsService`) plus defense-in-depth inside the workers (`AnalyzeMessageWorker`, `ClassifyTicketWorker`). On `convert()`, prior unanalyzed customer messages are retroactively queued for sentiment (idempotent). Customer-intelligence analytics (`CustomersService`) scoped to `isTicket=true` across all queries. (2026-06-18, plan `great-one-thing-these-hazy-seahorse`) |
+| **Brand accent switched blue→orange `#FF6700` dashboard-wide; inbox hierarchy redesign** | All `--d-accent`/`--d-accent-hv`/`--d-accent-bg` tokens updated to orange in both dark `:root` and light override. Full `--d-*` token palette tuned to spec. Status/category pills restyled to alpha-tint approach (works in both themes — light overrides collapsed). Inbox rows restructured to 4-column grid (gutter + avatar + content + meta). Group header promoted to dominant banner with `--d-raised-2` background and `--d-headline` divider. `CategoryPill` changed from filled chip to colored dot+label globally. `CLOSED`/`DISMISSED` statuses map to new `.d-closed` pill class. Nav rail gets `--d-rail` surface. Pure visual change — no data/API/logic changes. (2026-06-20, plan `okay-i-made-a-sprightly-kazoo`) |
 
 ---
 
@@ -224,6 +228,92 @@ read the atlas. If you want to know how it got that way, read this.
 ---
 
 ## Session Log
+
+### 2026-06-22 — Ticket dropdown label/value resolution + sidebar consistency
+
+- **Right-sidebar fields fixed.** The ticket detail right bar showed hardcoded `Field 1`/`Field 2`
+  labels and the raw stored values (e.g. `google-sheets`, `ls`). It now uses the configured
+  `field1Label`/`field2Label` and resolves each value to its option label, matching the portal.
+- **Tags moved to the right bar** for UI consistency (out of the thread header, into a dedicated
+  "TAGS" sidebar section). Fixed the TMR Product widget being clipped — it had `overflow:hidden`,
+  so flexbox shrank it below content height once the sidebar grew; added `flexShrink:0`.
+- **Shared `useFieldConfig.ts`** (hook + `labelForValue`) now backs the ticket sidebar and both
+  analytics dashboards (operations field1/field2 cards + customer-intelligence friction chart),
+  which previously rendered raw values and hardcoded "field 1/2" titles.
+- **Branding form reworked.** Removed the free-text `value` input; `value` is now derived from the
+  label via `slugify` for new options and **frozen** for persisted ones (label edits never re-key).
+  Each option shows its `key:` + ticket count; deleting an in-use option is gated by a confirmation
+  modal backed by the new admin endpoint `GET /config/field-usage` (per-value non-deleted counts).
+- Tests: `config.spec › R254` (2 cases, field-usage endpoint + auth boundary); extended `makeTicket`
+  factory with `field1/field2/deletedAt`. Atlas (settings/analytics) + worldgraph + `_generated/`
+  refreshed.
+
+### 2026-06-21 — Pre-deployment full-regression QA checklist
+
+- **Manual-QA catalog expanded for whole-app coverage.** The catalog had drifted behind recent
+  work (tags, canned responses, SSO, TMR panel, GitHub action-needed queue, domain view, portal
+  password-reset/email-verify) and was thin on edge cases. Added 8 new features
+  (`tags-setup`, `canned-setup`, `sso-setup`, `portal-recovery`, `domain-view`, `tmr-data`,
+  `github-actions`) and appended scenarios to existing ones. `tests/manual/_catalog/catalog.json`
+  now: **27 features · 175 cases** (was 20 features · 72 cases), still user-facing-only, unique ids,
+  journey/phase order preserved.
+- **Generated the final pre-deploy report.** `pnpm qa:new "Pre-Deployment Full Regression"
+  --features all` → `tests/manual/reports/2026-06-21_pre-deployment-full-regression/` (all 175 cases
+  seeded). Added a companion `TESTING-PLAN.md` (time estimate ≈ 12h focused / ~15–16h wall-clock,
+  per-phase breakdown, suggested session split, pre-flight checklist).
+- No app code changed — docs/test-asset only.
+
+### 2026-06-21 — Merge Shifts into Agent settings + fix stale `AgentRole` taxonomy
+
+- **Shifts UI merged into Agents settings.** Shifts management was a standalone page
+  (`/settings/shifts`) reachable only via a separate Calendar rail icon. Extracted its body into
+  `apps/bridge/src/app/(dashboard)/settings/agents/ShiftsSection.tsx` and render it at the bottom of
+  the Agents settings page (next to the AI first-responder fallback agent it routes to). The standalone
+  `/settings/shifts/page.tsx` is now a `redirect('/settings/agents')` for back-compat; the Calendar rail
+  icon (and its unused `lucide-react` import) was removed from `Sidebar.tsx`, and the Settings rail
+  active-state logic simplified (no longer special-cases `/settings/shifts`).
+- **Bug found + fixed (R249).** The schema's `AgentRole` enum is `ADMIN | PRIMARY_AGENT | SECONDARY_AGENT`
+  (the `AGENT → PRIMARY_AGENT` rename was made in the bot session and documented in `docs/atlas/bot.md`),
+  but `agents.dto.ts` and the entire Agents UI were never updated — they still used a non-existent `AGENT`
+  role. Inviting/role-changing sent `'AGENT'`, cast `as AgentRole`, which **Prisma rejected at the DB**, so
+  no new agent could be created through the UI. Because the Shifts agent picker filters for
+  `PRIMARY_AGENT`/`ADMIN`, this silently meant only seeded agents were ever schedulable. Fixed the zod
+  enums (`inviteAgentSchema`, `updateAgentSchema`), the Agents page role types/selects (now Admin / Primary
+  agent / Secondary agent with friendly labels), and the `role` types in `lib/auth.tsx` + `auth/page.tsx`.
+- **Shifts backend verified working** end-to-end: `ShiftResolverService.currentPrimaryAgent` correctly
+  resolves day/time windows (incl. overnight wrap), round-robins on `lastAssignedAt`, then falls back to
+  `botFallbackAgentId` → first active `PRIMARY_AGENT` → first active `ADMIN`. No backend behavior change.
+- **Tests.** Added `agents-shifts.spec › R249` (invite with `PRIMARY_AGENT` persists that role; invalid
+  `AGENT` role → 400) and the catalogue row; fixed a stale `role: 'AGENT'` literal in the R149 test. Full
+  `agents-shifts` suite green (11/11). `type-check` clean for `@tmr/bridge` and `@tmr/api`.
+- **Docs.** Updated `docs/atlas/bot.md` (Settings UI table, Shifts description, key-files table). No new
+  endpoint/module/Prisma model, so `atlas:gen` not required; worldgraph bot node dossier touched below.
+
+### 2026-06-20 — Bridge shared `(dashboard)` route-group layout (sidebar persistence / navigation flicker fix)
+
+- **Bug fixed.** Navigating between top-level Bridge pages (e.g. Inbox → Analytics) left the *previous*
+  page's content lingering in the center until the new page finished fetching; on cached repeat visits
+  no skeleton showed at all. Root cause: every page was a `'use client'` component rendering the entire
+  shell itself (`<div flex><DashboardSidebar/><main/></div>`), with no shared layout segment between
+  siblings. Each sibling swap remounted the sidebar (re-fetching its stats) and React held the old tree
+  painted until the new client page committed and *then* fetched its data in `useEffect` (so `loading.tsx`
+  never fired on cached visits — nothing suspended).
+- **Fix.** Introduced `apps/bridge/src/app/(dashboard)/layout.tsx` — renders `<DashboardSidebar />` +
+  the outer flex container once, slots `{children}`. Moved `inbox/`, `tickets/`, `customers/`, `github/`,
+  `analytics/`, `settings/` into the `(dashboard)` route group (parenthesized → **URLs unchanged**).
+  `auth/`, root `layout.tsx`, root `page.tsx` stay at top level (no shell).
+- **Pages stripped to content-only.** Each moved page dropped its `import { DashboardSidebar }` and outer
+  `<div flex><DashboardSidebar/>…</div>` wrapper, now returning just its `<main>` (or a fragment where it
+  had sibling panels: `customers/page.tsx` → `CustomerProfilePanel`; `tickets/[id]/page.tsx` → `<main>` +
+  `<aside>` + `CustomerProfilePanel`, across all three return branches). `settings/layout.tsx` dropped its
+  own sidebar+flex and now returns just the inner `<div flex>{nav}{main}</div>`.
+- **Loading files.** The four `loading.tsx` (inbox/analytics/customers/github) rewritten content-only
+  (no sidebar/flex); `settings/loading.tsx` was already content-only. Added a generic
+  `(dashboard)/loading.tsx` fallback for `tickets/` (no loading file before).
+- **Verified.** `pnpm --filter @tmr/bridge build` (clean, all 25 routes at unchanged URLs) +
+  `type-check` pass. Frontend-only structural refactor — no API/module/route/schema change, so
+  `atlas:gen`, worldgraph, and integration/e2e suites are **not** triggered (no atlas page documents
+  the Bridge dashboard shell).
 
 ### 2026-06-15 — Worldgraph (AI-maintained app map + zoomable/storyboard viewer)
 
@@ -2556,3 +2646,255 @@ Implemented a generic host-app → portal single-sign-on handoff using HMAC HS25
 - `worldgraph/atlas.world.json` — `module:TagsModule`, `module:CannedResponsesModule`, `entity:Tag`, `entity:CannedResponse` nodes added; `pnpm worldgraph:check` passes (109 nodes).
 - `pnpm atlas:gen` run — 27 modules, 95 routes, 23 models confirmed.
 - `pnpm type-check` (api, bridge, portal) — all pass with no errors.
+
+---
+
+## Session — 2026-06-20 (Plan okay-i-made-a-sprightly-kazoo: Grouped Inbox Redesign — Premium Light + Dark)
+
+**Pure visual redesign of the Bridge agent dashboard. No data wiring, API calls, schema, or logic changes.**
+
+### What changed
+
+**`apps/bridge/src/globals.css`**
+- `--d-*` token palette tuned to spec (bg, surface, raised-2, border, text, text-2/3/4).
+- Accent switched blue → orange `#FF6700` (`--d-accent`, `--d-accent-hv`, `--d-accent-bg`) in both dark `:root` and light override.
+- Four new tokens added to both themes: `--d-headline` (group header divider), `--d-unread` (unread row tint), `--d-chip` (ticket-id mono chip bg), `--d-rail` (nav rail surface).
+- Status pill restyle: alpha-tint approach (color + `rgba(…, 0.13)` bg) works in both themes — all light-theme pill overrides collapsed/removed.
+- New `.d-closed` pill class (`#7E8590`); `.d-urgent` updated to danger red.
+- `.tnum` helper class (`font-variant-numeric: tabular-nums`).
+- `[data-inbox-row]:focus-visible` outline rule.
+
+**`apps/bridge/src/components/dashboard/TicketPreviewPanel.tsx`**
+- `CAT_COLOR`: spec-aligned hex values for all five categories.
+- `STATUS_CLS`: `CLOSED`/`DISMISSED` now map to `'d-closed'` (was `'d-res'`).
+- `CategoryPill`: refactored from filled chip (icon + label) to colored dot + label. `CAT_ICON` export retained.
+
+**`apps/bridge/src/app/tickets/[id]/page.tsx`**
+- Local `STATUS_CLS` updated to match: `CLOSED`/`DISMISSED` → `'d-closed'`.
+
+**`apps/bridge/src/app/inbox/page.tsx`**
+- `ChevronRight` removed from import (no longer used).
+- Header: title 22px / `-0.022em` tracking; `.tnum` on total count.
+- `DomainFavicon`: `borderRadius: '50%'` → `10` (square-ish tile).
+- Group card: `borderRadius: 12 → 14`.
+- Group header banner: `background: var(--d-raised-2)`, padding `15px 18px`, `--d-headline` bottom divider when expanded. Chevron moved to **left** (rotates `0°` expanded / `-90°` collapsed, `transform 150ms cubic-bezier(.2,0,0,1)`). Right side: "N new" orange accent pill + timestamp. Domain name 16px / 600 / `-0.014em`.
+- Conversation rows: 4-column CSS grid `14px 38px 1fr auto`, `columnGap: 13`, `padding: 13px 18px`. Gutter col = accent dot when unread. Avatar 38px (was 28px). Line 1 = title (14px, 600 unread/500 read, `-0.008em`) + `CategoryPill` + tags. Line 2 = sender email · ticket# chip (`var(--d-chip)`, mono, `.tnum`) + `UserCategoryBadge`. Meta column stacked: timestamp top, status pill + assignee avatar bottom. Unread rows tinted `var(--d-unread)`; hover → `var(--d-raised-2)`. Keyboard accessible: `tabIndex=0`, `role=button`, `onKeyDown` Enter/Space, `data-inbox-row` attribute.
+- Skeleton: `borderRadius: 14`.
+- Footer: `.tnum` on "Showing X of Y".
+
+**`apps/bridge/src/components/dashboard/Sidebar.tsx`**
+- Rail `<div>` gets `background: var(--d-rail)` (dark in both themes).
+- `RailBtn` active background: `rgba(59,130,246,0.14)` → `var(--d-accent-bg)`.
+- Panel link active backgrounds: `rgba(59,130,246,0.1)` → `var(--d-accent-bg)`.
+
+### Docs / tests
+- No new endpoints, modules, models, or data flows — no atlas/worldgraph regen needed.
+- No tests added (pure visual; existing `data-testid` attributes and test selectors preserved).
+- `pnpm --filter @tmr/bridge type-check` — passes with no errors.
+
+## Session — 2026-06-21 (Plan in-this-application-in-vivid-narwhal: CC support for agent replies)
+
+### What changed
+
+**CC on agent replies (sticky participants)**
+
+Full end-to-end implementation of CC support across 8 layers.
+
+**Schema (`packages/db/prisma/schema.prisma`)**
+- Added `TicketParticipant` model with `[ticketId, email]` unique key, `source: ParticipantSource` (AGENT | INBOUND), and optional `addedByAgentId` FK.
+- Added `cc String[] @default([])` to `Message`.
+- Added `participants TicketParticipant[]` relation to `Ticket` and inverse `addedParticipants` on `Agent`.
+- Migration file: `20260621000000_cc_participants/migration.sql` (additive, no data loss, no backfill).
+
+**API — messages (`apps/api/src/modules/messages/`)**
+- `messages.dto.ts`: added `cc` field (email array, max 20, lowercase+trim+dedup via zod).
+- `messages.service.ts`: CC guard (agent-only, REPLY-only), customer-email drop, message.cc snapshot, and `TicketParticipant` reconcile inside the same transaction. Omitted `cc` → participants untouched (E13).
+
+**API — email (`apps/api/src/modules/email/email.service.ts`)**
+- `sendAgentReply`: passes `message.cc` as `cc:` to nodemailer. TO-only for confirmation/ack/escalation (D5).
+- `makeCapturingTransport`: records `Cc` header and top-level `cc` on `CapturedMail`.
+- `CapturedMail` + `tests/e2e/fixtures/mail.ts`: added optional `cc` field.
+
+**API — inbound ingestion (`apps/api/src/modules/email-sync/thread-ingestion.service.ts`)**
+- Added `resolveSenderUser()` private helper (P2002-safe upsert).
+- Per-message attribution: each message's `from:` address resolves to its own User row (`authorUserId`).
+- Auto-add INBOUND participants: non-agent, non-primary-customer senders are upserted into `TicketParticipant` with `source=INBOUND`.
+
+**API — tickets (`apps/api/src/modules/tickets/tickets.service.ts`)**
+- `TICKET_DETAIL_INCLUDE`: added `participants: { id, email, name, source }`.
+
+**Bridge frontend**
+- `Message`/`TicketDetail` interfaces: added `cc` and `participants`.
+- `ccList` / `ccInput` state; sticky init from `ticket.participants` on ticket identity change.
+- CC chip editor row in compose header (reply only); add on Enter/comma/blur, remove with ×.
+- `sendMessage` sends `payload.cc = ccList` on replies; syncs `ccList` from `res.message.cc` after send.
+- `MessageCard`: added `cc` prop; renders `cc: …` in REPLY header for agent messages with a CC list.
+
+**Tests**
+- Unit: `tests/unit/api/messages-dto-cc.spec.ts` (8 tests), `tests/unit/api/email-agent-reply-cc.spec.ts` (3 tests).
+- Integration: `tests/integration/messages.spec.ts` extended with R126–R131 (CC persist, sticky, customer-drop, internal-note reject, user-role reject, cap at 20).
+- Regression catalogue: R241–R247.
+
+**Docs**
+- `docs/atlas/email.md`: CC on agent replies, inbound attribution, TO-only policy.
+- `docs/atlas/messages.md`: new CC section (data model, add/remove flow, validation, inbound auto-add).
+- `docs/atlas/tickets.md`: `TicketParticipant` description and link.
+- `docs/atlas/_generated/`: regenerated (`pnpm atlas:gen`).
+- `worldgraph/atlas.world.json`: added `entity:TicketParticipant` node, updated `entity:Ticket` and `feature:messages` connects. Validates OK (110 nodes, 7 journeys).
+
+### Key decisions
+
+| Decision | Why |
+|---|---|
+| D1 — `TicketParticipant` relational table (not JSON array on Ticket) | Free dedup via `[ticketId, email]` unique key, idempotent inbound upsert, per-row audit (`source`, `addedByAgentId`) |
+| D2 — `cc String[]` snapshot on `Message` | Immutable audit of what was on the wire; timeline renders `message.cc`; composer renders `ticket.participants` |
+| D3 — Participant table = source of truth; DTO carries full edited list; worker reads snapshot | Deterministic send even if participants change between enqueue and delivery; queue payload unchanged |
+| D4 — Validation split: zod (shape/format/cap/dedup) in DTO; context rules (agent-only, REPLY-only, drop customer) in service | Each layer validates what it can see |
+| D5 — Confirmation / portal-ack / escalation stay TO-only | These flows must not blast an agent-curated CC list; preserves existing heavily-tested paths |
+
+---
+
+## Session — 2026-06-21 (TMR Product Metadata)
+
+### What changed
+
+**Prisma**
+- Added `tmrUserId String?`, `tmrMetadata Json?`, `tmrMetadataStatus TmrSyncStatus @default(PENDING)`, `tmrMetadataAt DateTime?` to `User` model.
+- Added `TmrSyncStatus` enum (`PENDING`, `OK`, `NOT_FOUND`, `ERROR`).
+- Migration: `packages/db/prisma/migrations/20260621000001_add_tmr_metadata/`.
+
+**New module: `apps/api/src/modules/tmr-data/`**
+- `tmr-data.types.ts` — `TmrMetadata` / `TmrAccountSummary` / `TmrTeamSummary` types + exported `reduceTmrDetails()` pure function.
+- `tmr-data.service.ts` — `TmrDataService.syncUser(userId)`: resolves email via fuzzy search, fetches details, reduces to compact summary, persists to DB. Fails silently (logs + sets ERROR).
+- `fetch-tmr-metadata.worker.ts` — pg-boss worker for `FETCH_TMR_METADATA_QUEUE`.
+- `tmr-data.module.ts` — exports `TmrDataService`; registered in `app.module.ts`.
+
+**Queue**
+- Added `FETCH_TMR_METADATA_QUEUE = 'tmr:fetch-metadata'` constant.
+- Added `FetchTmrMetadataJobData { userId }` interface.
+- Added `QueueService.enqueueFetchTmrMetadata()` (retryLimit: 3, retryDelay: 10).
+
+**Enqueue hooks (fire-and-forget)**
+- `tickets.service.ts`: after `activateTicket()` → `enqueueFetchTmrMetadata({ userId: caller.id }).catch(() => {})`.
+- `thread-ingestion.service.ts`: after AI analysis enqueue → gated by `!isBackfill && wasCreated && !firstMsgIsBulk`.
+
+**Users API**
+- `GET /users/:id`: now includes `tmrMetadata`, `tmrMetadataStatus`, `tmrMetadataAt` in response.
+- `POST /users/:id/tmr-metadata/refresh` → 202 Accepted + enqueues sync job (agent-auth protected).
+
+**Bridge UI**
+- New `TmrProductSection.tsx` component with `panel` (full CustomerProfilePanel section) and `compact` (ticket sidebar widget) variants. All 4 sync states handled: PENDING shimmer, OK data, NOT_FOUND empty state, ERROR retry state. Theme-safe (`var(--d-*)` tokens only).
+- `CustomerProfilePanel.tsx`: extended to include TMR fields in ProfileData; added lazy-sync on first open (`PENDING` → POST refresh → poll after 3s); `TmrProductSection variant="panel"` inserted before Internal Notes.
+- Ticket `[id]/page.tsx`: added `userTmr` state fetched from `GET /users/:id`; lazy sync on first open; `TmrProductSection variant="compact"` in right sidebar (hidden for NOT_FOUND); "view more details →" opens CustomerProfilePanel.
+
+**Tests**
+- Unit: `tests/unit/api/tmr-data-reduce.spec.ts` (10 tests, R220–R222).
+- Integration: `tests/integration/tmr-data.spec.ts` (R223–R232).
+- Regression catalogue: R248 (bulk/backfill must never trigger tmr_data_service call).
+
+**Docs**
+- `docs/atlas/tmr-data.md`: new feature page.
+- `docs/atlas/_generated/`: regenerated (`pnpm atlas:gen`).
+- `worldgraph/atlas.world.json`: added `module:TmrDataModule` + `feature:tmr-data` nodes. Validates OK (112 nodes, 7 journeys).
+- `.env.example`: added `TMR_DATA_SERVICE_BASE_URL/API_KEY/API_KEY_HEADER`.
+
+### Key decisions
+
+| Decision | Why |
+|---|---|
+| D1 — Cache on `User` row (not a new table) | Mirrors existing `category`/`emailStatus` pattern; no join needed when fetching profile |
+| D2 — `TmrSyncStatus` enum on `User` | Stateless single-field sync lifecycle; clear distinction between never-tried (PENDING), missing (NOT_FOUND), and broken (ERROR) |
+| D3 — Auth via env vars (base URL + key header) | No AppConfig dependency; safe to leave blank (PENDING no-op); operator-configurable header name |
+| D4 — Backfill excluded, lazy sync on first open | Avoids bombarding the external service during backfill; PENDING users sync naturally when an agent opens their profile |
+| D5 — Bulk/promotional senders excluded | TMR product users are never bulk senders; avoids pointless calls on newsletters |
+| D6 — Silent failure everywhere | External service outages must never abort ticket creation or email ingestion |
+
+---
+
+## Session Log — 2026-06-21 (plan: i-have-completed-51-vectorized-dolphin)
+
+**Pre-deployment QA fix sprint — 12 issues from manual regression QA**
+
+### What changed
+
+**A — Knowledge Base**
+- A1: Fixed `KnowledgeChunk.id` UUID cast bug in `indexer.service.ts`: changed `::uuid` → `::text` in the batched `UPDATE … FROM (VALUES …)` SQL — IDs are cuid() text, not uuid type.
+- A2: KB scan now sets `kbPhase = 'FAILED'` (with a user-readable error) when scan returns 0 chunks, instead of advancing to `AWAITING_CONFIRM` on an unreachable URL. Applied in both `crawl-and-index.worker.ts` (background scan) and `knowledge-base.controller.ts` (manual re-scan).
+
+**B — Agent invite accept flow (end-to-end)**
+- B1: `agents.service.ts` — `invite()` now fires `emailService.sendAgentInvite()` after upsert; `AgentsModule` imports `EmailModule` + `AppConfigModule`.
+- B2: `auth.service.ts` — new `acceptAgentInvite()` method; `auth.dto.ts` — `acceptInviteSchema` (Zod, token + password ≥8 with number + special char); `auth.controller.ts` — `POST /auth/agent/accept-invite` endpoint.
+- B3: New page `apps/bridge/src/app/auth/accept-invite/page.tsx` — reads `?token=`, shows live password requirements checklist, POSTs accept-invite, signs in on success, redirects to `/inbox`.
+
+**C — Settings fixes**
+- C1: Portal submit page (`apps/portal/src/app/submit/page.tsx`) now renders `appConfig.portalTagline` under the hero heading.
+- C2: Timezone input in `ShiftsSection.tsx` now has debounced auto-save (500ms) with "Saving…"/"Saved ✓" feedback states.
+
+**D — Email archive progress bar fix**
+- Fixed `useBackfillStatus.ts`: added `pollRef` + `mountedRef`; `refresh()` now resumes the self-scheduling poll loop (was calling a dead one-shot closure); SSE handler seeds state from `null` to unblock subsequent polls.
+
+**E — Canned responses form**
+- E1: `RichEditor` receives stable `initialHtml` prop (not live `body` state) to prevent re-mount on every keystroke.
+- E2: Link dialog moved inside `RichEditor`; uses `PromptDialog`; captures/restores selection via `savedRangeRef`.
+- E3: Save button disabled when name or body is empty.
+- E4: Toggle button shows correct icon (Plus/X) matching open/closed state.
+
+**F — Reusable modal components**
+- New `apps/bridge/src/components/ui/Dialog.tsx` — `ConfirmDialog` (with danger variant) and `PromptDialog`.
+- Updated `settings/tags/page.tsx` to use `ConfirmDialog` instead of `window.confirm`.
+
+**G — Portal signup validation**
+- G1: Create account button disabled until form is valid (was always enabled until submit).
+- G2: Confirm-password error shown live as user types the password field (not just on confirm-password touch).
+
+**H — Verify-email cross-tab sync**
+- `apps/portal/src/lib/auth.tsx` — `window.storage` event listener calls `rehydrate()` when `tmr_portal_token` or `tmr_portal_user` changes in another tab, so the verify-email page auto-advances when the user verifies in a different tab.
+
+### Tests
+- Integration tests added for B (R196/R197/R198) in `tests/integration/auth.spec.ts`.
+- Regression catalogue: R250 (KB uuid cast), R251 (KB 0-pages FAILED), R252 (accept-invite endpoint).
+
+### Docs
+- `docs/atlas/auth.md`: added accept-invite node to diagram + "Agent invite accept flow" section.
+- `docs/atlas/_generated/`: regenerated (`pnpm atlas:gen`, 97 routes).
+- `worldgraph/atlas.world.json`: updated Auth node (accept-invite page, keyFiles, summary) + KB node (A2 FAILED behavior). Validates OK (112 nodes, 7 journeys).
+
+### Key decisions
+
+| Decision | Why |
+|---|---|
+| D1 — `::text` cast for KnowledgeChunk.id | cuid() IDs are text, not uuid; Postgres rejects `::uuid` cast on cuid strings |
+| D2 — accept-invite page in Bridge `/auth/` route group | Outside `(dashboard)` layout so unauthenticated agents can reach it without redirect |
+| D3 — Link dialog inside RichEditor (not CannedForm) | RichEditor owns the contentEditable ref; moving the dialog in eliminates the "ref not connected" bug |
+| D4 — `pollRef` pattern in useBackfillStatus | setTimeout-based self-scheduling loops capture stale closures; ref allows refresh() to call the live poll |
+
+## Session — 2026-06-22 (Cloud logging — winston + GCP Cloud Logging)
+
+Added GCP Cloud Logging to `apps/api`, mirroring `tmr_data_service/src/configs/logger.ts`. Replaced the hand-rolled `FileLogger` (`apps/api/src/common/logger/file-logger.ts`, deleted) with a winston-backed `WinstonLogger`.
+
+### What changed
+- **Deps** (`apps/api/package.json`): `winston ^3.19`, `@google-cloud/logging-winston ^6.0`, `winston-daily-rotate-file ^5.0`.
+- **`apps/api/src/common/logger/logger.service.ts`** (new) — `WinstonLogger implements NestJS LoggerService`. Single shared winston logger with **two transports, no Console**:
+  - `DailyRotateFile` → `apps/api/logs/app-%DATE%.log`, `7d` retention, custom format emitting exactly `{ts,level,context,msg}` (NestJS-style level labels, `info→LOG`) so the CLAUDE.md `tail -f | jq` debugging workflow is unchanged.
+  - `LoggingWinston` (GCP) → keyFile creds, `maxEntrySize 250000`, gRPC keepalive, **non-fatal `defaultCallback`** (missing key file logs to stderr, app keeps running).
+  - Keeps NestJS `ConsoleLogger` call signatures → all 36 `new Logger(ctx)` call sites unchanged.
+- **`apps/api/src/common/logger/log-truncation.ts`** (new) — ported verbatim from the reference; `reduceLogInfoSize` shrinks oversized payloads under GCP's 256KB protobuf cap before send.
+- **`main.ts`** — swapped `FileLogger` → `WinstonLogger`.
+- **Env**: `.env.example` documents `CLOUD_PROVIDER`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_CREDENTIALS_PATH` (default `./cloudlogging.json`), `GOOGLE_CLOUD_SERVICE_CONTEXT`, `LOG_SERVICE_NAME`. `.gitignore` ignores `**/cloudlogging*.json`.
+
+### Decisions taken (with the user)
+- Winston-based, mirroring the reference (vs. bolting GCP onto the old FileLogger).
+- **No console output** — only file + GCP (user request).
+- keyFile-path credentials (vs. inline env vars).
+- Always-on GCP, but degrade gracefully on missing creds (non-fatal write errors).
+- Ported the 256KB truncation guard.
+
+### Verified
+- `pnpm --filter @tmr/api type-check` clean.
+- Runtime smoke (tsx): file lines parse with `jq` (`{ts,level,context,msg}`), error appends stack, and a missing key file produces a stderr `[LOG] GCP write error` without crashing.
+- Unit test `tests/unit/api/logger-file-format.spec.ts` (R253) — 3 tests green.
+
+### Tests / docs
+- Regression catalogue: R253 (logger file-line parse contract).
+- `docs/atlas/architecture.md`: added a Logging & Observability section.
+- Note: repo `pnpm lint` is broken at the environment level (ESLint 6.4.0 finds no config) — pre-existing, unrelated to this change.

@@ -27,6 +27,12 @@ export class ConfigController {
     return this.configService.getSafe()
   }
 
+  @Get('field-usage')
+  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
+  fieldUsage() {
+    return this.configService.fieldUsage()
+  }
+
   @Get('extract-brand')
   async extractBrand(@Query('url') url: string) {
     if (!url) throw new BadRequestException('url query param required')

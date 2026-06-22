@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Athena · Pilot Deployment Checklist</title>
+<style>
+  :root{
+    --bg:#f4f1ea;          /* warm ivory canvas */
+    --bg-soft:#efeade;
+    --surface:#fffdf9;     /* card / panel */
+    --ink:#2b2820;         /* warm near-black */
+    --ink-soft:#544f44;
+    --muted:#807763;
+    --line:#e8e1d2;        /* warm hairline */
+    --line-soft:#f0ebe0;
+    --accent:#1f6b56;      /* emerald */
+    --accent-deep:#185544;
+    --gold:#b08d57;        /* champagne gold */
+    --gold-soft:#cdb487;
+    --pass:#2f7d5b; --pass-bg:#e9f3ec; --pass-line:#cfe4d6;
+    --fail:#b14a3c; --fail-bg:#f8e9e5; --fail-line:#eccfc8;
+    --na:#9a7330;   --na-bg:#f6efdd;   --na-line:#e8d7b4;
+    --pending:#6b6452; --pending-bg:#ebe4d6; --pending-line:#ddd3bf;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --shadow-sm:0 1px 2px rgba(43,40,32,.04);
+    --shadow:0 1px 3px rgba(43,40,32,.05),0 14px 34px -16px rgba(43,40,32,.16);
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font:14.5px/1.65 var(--sans);background:
+      radial-gradient(1200px 600px at 85% -10%, #faf6ee 0%, rgba(250,246,238,0) 60%),
+      var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{color:var(--accent-deep)}
+  ::selection{background:rgba(176,141,87,.22)}
+
+  header{position:sticky;top:0;z-index:10;padding:20px 30px 16px;
+    background:rgba(247,243,235,.82);backdrop-filter:saturate(140%) blur(12px);
+    border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(255,255,255,.6) inset}
+  header::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;
+    background:linear-gradient(90deg,var(--gold) 0%,var(--gold-soft) 28%,var(--accent) 100%);opacity:.85}
+  h1{font:600 23px/1.15 var(--serif);margin:0 0 3px;letter-spacing:-.01em;color:var(--ink)}
+  .sub{color:var(--ink-soft);font-size:13px}
+  .sub b{color:var(--ink);font-weight:600}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+
+  .btn{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;
+    padding:8px 14px;cursor:pointer;font:500 13px var(--sans);box-shadow:var(--shadow-sm);
+    transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease,background .12s ease}
+  .btn:hover{border-color:var(--gold-soft);transform:translateY(-1px);box-shadow:0 4px 14px -6px rgba(43,40,32,.2)}
+  .btn:active{transform:translateY(0)}
+  .btn.primary{background:linear-gradient(180deg,var(--accent) 0%,var(--accent-deep) 100%);color:#fbfaf6;
+    border-color:transparent;font-weight:600;box-shadow:0 6px 16px -8px rgba(24,85,68,.6)}
+  .btn.primary:hover{border-color:transparent;box-shadow:0 8px 20px -8px rgba(24,85,68,.7)}
+  input,select{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;
+    padding:8px 11px;font:14px var(--sans);box-shadow:var(--shadow-sm);transition:border-color .12s,box-shadow .12s}
+  input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,107,86,.12)}
+  input[type=search]{min-width:230px}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 30px 90px}
+  .empty{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:56px 30px;text-align:center;color:var(--ink-soft);box-shadow:var(--shadow)}
+  .empty b{color:var(--ink)}
+
+  .dash{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin:20px 0 26px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow)}
+  .card .n{font:600 30px/1 var(--serif);letter-spacing:-.01em}
+  .card .l{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;margin-top:5px}
+  .prog{height:7px;border-radius:999px;background:var(--bg-soft);overflow:hidden;margin-top:12px;display:flex;
+    box-shadow:inset 0 0 0 1px rgba(43,40,32,.04)}
+  .prog>span{height:100%;transition:width .35s ease}
+  .prog .p{background:linear-gradient(90deg,#4a9c79,#2f7d5b)}
+  .prog .f{background:linear-gradient(90deg,#d07064,#b14a3c)}
+  .prog .a{background:linear-gradient(90deg,#cda75d,#b08d57)}
+
+  details.section{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    margin:0 0 16px;overflow:hidden;box-shadow:var(--shadow)}
+  details.section>summary{cursor:pointer;list-style:none;padding:16px 20px;display:flex;align-items:center;gap:11px;
+    font:600 16.5px var(--serif);color:var(--ink);transition:background .12s}
+  details.section>summary:hover{background:linear-gradient(0deg,rgba(176,141,87,.05),rgba(176,141,87,.05))}
+  details.section>summary::-webkit-details-marker{display:none}
+  details.section>summary::after{content:"›";margin-left:2px;color:var(--gold);font:400 20px var(--serif);
+    transition:transform .18s ease;order:-1;transform:rotate(90deg)}
+  details:not([open])>summary::after{transform:rotate(0deg)}
+  .tier{font:700 10.5px var(--sans);letter-spacing:.6px;border-radius:6px;padding:3px 8px;
+    background:rgba(176,141,87,.12);color:#8a6d3e;border:1px solid rgba(176,141,87,.22)}
+  .secmeta{margin-left:auto;color:var(--muted);font:400 12.5px var(--sans);letter-spacing:.2px}
+
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:12px 16px;border-top:1px solid var(--line-soft);vertical-align:top;text-align:left}
+  thead th{border-top:1px solid var(--line);background:rgba(176,141,87,.04)}
+  th{color:var(--muted);font:600 10.5px var(--sans);text-transform:uppercase;letter-spacing:.5px}
+  tbody tr:hover{background:rgba(176,141,87,.045)}
+  td.id{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
+  .type{font:700 10px var(--sans);padding:2px 7px;border-radius:6px;letter-spacing:.3px}
+  .type.DO{background:var(--pass-bg);color:var(--pass)}
+  .type.DONT{background:var(--fail-bg);color:var(--fail)}
+  .type.SEC{background:#efe9f6;color:#6f54a3}
+  .type.SETUP{background:#e9eef5;color:#3f5c87}
+  .scn{font-weight:600;color:var(--ink)}
+  .crit{display:block;color:var(--ink-soft);font-size:12.5px;margin-top:4px;line-height:1.55}
+  .crit b{color:var(--ink);font-weight:600}
+
+  .box{font-weight:700;font-size:1.05em;vertical-align:-1px;margin-right:1px}
+  .statussel{appearance:none;-webkit-appearance:none;-moz-appearance:none;border:1px solid var(--line);
+    border-radius:999px;padding:7px 30px 7px 14px;cursor:pointer;font:600 12px var(--sans);min-width:124px;
+    color:var(--ink);background-color:var(--surface);box-shadow:var(--shadow-sm);
+    background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 4.5l3.5 3.5 3.5-3.5" fill="none" stroke="%23b08d57" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    background-repeat:no-repeat;background-position:right 11px center;background-size:11px;
+    transition:border-color .12s,box-shadow .12s,background-color .12s}
+  .statussel:hover{box-shadow:0 4px 12px -6px rgba(43,40,32,.25)}
+  .statussel:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,107,86,.12)}
+  .statussel[data-s=pending]{color:var(--pending);background-color:var(--pending-bg);border-color:var(--pending-line)}
+  .statussel[data-s=pass]{color:var(--pass);background-color:var(--pass-bg);border-color:var(--pass-line)}
+  .statussel[data-s=fail]{color:var(--fail);background-color:var(--fail-bg);border-color:var(--fail-line)}
+  .statussel[data-s=na]{color:var(--na);background-color:var(--na-bg);border-color:var(--na-line)}
+  .statussel option{color:var(--ink);background:#fff;font-weight:600}
+  textarea.notes{width:100%;min-height:160px;background:var(--surface);color:var(--ink);border:1px solid var(--line);
+    border-radius:9px;padding:11px 13px;font:13.5px/1.6 var(--sans);resize:vertical;transition:border-color .12s,box-shadow .12s}
+  td.notes-cell{width:38%}
+  textarea.notes:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,107,86,.1)}
+
+  tr.hidden{display:none}
+  .save-state{font-size:12.5px;color:var(--muted)}
+  .save-state.ok{color:var(--pass)} .save-state.warn{color:var(--na)} .save-state.err{color:var(--fail)}
+  .ico{font-size:16px;line-height:0;vertical-align:-2px;margin-right:6px;display:inline-block}
+  .btn.primary .ico{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.3))}
+  .legend{color:var(--muted);font-size:12.5px;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .legend .lg{font-weight:700;display:inline-flex;align-items:center}
+  .legend .lg .ico{font-size:15px;margin-right:3px}
+  .legend .lg.pend{color:var(--pending)}
+  .legend .lg.pass{color:var(--pass)}
+  .legend .lg.fail{color:var(--fail)}
+  .legend .lg.na{color:var(--na)}
+  .legend .arr{color:var(--gold);font-weight:700}
+  code{background:rgba(176,141,87,.1);color:#7a6233;padding:1px 6px;border-radius:5px;font-size:12.5px}
+  .phasehead{display:flex;align-items:center;gap:11px;margin:30px 2px 13px;font:600 16px var(--serif);color:var(--ink)}
+  .phasehead:first-child{margin-top:6px}
+  .phasehead .pnum{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;flex:0 0 auto;
+    border-radius:50%;background:linear-gradient(180deg,var(--accent),var(--accent-deep));color:#fbfaf6;
+    font:700 12.5px var(--sans);box-shadow:0 5px 12px -5px rgba(24,85,68,.6)}
+  .phasehead::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+  @media print{
+    body{background:#fff}header{position:static;background:#fff;backdrop-filter:none}
+    .bar,.filters,.btn{display:none!important}.statussel{appearance:none;border:none;box-shadow:none;background:none;padding:0;font-weight:700}
+    details.section{break-inside:avoid;box-shadow:none;border-color:#ddd}.card{box-shadow:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚀 Athena · Pilot Deployment Checklist</h1>
+  <div class="sub">Release: <b id="rel">Pre-Deployment Full Regression</b> · Date: <b id="dt">2026-06-21</b> · <span class="save-state" id="saveState">not connected</span></div>
+  <div class="bar">
+    <button class="btn primary" id="connectBtn"><span class="ico">🔗</span>Connect report folder</button>
+    <button class="btn" id="downloadJson"><span class="ico">📥</span>Download report.json</button>
+    <button class="btn" id="loadJson"><span class="ico">📂</span>Load report.json</button>
+    <button class="btn" id="exportHtml"><span class="ico">🧾</span>Export standalone report</button>
+    <span class="legend">Set each row's status:
+      <span class="lg pend"><span class="ico box">☐</span>Pending</span><span class="arr">→</span><span class="lg pass"><span class="ico">✅</span>Pass</span><span class="arr">→</span><span class="lg fail"><span class="ico">❌</span>Fail</span><span class="arr">→</span><span class="lg na"><span class="ico">⏭️</span>N/A</span></span>
+  </div>
+  <div class="bar filters">
+    <input type="search" id="search" placeholder="Search scenarios…" />
+    <select id="fStatus"><option value="">All statuses</option><option value="pending">Pending</option><option value="pass">Pass</option><option value="fail">Fail</option><option value="na">N/A</option></select>
+    <select id="fPhase"><option value="">All phases</option><option value="1">1 · Setup</option><option value="2">2 · Customer</option><option value="3">3 · Agent</option><option value="4">4 · Email</option><option value="5">5 · Bot</option><option value="6">6 · Analytics</option></select>
+    <button class="btn" id="expandAll">Expand all</button>
+    <button class="btn" id="collapseAll">Collapse all</button>
+  </div>
+</header>
+<div class="wrap">
+  <div id="dash" class="dash"></div>
+  <div id="sections"></div>
+</div>
+
+<input type="file" id="fileInput" accept="application/json" hidden />
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────
+   Generic checklist runner. NO embedded test cases — the per-release checklist
+   lives in report.json (composed from tests/manual/_catalog/catalog.json):
+     { release, date, features:[...], checklist:[ {key,title,phase,cases:[{id,type,action,see}]} ],
+       results: { "<caseId>": {status, notes} } }
+   ─────────────────────────────────────────────────────────────────────────── */
+const STATUSES = ['pending','pass','fail','na'];
+const STATUS_LABEL = {pending:'☐ Pending', pass:'✅ Pass', fail:'❌ Fail', na:'⏭️ N/A'};
+const PHASES = {1:'Setup & configuration',2:'Customer · Portal',3:'Agent · Dashboard',4:'Email channel',5:'Bot & automation',6:'Analytics & insights'};
+const stamped = (id, fallback) => { const v=document.getElementById(id).textContent; return v.includes('{{')?fallback:v; };
+
+let report = { release: stamped('rel','TEMPLATE (unsaved)'), date: stamped('dt',''), features:[], checklist:[], results:{} };
+let lsKey = 'athena-qa:' + report.release;
+
+function setHeader(){ document.getElementById('rel').textContent=report.release||'(unnamed)'; document.getElementById('dt').textContent=report.date||''; lsKey='athena-qa:'+(report.release||'TEMPLATE'); }
+function res(id){ if(!report.results[id]) report.results[id]={status:'pending',notes:''}; return report.results[id]; }
+function allCases(){ return report.checklist.flatMap(s=>s.cases.map(c=>({...c, phase:s.phase}))); }
+
+/* ───────────────  IndexedDB for the FileSystemFileHandle  ─────────────── */
+const IDB = { open(){ return new Promise((res,rej)=>{ const r=indexedDB.open('athena-qa',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('handles'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);});},
+  async get(k){ const db=await this.open(); return new Promise((res,rej)=>{ const t=db.transaction('handles','readonly').objectStore('handles').get(k); t.onsuccess=()=>res(t.result); t.onerror=()=>rej(t.error);});},
+  async set(k,v){ const db=await this.open(); return new Promise((res,rej)=>{ const tx=db.transaction('handles','readwrite'); tx.objectStore('handles').put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error);});},
+};
+const HANDLE_KEY = 'handle:' + report.release;
+const LASTDIR_KEY = 'lastDir';
+let fileHandle = null;
+const supportsFS = 'showDirectoryPicker' in window;
+
+/* ───────────────  Save / load  ─────────────── */
+function serialize(){ return JSON.stringify(report, null, 2); }
+function mergeLoaded(obj){
+  if(!obj || typeof obj!=='object') return;
+  report.release = obj.release ?? report.release;
+  report.date = obj.date ?? report.date;
+  report.features = Array.isArray(obj.features)?obj.features:[];
+  report.checklist = Array.isArray(obj.checklist)?obj.checklist:[];
+  report.results = (obj.results && typeof obj.results==='object')?obj.results:{};
+  setHeader();
+}
+function setSaveState(t,c){ const el=document.getElementById('saveState'); el.textContent=t; el.className='save-state'+(c?' '+c:''); }
+
+let saveTimer=null;
+async function flushSave(){
+  clearTimeout(saveTimer); saveTimer=null;
+  if(!fileHandle) return;
+  try{ const w=await fileHandle.createWritable(); await w.write(serialize()); await w.close();
+    setSaveState('✓ saved to '+(fileHandle.name||'report.json')+' · '+new Date().toLocaleTimeString(),'ok'); }
+  catch(e){ setSaveState('✗ save failed: '+e.message,'err'); }
+}
+// localStorage backup is written every change (cheap, not file-watched); the on-disk report.json is
+// written only after you pause typing (or leave a field / change a status) — so a live-reload server
+// watching the folder won't reload mid-keystroke.
+function scheduleSave(delay=1500){
+  try{ localStorage.setItem(lsKey, serialize()); }catch{}
+  if(!fileHandle){ setSaveState(supportsFS?'⚠ not connected — browser backup only':'⚠ browser backup only (download to archive)','warn'); return; }
+  setSaveState('… editing (saves when you pause)','warn');
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(flushSave, delay);
+}
+
+async function ensurePerm(handle, mode){ const o={mode}; if((await handle.queryPermission(o))==='granted') return true; return (await handle.requestPermission(o))==='granted'; }
+
+async function connectFile(){
+  if(!supportsFS){ alert('This browser lacks the File System Access API (Firefox/Safari).\nUse "Load report.json" to open the file and "Download report.json" to save.'); return; }
+  try{
+    const startIn = (await IDB.get(LASTDIR_KEY)) || 'documents';
+    const dir = await window.showDirectoryPicker({ id:'athena-qa-reports', mode:'readwrite', startIn });
+    if(!(await ensurePerm(dir,'readwrite'))){ setSaveState('✗ permission denied','err'); return; }
+    let h;
+    try{ h = await dir.getFileHandle('report.json', {create:false}); }
+    catch{ setSaveState('✗ no report.json in that folder — pick THIS report\'s own folder','err'); return; }
+    const f=await h.getFile(); const txt=await f.text();
+    if(txt.trim()) mergeLoaded(JSON.parse(txt));
+    fileHandle=h; await IDB.set(HANDLE_KEY, h); await IDB.set(LASTDIR_KEY, dir);
+    render(); scheduleSave();
+  }catch(e){ if(e.name!=='AbortError') setSaveState('✗ '+e.message,'err'); }
+}
+
+async function tryRestoreHandle(){
+  if(!supportsFS) return;
+  try{ const h=await IDB.get(HANDLE_KEY); if(!h) return;
+    if((await h.queryPermission({mode:'readwrite'}))==='granted'){ fileHandle=h;
+      try{ const f=await h.getFile(); const txt=await f.text(); if(txt.trim()) mergeLoaded(JSON.parse(txt)); }catch{}
+      setSaveState('✓ reconnected to '+(h.name||'report.json'),'ok');
+    } else { setSaveState('🔗 click "Connect report.json" to re-grant access','warn'); }
+  }catch{}
+}
+
+function download(name,text,mime){ const b=new Blob([text],{type:mime}); const u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u); }
+
+/* ───────────────  Standalone frozen report  ─────────────── */
+const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function exportStandalone(){
+  const c=tally();
+  const body = report.checklist.map(sec=>{
+    const trs = sec.cases.map(t=>{ const st=res(t.id); return `<tr class="r ${st.status}"><td>${esc(t.id)}</td><td><span class="ty ${t.type}">${t.type}</span></td><td><b>${esc(t.action)}</b><br><span style="color:#555">See: ${esc(t.see)}</span></td><td>${STATUS_LABEL[st.status]}</td><td>${esc(st.notes)}</td></tr>`;}).join('');
+    return `<h3>${esc(sec.title)} <small>(phase ${esc(sec.phase)} · ${esc(PHASES[sec.phase]||'')})</small></h3><table>${trs}</table>`;
+  }).join('') || '<p>No cases in this report.</p>';
+  const html=`<!doctype html><meta charset=utf-8><title>QA Report · ${esc(report.release)}</title>
+<style>body{font:14px system-ui;margin:24px;color:#1a1a1a}h1{margin:0}.muted{color:#666}table{width:100%;border-collapse:collapse;margin:8px 0 20px}td,th{border-top:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}.ty{font-size:11px;font-weight:700;padding:1px 5px;border-radius:4px}.ty.DO{background:#e3f6ec;color:#177245}.ty.DONT,.ty.SEC{background:#fde7ea;color:#b3203a}.ty.SETUP{background:#e6eefc;color:#234}.r.pass{background:#f3fbf6}.r.fail{background:#fdf0f2}.r.na{background:#fbf6ec}.sum span{display:inline-block;margin-right:16px;font-weight:700}</style>
+<h1>🚀 Athena QA Report</h1><p class="muted">Release <b>${esc(report.release)}</b> · ${esc(report.date)} · exported ${new Date().toLocaleString()}</p>
+<p class="sum"><span>Total ${c.total}</span><span style="color:#177245">✅ ${c.pass}</span><span style="color:#b3203a">❌ ${c.fail}</span><span style="color:#9a7b2e">⏭️ ${c.na}</span><span style="color:#666">⬜ ${c.pending}</span></p>${body}`;
+  download(`qa-report-${(report.release||'release').replace(/[^a-z0-9]+/gi,'-')}.html`, html, 'text/html');
+}
+
+/* ───────────────  Render  ─────────────── */
+function tally(list){ const arr=list||allCases(); const c={total:arr.length,pass:0,fail:0,na:0,pending:0}; arr.forEach(t=>c[res(t.id).status]++); return c; }
+
+function render(){
+  setHeader();
+  const dash=document.getElementById('dash'), cont=document.getElementById('sections');
+  if(!report.checklist.length){
+    dash.innerHTML='';
+    cont.innerHTML=`<div class="empty"><p style="font-size:15px"><b>No checklist loaded for this release yet.</b></p>
+      <p>1. Click <b>🔗 Connect report folder</b> and pick <b>this report's folder</b> (it finds report.json and auto-reconnects next time) — or <b>⤴ Load report.json</b> on Firefox/Safari.</p>
+      <p>2. If <code>report.json</code> has an empty <code>checklist</code>, ask Claude to generate it for this release's
+      feature(s) — or run <code>pnpm qa:new "&lt;name&gt;" --features &lt;a,b&gt;</code> to pre-seed from the catalog.</p></div>`;
+    return;
+  }
+  const o=tally(); const pct=(n)=>o.total?Math.round(n/o.total*100):0;
+  dash.innerHTML=`<div class="card"><div class="n">${o.pass+o.fail+o.na}/${o.total}</div><div class="l">Tested</div>
+      <div class="prog"><span class="p" style="width:${pct(o.pass)}%"></span><span class="f" style="width:${pct(o.fail)}%"></span><span class="a" style="width:${pct(o.na)}%"></span></div></div>
+    <div class="card"><div class="n" style="color:var(--pass)">${o.pass}</div><div class="l">Pass</div></div>
+    <div class="card"><div class="n" style="color:var(--fail)">${o.fail}</div><div class="l">Fail</div></div>
+    <div class="card"><div class="n" style="color:var(--na)">${o.na}</div><div class="l">N/A</div></div>
+    <div class="card"><div class="n" style="color:var(--pending)">${o.pending}</div><div class="l">Pending</div></div>`;
+
+  cont.innerHTML='';
+  let lastPhase=null;
+  report.checklist.forEach(sec=>{
+    if(sec.phase!==lastPhase){ lastPhase=sec.phase;
+      const h=document.createElement('div'); h.className='phasehead'; h.dataset.phase=String(sec.phase);
+      h.innerHTML=`<span class="pnum">${esc(sec.phase)}</span>${esc(PHASES[sec.phase]||('Phase '+sec.phase))}`;
+      cont.appendChild(h);
+    }
+    const c=tally(sec.cases);
+    const det=document.createElement('details'); det.className='section'; det.open=true; det.dataset.phase=String(sec.phase);
+    const rows=sec.cases.map(t=>{ const st=res(t.id);
+      const seeTxt = t.see&&t.see!=='—' ? `<span class="crit"><b>See:</b> ${esc(t.see)}</span>` : '';
+      return `<tr data-id="${esc(t.id)}" data-status="${st.status}" data-text="${esc((t.id+' '+(t.action||'')+' '+(t.see||'')).toLowerCase())}">
+        <td class="id">${esc(t.id)}</td>
+        <td><span class="type ${t.type}">${t.type==='DONT'?"DON'T":t.type}</span></td>
+        <td><span class="scn">${esc(t.action)}</span>${seeTxt}</td>
+        <td><select class="statussel" data-s="${st.status}" data-id="${esc(t.id)}">${STATUSES.map(s=>`<option value="${s}"${s===st.status?' selected':''}>${STATUS_LABEL[s]}</option>`).join('')}</select></td>
+        <td class="notes-cell" style="min-width:340px"><textarea class="notes" data-id="${esc(t.id)}" rows="7" placeholder="notes…">${esc(st.notes)}</textarea></td>
+      </tr>`;}).join('');
+    det.innerHTML=`<summary>${esc(sec.title)}
+      <span class="secmeta">${c.pass}✅ ${c.fail}❌ ${c.na}⏭️ ${c.pending}<span class="box">☐</span></span></summary>
+      <table><thead><tr><th>#</th><th>Type</th><th>Do this → expect</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`;
+    cont.appendChild(det);
+  });
+  bindRows(); applyFilters();
+}
+
+function bindRows(){
+  document.querySelectorAll('select.statussel').forEach(sel=>sel.onchange=()=>{
+    res(sel.dataset.id).status=sel.value; render(); flushSave();   // status change: render + save now
+  });
+  document.querySelectorAll('textarea.notes').forEach(t=>{
+    t.oninput=()=>{ res(t.dataset.id).notes=t.value; scheduleSave(); };  // debounced; no re-render while typing
+    t.onblur=flushSave;                                                  // write to disk when you leave the field
+  });
+}
+
+function applyFilters(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const fs=document.getElementById('fStatus').value, fp=document.getElementById('fPhase').value;
+  document.querySelectorAll('details.section').forEach(sec=>{
+    let vis=0;
+    sec.querySelectorAll('tr[data-id]').forEach(tr=>{
+      const ok=(!q||tr.dataset.text.includes(q))&&(!fs||tr.dataset.status===fs)&&(!fp||sec.dataset.phase===fp);
+      tr.classList.toggle('hidden',!ok); if(ok)vis++;
+    });
+    sec.style.display=(vis||(!q&&!fs&&!fp))?'':'none';
+    if((q||fs||fp)&&vis) sec.open=true;
+  });
+  document.querySelectorAll('.phasehead').forEach(h=>{
+    const anyVisible=[...document.querySelectorAll('details.section')].some(s=>s.dataset.phase===h.dataset.phase && s.style.display!=='none');
+    h.style.display=anyVisible?'':'none';
+  });
+}
+
+/* ───────────────  Wire up  ─────────────── */
+document.getElementById('connectBtn').onclick=connectFile;
+document.getElementById('downloadJson').onclick=()=>download('report.json', serialize(), 'application/json');
+document.getElementById('loadJson').onclick=()=>document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader();
+  r.onload=()=>{ try{ mergeLoaded(JSON.parse(r.result)); render(); scheduleSave(); }catch{ alert('Invalid report.json'); } }; r.readAsText(f); };
+document.getElementById('exportHtml').onclick=exportStandalone;
+document.getElementById('search').oninput=applyFilters;
+document.getElementById('fStatus').onchange=applyFilters;
+document.getElementById('fPhase').onchange=applyFilters;
+document.getElementById('expandAll').onclick=()=>document.querySelectorAll('details.section').forEach(d=>d.open=true);
+document.getElementById('collapseAll').onclick=()=>document.querySelectorAll('details.section').forEach(d=>d.open=false);
+
+/* boot: localStorage scratch first, then reconnect the on-disk report.json */
+(function boot(){ try{ const ls=localStorage.getItem(lsKey); if(ls) mergeLoaded(JSON.parse(ls)); }catch{}
+  if(!supportsFS) setSaveState('⚠ browser lacks File System Access — use Load/Download to archive','warn');
+  render();
+  tryRestoreHandle().then(render);
+})();
+</script>
+</body>
+</html>

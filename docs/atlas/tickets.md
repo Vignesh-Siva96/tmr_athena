@@ -278,6 +278,17 @@ Both gated pages (`/inbox`, `/tickets/[id]`) render `<EmailNotConfiguredGate>` i
 - **Dismiss is only for `NEW`** — you cannot dismiss an active lifecycle ticket. This prevents accidental loss of in-flight conversations.
 - **Bulk detection is provider-agnostic** — `isBulkSender()` lives in `email-sync/util/` and takes a lowercased headers map. Both Gmail and Graph call it after building their headers map.
 
+## Ticket participants (CC list)
+
+`TicketParticipant` is a relational table keyed `[ticketId, email]` (unique). It stores the live CC participant list for a ticket — the chip list the agent sees in the Reply composer.
+
+- `source = AGENT` — added/updated by an agent reply via `MessagesService.create()`.
+- `source = INBOUND` — auto-added when `ThreadIngestionService` sees a message from an address that is not the primary customer and not a known agent/alias.
+- `TICKET_DETAIL_INCLUDE` returns `participants: { id, email, name, source }` so the Bridge ticket page can initialize the CC chip editor from the live list.
+- `ticket.userId` (primary customer) is never changed by participant operations — it is set only at ticket creation.
+
+See [messages.md](messages.md#cc-on-agent-replies-sticky-participants) for the full CC flow.
+
 ## Known gaps
 
 - No SLA tracking / breach alerts (Phase 2).

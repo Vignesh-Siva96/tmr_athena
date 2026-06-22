@@ -23,6 +23,9 @@ packages/db/src/generated/
 # API logs
 apps/api/logs/
 
+# GCP Cloud Logging service-account key (never commit)
+**/cloudlogging*.json
+
 # Playwright
 .playwright-state.json
 test-results/

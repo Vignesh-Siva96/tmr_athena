@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 
 interface AuthUser {
   id: string
@@ -34,14 +34,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const rehydrate = useCallback(() => {
     const storedToken = localStorage.getItem(TOKEN_KEY)
     const storedUser = localStorage.getItem(USER_KEY)
     if (storedToken && storedUser) {
-      try { setToken(storedToken); setUser(JSON.parse(storedUser) as AuthUser) } catch { /* stale/corrupt entry — ignore, user stays signed out */ }
+      try { setToken(storedToken); setUser(JSON.parse(storedUser) as AuthUser) } catch { /* stale/corrupt — ignore */ }
+    } else {
+      setToken(null)
+      setUser(null)
     }
-    setIsLoading(false)
   }, [])
+
+  useEffect(() => {
+    rehydrate()
+    setIsLoading(false)
+  }, [rehydrate])
+
+  // H: sync auth state across tabs — e.g. email verification tab updates USER_KEY
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY || e.key === USER_KEY) rehydrate()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [rehydrate])
 
   const signIn = (newToken: string, newUser: AuthUser) => {
     localStorage.setItem(TOKEN_KEY, newToken)

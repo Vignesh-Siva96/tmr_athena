@@ -75,6 +75,9 @@ export async function makeTicket(opts: {
   assigneeId?: string
   isTicket?: boolean
   ref?: string
+  field1?: string | null
+  field2?: string | null
+  deletedAt?: Date | null
 }) {
   return harness.prisma.ticket.create({
     data: {
@@ -87,6 +90,9 @@ export async function makeTicket(opts: {
       category: (opts.category ?? 'QUESTION') as any,
       source: (opts.source ?? 'PORTAL') as any,
       assigneeId: opts.assigneeId ?? null,
+      field1: opts.field1 ?? null,
+      field2: opts.field2 ?? null,
+      deletedAt: opts.deletedAt ?? null,
       emailThreadId: `thread-${randomBytes(4).toString('hex')}`,
     },
   })

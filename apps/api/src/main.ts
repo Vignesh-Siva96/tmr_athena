@@ -4,11 +4,11 @@ import { AppModule } from './app.module'
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter'
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor'
 import { ZodValidationPipe } from './common/pipes/zod-validation.pipe'
-import { FileLogger } from './common/logger/file-logger'
+import { WinstonLogger } from './common/logger/logger.service'
 
 async function bootstrap(): Promise<void> {
-  const fileLogger = new FileLogger()
-  const app = await NestFactory.create(AppModule, { rawBody: true, logger: fileLogger })
+  const logger = new WinstonLogger()
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger })
 
   app.setGlobalPrefix('api/v1')
   app.enableCors({
@@ -25,7 +25,7 @@ async function bootstrap(): Promise<void> {
 
   const port = process.env['PORT'] ?? 3001
   await app.listen(port)
-  fileLogger.log(`API running on port ${port}`, 'Bootstrap')
+  logger.log(`API running on port ${port}`, 'Bootstrap')
 }
 
 bootstrap()

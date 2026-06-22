@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 7
+    },
+    "auditLog": "/home/vignesh/Development/athena/logs/.app-log-audit.json",
+    "files": [
+        {
+            "date": 1782068053310,
+            "name": "/home/vignesh/Development/athena/logs/app-2026-06-22.log",
+            "hash": "94b76ed6108dd6b58c9943026dace4840dfdfc3666b6d6f742d27da2b393ea92"
+        }
+    ],
+    "hashType": "sha256"
+}

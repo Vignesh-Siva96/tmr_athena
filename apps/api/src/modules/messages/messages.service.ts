@@ -49,6 +49,19 @@ export class MessagesService {
 
     const isInternal = dto.type === 'INTERNAL_NOTE'
 
+    // CC validation: only allowed on agent REPLY messages
+    if (dto.cc?.length) {
+      if (isInternal || caller.role === 'user' || dto.type !== 'REPLY') {
+        throw new BadRequestException('CC is only allowed on agent replies')
+      }
+    }
+
+    // Normalize: drop the primary customer's email from CC (case-insensitive)
+    const customerEmail = ticket.user.email.toLowerCase()
+    const ccInput = dto.cc !== undefined
+      ? dto.cc.filter((e) => e.toLowerCase() !== customerEmail)
+      : undefined
+
     // Check if this is a customer reply to a bot-answered ticket (scenario 9)
     let shouldAutoEscalate = false
     if (!isInternal && caller.role === 'user' && ticket.status === 'WAITING' && dto.type === 'REPLY') {
@@ -65,6 +78,7 @@ export class MessagesService {
           body: dto.body,
           type: dto.type as MessageType,
           isInternal,
+          ...(ccInput !== undefined ? { cc: ccInput } : {}),
           ...(caller.role === 'agent'
             ? {
                 authorAgentId: caller.id,
@@ -84,6 +98,29 @@ export class MessagesService {
           },
           data: { ticketId, messageId: newMessage.id },
         })
+      }
+
+      // Reconcile TicketParticipant from cc (only when dto.cc was explicitly provided — E13)
+      if (ccInput !== undefined && caller.role === 'agent') {
+        if (ccInput.length > 0) {
+          // Remove participants no longer in the list
+          await tx.ticketParticipant.deleteMany({
+            where: { ticketId, email: { notIn: ccInput } },
+          })
+          // Add new ones (skip duplicates via unique constraint)
+          await tx.ticketParticipant.createMany({
+            data: ccInput.map((email) => ({
+              ticketId,
+              email,
+              source: 'AGENT' as const,
+              addedByAgentId: caller.id,
+            })),
+            skipDuplicates: true,
+          })
+        } else {
+          // Explicit empty array — clear all participants
+          await tx.ticketParticipant.deleteMany({ where: { ticketId } })
+        }
       }
 
       if (!isInternal && !shouldAutoEscalate && ticket.isTicket) {

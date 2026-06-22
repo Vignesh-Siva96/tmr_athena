@@ -1,17 +1,20 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Edit2, Plus, Trash2, Check } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { UserCategoryControl, STATUS_CLS, STATUS_LABEL } from './TicketPreviewPanel'
 import type { UserCategory } from './TicketPreviewPanel'
+import { TmrProductSection } from './TmrProductSection'
+import type { TmrMetadata } from './TmrProductSection'
 
 type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 
 interface UserProfile {
   id: string; email: string; name: string | null; avatarUrl: string | null
   isGuest: boolean; category: UserCategory; lastActiveAt: string | null; createdAt: string
+  tmrMetadata: TmrMetadata | null; tmrMetadataStatus: 'PENDING' | 'OK' | 'NOT_FOUND' | 'ERROR'; tmrMetadataAt: string | null
 }
 interface TicketRow {
   id: string; displayId: string; title: string; status: TicketStatus; isTicket: boolean; updatedAt: string
@@ -40,14 +43,39 @@ export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props
   const [isAddingNote, setIsAddingNote] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingBody, setEditingBody] = useState('')
+  const lazySyncedRef = useRef(false)
+  const [tmrSyncing, setTmrSyncing] = useState(false)
 
   const load = useCallback(() => {
     if (!token) return
-    api.get<ProfileData>(`/users/${userId}`, token)
+    return api.get<ProfileData>(`/users/${userId}`, token)
       .then(setProfile).catch(console.error).finally(() => setIsLoading(false))
   }, [token, userId])
 
   useEffect(() => { load() }, [load])
+
+  // Lazy sync: trigger a TMR refresh once on first open if status is PENDING
+  useEffect(() => {
+    if (!token || !profile || lazySyncedRef.current) return
+    if (profile.user.tmrMetadataStatus === 'PENDING') {
+      lazySyncedRef.current = true
+      setTmrSyncing(true)
+      api.post(`/users/${userId}/tmr-metadata/refresh`, {}, token)
+        .then(() => {
+          // Poll once after 3s for the worker to complete
+          setTimeout(() => { void load()?.finally(() => setTmrSyncing(false)) }, 3000)
+        })
+        .catch(() => setTmrSyncing(false))
+    }
+  }, [token, profile, userId, load])
+
+  const handleTmrRefresh = useCallback(() => {
+    if (!token) return
+    setTmrSyncing(true)
+    api.post(`/users/${userId}/tmr-metadata/refresh`, {}, token)
+      .then(() => setTimeout(() => { void load()?.finally(() => setTmrSyncing(false)) }, 2500))
+      .catch(() => setTmrSyncing(false))
+  }, [token, userId, load])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -145,6 +173,16 @@ export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props
                 </p>
               )}
             </div>
+
+            {/* TMR Product Account */}
+            <TmrProductSection
+              variant="panel"
+              data={profile.user.tmrMetadata}
+              status={profile.user.tmrMetadataStatus}
+              syncedAt={profile.user.tmrMetadataAt}
+              onRefresh={handleTmrRefresh}
+              syncing={tmrSyncing}
+            />
 
             {/* Conversation & ticket history */}
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--d-border)' }}>

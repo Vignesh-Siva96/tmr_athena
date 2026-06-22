@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox, Calendar } from 'lucide-react'
+import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { useBackfillStatus } from '@/lib/useBackfillStatus'
@@ -10,7 +10,7 @@ import { NotificationsPanel } from './NotificationsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'tickets' | 'customers' | 'github' | 'analytics'
+type Section = 'tickets' | 'customers' | 'github' | 'analytics' | 'settings'
 
 interface Stats { byStatus: Record<string, number>; byCategory: Record<string, number>; unassigned: number; newCount?: number }
 
@@ -57,7 +57,8 @@ export function DashboardSidebar() {
     if (pathname.startsWith('/analytics')) setActiveSection('analytics')
     else if (pathname.startsWith('/github')) setActiveSection('github')
     else if (pathname.startsWith('/customers')) setActiveSection('customers')
-    else if (!pathname.startsWith('/settings')) setActiveSection('tickets')
+    else if (pathname.startsWith('/settings')) setActiveSection('settings')
+    else setActiveSection('tickets')
   }, [pathname])
 
   useEffect(() => {
@@ -139,12 +140,12 @@ export function DashboardSidebar() {
         style={{
           width: 40, height: 40, borderRadius: 'var(--r-md)', margin: '2px 4px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: active ? 'rgba(59,130,246,0.14)' : 'transparent',
+          background: active ? 'var(--d-rail-pill)' : 'transparent',
           border: 'none', cursor: 'pointer', position: 'relative',
-          color: active ? 'var(--d-accent)' : 'var(--d-text-2)',
+          color: active ? 'var(--d-rail-icon-active)' : 'var(--d-rail-icon-muted)',
           transition: 'background 120ms, color 120ms',
         }}
-        onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--d-raised)' }}
+        onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--d-rail-hover)' }}
         onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
       >
         {icon}
@@ -163,7 +164,7 @@ export function DashboardSidebar() {
       <aside style={{ width: (activeSection === 'tickets' || activeSection === 'customers') ? 48 : 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
 
         {/* ── Rail ── */}
-        <div style={{ width: 48, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: '1px solid var(--d-border-2)', paddingTop: 8 }}>
+        <div style={{ width: 48, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: '1px solid var(--d-rail-border)', paddingTop: 8, background: 'var(--d-rail)' }}>
           {/* Logo */}
           <div style={{ width: 40, height: 40, margin: '2px 4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
             {appLogo
@@ -199,16 +200,12 @@ export function DashboardSidebar() {
             style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--d-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, margin: '4px', cursor: 'default', flexShrink: 0 }}>
             {agent?.name?.slice(0, 2).toUpperCase() ?? 'AG'}
           </div>
-          <Link href="/settings/shifts" title="Shifts"
-            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pathname.startsWith('/settings/shifts') ? 'var(--d-accent)' : 'var(--d-text-2)', margin: '2px 4px' }}>
-            <Calendar size={15} />
-          </Link>
           <Link href="/settings" title="Settings"
-            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-2)', margin: '2px 4px' }}>
+            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: activeSection === 'settings' ? 'var(--d-rail-pill)' : 'transparent', color: activeSection === 'settings' ? 'var(--d-rail-icon-active)' : 'var(--d-rail-icon-muted)', margin: '2px 4px' }}>
             <Settings size={15} />
           </Link>
           <button type="button" title="Sign out" onClick={() => { signOut(); router.push('/auth') }}
-            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-2)', background: 'none', border: 'none', cursor: 'pointer', margin: '2px 4px 8px' }}>
+            style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-rail-icon-muted)', background: 'none', border: 'none', cursor: 'pointer', margin: '2px 4px 8px' }}>
             <LogOut size={15} />
           </button>
         </div>
@@ -241,7 +238,7 @@ export function DashboardSidebar() {
                 const active = pathname === href
                 return (
                   <Link key={href} href={soon ? '#' : href}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'rgba(59,130,246,0.1)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2, pointerEvents: soon ? 'none' : 'auto', opacity: soon ? 0.5 : 1 }}>
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'var(--d-accent-bg)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2, pointerEvents: soon ? 'none' : 'auto', opacity: soon ? 0.5 : 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 12 }}>{icon}</span>
                       <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
@@ -269,7 +266,7 @@ export function DashboardSidebar() {
                 const active = pathname === href
                 return (
                   <Link key={href} href={href}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'rgba(59,130,246,0.1)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2 }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'var(--d-accent-bg)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2 }}>
                     <span style={{ color: active ? 'var(--d-accent)' : 'var(--d-text-3)', display: 'flex' }}>{icon}</span>
                     <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
                   </Link>

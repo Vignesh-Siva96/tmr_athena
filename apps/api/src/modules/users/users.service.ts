@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
+import { QueueService } from '../queue/queue.service'
 import type { CreateNoteDto, UpdateNoteDto, ListCustomersQuery, UpdateUserDto } from './users.dto'
 import { formatRef } from '../tickets/util/generate-ref'
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly queueService: QueueService,
+  ) {}
 
   async listCustomers(query: ListCustomersQuery): Promise<unknown> {
     const { limit, offset, search, category } = query
@@ -127,6 +131,9 @@ export class UsersService {
         category: true,
         lastActiveAt: true,
         createdAt: true,
+        tmrMetadata: true,
+        tmrMetadataStatus: true,
+        tmrMetadataAt: true,
       },
     })
     if (!user) throw new NotFoundException('User not found')
@@ -194,5 +201,12 @@ export class UsersService {
     if (!note) throw new NotFoundException('Note not found')
     await this.db.customerNote.delete({ where: { id: noteId } })
     return { success: true }
+  }
+
+  async enqueueTmrRefresh(userId: string): Promise<{ queued: boolean }> {
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!user) throw new NotFoundException('User not found')
+    await this.queueService.enqueueFetchTmrMetadata({ userId })
+    return { queued: true }
   }
 }

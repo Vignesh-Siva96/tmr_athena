@@ -26,6 +26,8 @@ import {
   type ForgotPasswordDto,
   type ResetPasswordDto,
   type SsoDto,
+  acceptInviteSchema,
+  type AcceptInviteDto,
 } from './auth.dto'
 
 // Auth endpoints are unauthenticated by nature (that's the point) — without a cap,
@@ -115,5 +117,12 @@ export class AuthController {
   @RateLimit(...AUTH_RATE_LIMIT)
   ssoAuth(@Body(new ZodValidationPipe(ssoSchema)) dto: SsoDto) {
     return this.authService.ssoAuth(dto)
+  }
+
+  @Post('agent/accept-invite')
+  @HttpCode(200)
+  @RateLimit(...AUTH_RATE_LIMIT)
+  acceptAgentInvite(@Body(new ZodValidationPipe(acceptInviteSchema)) dto: AcceptInviteDto) {
+    return this.authService.acceptAgentInvite(dto)
   }
 }

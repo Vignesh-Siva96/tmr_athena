@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, HttpCode, Body, Param, Query, UseGuards } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { AuthGuard } from '../../common/guards/auth.guard'
 import { AgentGuard } from '../../common/guards/agent.guard'
@@ -59,5 +59,11 @@ export class UsersController {
     @Param('noteId') noteId: string,
   ) {
     return this.usersService.deleteNote(id, noteId, agent.id)
+  }
+
+  @Post(':id/tmr-metadata/refresh')
+  @HttpCode(202)
+  refreshTmrMetadata(@Param('id') id: string) {
+    return this.usersService.enqueueTmrRefresh(id)
   }
 }

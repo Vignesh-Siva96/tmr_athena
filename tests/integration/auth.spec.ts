@@ -15,6 +15,9 @@
  *   R187 — signup / signin / guest responses never include password field (T1.6)
  *   R188 — POST /auth/guest with a real (non-guest) account email → 201 (A4 fix; previously 409)
  *   R195 — GET /tickets with guest token → 403 (NoGuestsGuard enforced)
+ *   R196 — POST /auth/agent/accept-invite happy path: sets password, clears token, issues JWT
+ *   R197 — POST /auth/agent/accept-invite invalid token → 400
+ *   R198 — POST /auth/agent/accept-invite weak password → 400 (Zod validation)
  */
 
 import * as crypto from 'crypto'
@@ -366,5 +369,100 @@ describe('R195 — NoGuestsGuard: GET /tickets returns 403 for guest token', () 
       .set('Authorization', `Bearer ${guestToken}`)
 
     expect(ticketsRes.status).toBe(403)
+  })
+})
+
+// ─── R196–R198 — Agent accept-invite flow ────────────────────────────────────
+
+describe('R196 — POST /auth/agent/accept-invite happy path', () => {
+  it('sets password, clears inviteToken, marks accepted, returns JWT', async () => {
+    const token = 'valid-invite-token-abc123'
+    const agent = await harness.prisma.agent.create({
+      data: {
+        email: 'invited@example.com',
+        name: 'Invited Agent',
+        role: 'PRIMARY_AGENT',
+        isActive: true,
+        inviteToken: token,
+        inviteAccepted: false,
+      },
+    })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/auth/agent/accept-invite')
+      .send({ token, password: 'Secr3t!pw' })
+
+    expect(res.status).toBe(200)
+    const body = res.body.data as { agent: { id: string; inviteAccepted: boolean }; token: string }
+    expect(body.agent.id).toBe(agent.id)
+    expect(body.agent.inviteAccepted).toBe(true)
+    expect(typeof body.token).toBe('string')
+    expect((body.agent as Record<string, unknown>).password).toBeUndefined()
+
+    const updated = await harness.prisma.agent.findUnique({ where: { id: agent.id } })
+    expect(updated?.inviteToken).toBeNull()
+    expect(updated?.inviteAccepted).toBe(true)
+    expect(updated?.password).toBeTruthy()
+
+    // The returned JWT should work against a guarded route
+    const payload = decodeJwt(body.token)
+    expect(payload.sub).toBe(agent.id)
+    expect(payload.role).toBe('agent')
+  })
+})
+
+describe('R197 — POST /auth/agent/accept-invite invalid token', () => {
+  it('returns 400 for unknown token', async () => {
+    const res = await harness
+      .request()
+      .post('/api/v1/auth/agent/accept-invite')
+      .send({ token: 'no-such-token', password: 'Secr3t!pw' })
+
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('R198 — POST /auth/agent/accept-invite weak password rejected', () => {
+  it('returns 400 for password < 8 chars', async () => {
+    const token = 'weak-pw-test-token'
+    await harness.prisma.agent.create({
+      data: {
+        email: 'weakpw@example.com',
+        name: 'Weak PW Agent',
+        role: 'PRIMARY_AGENT',
+        isActive: true,
+        inviteToken: token,
+        inviteAccepted: false,
+      },
+    })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/auth/agent/accept-invite')
+      .send({ token, password: 'abc' })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 for password missing special char', async () => {
+    const token = 'no-special-char-token'
+    await harness.prisma.agent.create({
+      data: {
+        email: 'nospecial@example.com',
+        name: 'No Special Agent',
+        role: 'PRIMARY_AGENT',
+        isActive: true,
+        inviteToken: token,
+        inviteAccepted: false,
+      },
+    })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/auth/agent/accept-invite')
+      .send({ token, password: 'Password123' })
+
+    expect(res.status).toBe(400)
   })
 })

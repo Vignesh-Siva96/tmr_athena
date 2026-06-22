@@ -157,6 +157,27 @@ No Redis service — pg-boss runs inside Postgres.
 
 ---
 
+## Logging & observability
+
+The NestJS app logger is `WinstonLogger` (`apps/api/src/common/logger/logger.service.ts`), set in
+`main.ts`. A single shared winston logger fans out to **two transports — no console**:
+
+| Transport | Destination | Notes |
+|---|---|---|
+| `DailyRotateFile` | `apps/api/logs/app-YYYY-MM-DD.log`, 7-day retention | One JSON record per line — `{ts, level, context, msg}`. This is the shape the CLAUDE.md `tail -f … \| jq` debugging command parses; treat it as a contract (regression R253). |
+| `LoggingWinston` (GCP Cloud Logging) | Google Cloud project | Always attached; **non-fatal** — a missing/invalid key file logs to stderr via `defaultCallback` and never crashes the app. |
+
+- **Credentials**: service-account JSON key file at `GOOGLE_CLOUD_CREDENTIALS_PATH` (default
+  `./cloudlogging.json`, gitignored). Other env: `GOOGLE_CLOUD_PROJECT_ID`,
+  `GOOGLE_CLOUD_SERVICE_CONTEXT`, `CLOUD_PROVIDER`, `LOG_SERVICE_NAME`.
+- **256KB cap**: GCP rejects entries over ~256KB (protobuf). `log-truncation.ts` +
+  `reduceLogInfoSize` shrink oversized payloads (arrays/strings/depth, then structural summary)
+  before send.
+- Keeps NestJS `ConsoleLogger` call signatures, so every `new Logger(ctx)` call site is unchanged.
+- Mirrors `tmr_data_service/src/configs/logger.ts`.
+
+---
+
 ## Feature reference
 
 | Feature | Atlas doc |

@@ -253,6 +253,11 @@ export default function SubmitPage() {
               >
                 How can we help?
               </h1>
+              {appConfig?.portalTagline && (
+                <p style={{ fontSize: 17, lineHeight: 1.5, color: 'var(--p-text-2)', marginTop: 8, maxWidth: 560, fontWeight: 500 }}>
+                  {appConfig.portalTagline}
+                </p>
+              )}
               <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--p-text-3)', marginTop: 12, maxWidth: 560 }}>
                 Describe your issue and we&apos;ll get back to you as soon as possible. Most tickets get a first
                 response in under 2 hours.

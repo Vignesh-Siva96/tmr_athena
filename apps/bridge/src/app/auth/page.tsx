@@ -14,7 +14,7 @@ const schema = z.object({
 })
 type FormData = z.infer<typeof schema>
 
-interface AgentUser { id: string; email: string; name: string; avatarUrl: string | null; role: 'ADMIN' | 'AGENT' }
+interface AgentUser { id: string; email: string; name: string; avatarUrl: string | null; role: 'ADMIN' | 'PRIMARY_AGENT' | 'SECONDARY_AGENT' }
 interface AuthResponse { agent: AgentUser; token: string }
 
 export default function DashAuthPage() {

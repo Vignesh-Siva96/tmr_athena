@@ -176,6 +176,11 @@ model User {
 
   lastActiveAt DateTime?
 
+  tmrUserId         String?
+  tmrMetadata       Json?
+  tmrMetadataStatus TmrSyncStatus @default(PENDING)
+  tmrMetadataAt     DateTime?
+
   tickets         Ticket[]          @relation("TicketCustomer")
   messages        Message[]         @relation("MessageAuthorUser")
   magicTokens     MagicToken[]
@@ -185,6 +190,13 @@ model User {
   aiUsages        AiUsage[]
 
   @@index([email])
+}
+
+enum TmrSyncStatus {
+  PENDING
+  OK
+  NOT_FOUND
+  ERROR
 }
 
 enum UserSource {
@@ -246,13 +258,14 @@ model Agent {
   inviteToken    String?  @unique
   inviteAccepted Boolean  @default(false)
 
-  assignedTickets   Ticket[]          @relation("TicketAssignee")
-  dismissedTickets  Ticket[]          @relation("TicketDismissedBy")
-  messages          Message[]         @relation("MessageAuthorAgent")
-  customerNotes     CustomerNote[]
-  notificationReads NotificationRead[]
-  shifts            Shift[]
-  botInteractions   BotInteraction[]  @relation("BotInteractionEscalatee")
+  assignedTickets     Ticket[]             @relation("TicketAssignee")
+  dismissedTickets    Ticket[]             @relation("TicketDismissedBy")
+  messages            Message[]            @relation("MessageAuthorAgent")
+  customerNotes       CustomerNote[]
+  notificationReads   NotificationRead[]
+  shifts              Shift[]
+  botInteractions     BotInteraction[]     @relation("BotInteractionEscalatee")
+  addedParticipants   TicketParticipant[]  @relation("ParticipantAddedBy")
 
   @@index([email])
 }
@@ -335,6 +348,7 @@ model Ticket {
   aiUsages        AiUsage[]
   signals         CustomerSignal[]
   botInteractions BotInteraction[]
+  participants    TicketParticipant[]
 
   @@index([status])
   @@index([isTicket])
@@ -403,6 +417,7 @@ model Message {
   externalMessageId String?  @unique
   inReplyTo  String?
   bodyRaw    String?  @db.Text
+  cc         String[] @default([])
 
   // AI sentiment analysis
   sentimentScore Float?
@@ -432,6 +447,28 @@ enum MessageSentVia {
   PORTAL
   EMAIL
   PORTAL_AND_EMAIL
+}
+
+// ─── TICKET PARTICIPANTS ──────────────────────────────────────────────────────
+
+model TicketParticipant {
+  id             String            @id @default(cuid())
+  createdAt      DateTime          @default(now())
+  ticketId       String
+  ticket         Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  email          String
+  name           String?
+  source         ParticipantSource @default(AGENT)
+  addedByAgentId String?
+  addedByAgent   Agent?            @relation("ParticipantAddedBy", fields: [addedByAgentId], references: [id])
+
+  @@unique([ticketId, email])
+  @@index([ticketId])
+}
+
+enum ParticipantSource {
+  AGENT
+  INBOUND
 }
 
 // ─── ATTACHMENTS ──────────────────────────────────────────────────────────────

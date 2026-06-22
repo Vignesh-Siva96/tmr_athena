@@ -155,7 +155,7 @@ export class IndexerService {
     const params: unknown[] = []
     rawChunks.forEach((chunk, i) => {
       const base = i * 4
-      rows.push(`($${base + 1}::uuid, $${base + 2}::vector, $${base + 3}::text, $${base + 4}::text)`)
+      rows.push(`($${base + 1}::text, $${base + 2}::vector, $${base + 3}::text, $${base + 4}::text)`)
       params.push(chunk.id, `[${embeddings[i].join(',')}]`, contextHeader || null, textsToEmbed[i])
     })
     await this.db.$executeRawUnsafe(

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -60,6 +60,13 @@ export default function AuthForm({ initialError }: Props) {
   const signupForm = useForm<SignupData>({ resolver: zodResolver(signupSchema), mode: 'onChange' })
 
   const signupPassword = signupForm.watch('password') ?? ''
+
+  // G2: re-validate confirmPassword whenever password changes after it's been touched
+  useEffect(() => {
+    if (signupForm.formState.touchedFields.confirmPassword) {
+      void signupForm.trigger('confirmPassword')
+    }
+  }, [signupPassword]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSignin = async (data: SigninData) => {
     setError(null)
@@ -340,16 +347,16 @@ export default function AuthForm({ initialError }: Props) {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !signupForm.formState.isValid}
             style={{
               width: '100%',
               height: 40,
-              background: isLoading ? 'rgba(37,99,235,0.7)' : 'var(--p-accent)',
+              background: (isLoading || !signupForm.formState.isValid) ? 'rgba(37,99,235,0.5)' : 'var(--p-accent)',
               color: '#fff',
               borderRadius: 'var(--r-sm)',
               fontWeight: 600,
               fontSize: 14,
-              cursor: isLoading ? 'not-allowed' : 'pointer',
+              cursor: (isLoading || !signupForm.formState.isValid) ? 'not-allowed' : 'pointer',
               border: 'none',
               fontFamily: 'inherit',
               marginBottom: 16,

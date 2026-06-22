@@ -36,6 +36,8 @@ export function useBackfillStatus(token: string | null) {
   const [status, setStatus] = useState<BackfillStatus | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tokenRef = useRef(token)
+  const pollRef = useRef<(() => void) | null>(null)
+  const mountedRef = useRef(true)
 
   useEffect(() => {
     tokenRef.current = token
@@ -44,13 +46,13 @@ export function useBackfillStatus(token: string | null) {
   useEffect(() => {
     if (!token) return
 
-    let mounted = true
+    mountedRef.current = true
 
     const poll = () => {
       if (!tokenRef.current) return
       fetchStatus(tokenRef.current)
         .then((s) => {
-          if (!mounted) return
+          if (!mountedRef.current) return
           // Never let a stale poll overwrite a higher count already pushed by SSE
           setStatus((prev) => ({
             ...s,
@@ -60,16 +62,17 @@ export function useBackfillStatus(token: string | null) {
           timerRef.current = setTimeout(poll, s.archiveStatus === 'RUNNING' ? POLL_RUNNING_MS : POLL_IDLE_MS)
         })
         .catch(() => {
-          if (mounted) {
+          if (mountedRef.current) {
             timerRef.current = setTimeout(poll, POLL_IDLE_MS)
           }
         })
     }
 
+    pollRef.current = poll
     poll()
 
     return () => {
-      mounted = false
+      mountedRef.current = false
       if (timerRef.current) {
         clearTimeout(timerRef.current)
         timerRef.current = null
@@ -82,21 +85,29 @@ export function useBackfillStatus(token: string | null) {
       clearTimeout(timerRef.current)
       timerRef.current = null
     }
-    if (!token) return
-    fetchStatus(token).then(setStatus).catch(() => {})
+    if (!token || !pollRef.current) return
+    // Re-enter the self-scheduling loop (not just a one-shot fetch)
+    pollRef.current()
   }
 
   // SSE: update optimistically on archive-progress events (avoids waiting for next poll tick)
   useEffect(() => {
     const unsub = sseEventBus.on('archive-progress', (ev) => {
       setStatus((prev) => {
-        if (!prev) return prev
+        // Seed state from the first SSE event even if prev is null
+        const base: BackfillStatus = prev ?? {
+          archiveStatus: 'RUNNING',
+          archiveTotalSeen: 0,
+          archiveTotalEstimate: null,
+          status: 'RUNNING',
+          processed: 0,
+        }
         const archiveStatus = ev.status as BackfillStatus['archiveStatus']
         return {
-          ...prev,
+          ...base,
           archiveStatus,
           archiveTotalSeen: ev.processed,
-          archiveTotalEstimate: ev.total ?? prev.archiveTotalEstimate,
+          archiveTotalEstimate: ev.total ?? base.archiveTotalEstimate,
           status: archiveStatus,
           processed: ev.processed,
         }

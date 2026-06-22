@@ -24,7 +24,7 @@ jest.mock('node:dns/promises', () => ({
 
 import { http, HttpResponse } from 'msw'
 import { harness } from './harness'
-import { makeAgent, signJwt } from './factories'
+import { makeAgent, makeUser, makeTicket, signJwt } from './factories'
 import './setup'
 import { mswServer } from './setup'
 import { AppConfigService } from '../../apps/api/src/modules/config/config.service'
@@ -336,5 +336,45 @@ describe('R196 — PATCH /config: field1/field2 dropdown fields stored and retur
       .send({ field1Options: [{ value: 'x' }] }) // label missing
 
     expect(res.status).toBe(400)
+  })
+})
+
+// ─── R254 — GET /config/field-usage: ticket counts per stored field value ─────
+
+describe('R254 — GET /config/field-usage', () => {
+  it('counts non-deleted tickets per field1/field2 value; excludes soft-deleted', async () => {
+    await seedAppConfig()
+    const admin = await makeAgent({ role: 'ADMIN' })
+    const token = await signJwt({ id: admin.id, role: 'agent', orgRole: 'ADMIN' })
+    const user = await makeUser()
+
+    // field1: sheets x2, excel x1 (one excel ticket soft-deleted → not counted)
+    await makeTicket({ userId: user.id, field1: 'sheets', field2: 'ga4' })
+    await makeTicket({ userId: user.id, field1: 'sheets' })
+    await makeTicket({ userId: user.id, field1: 'excel', field2: 'ga4' })
+    await makeTicket({ userId: user.id, field1: 'excel', deletedAt: new Date() })
+
+    const res = await harness
+      .request()
+      .get('/api/v1/config/field-usage')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    const usage = res.body.data as { field1: Record<string, number>; field2: Record<string, number> }
+    expect(usage.field1).toEqual({ sheets: 2, excel: 1 })
+    expect(usage.field2).toEqual({ ga4: 2 })
+  })
+
+  it('non-admin agent returns 403', async () => {
+    await seedAppConfig()
+    const agent = await makeAgent({ role: 'SECONDARY_AGENT' })
+    const token = await signJwt({ id: agent.id, role: 'agent' })
+
+    const res = await harness
+      .request()
+      .get('/api/v1/config/field-usage')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(403)
   })
 })

@@ -61,3 +61,12 @@ export const ssoSchema = z.object({
   token: z.string().min(1),
 })
 export type SsoDto = z.infer<typeof ssoSchema>
+
+export const acceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[0-9]/, 'Must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
+})
+export type AcceptInviteDto = z.infer<typeof acceptInviteSchema>

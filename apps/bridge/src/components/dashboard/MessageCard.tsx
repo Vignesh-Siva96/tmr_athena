@@ -19,6 +19,7 @@ interface MessageCardProps {
   authorBotName?: string | null
   attachments: Attachment[]
   createdAt: string
+  cc?: string[]
   supportEmail?: string
   isLast?: boolean
   onReply?: () => void
@@ -128,7 +129,7 @@ function ReplyActions({ onReply, onNote }: { onReply?: () => void; onNote?: () =
   )
 }
 
-export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, authorAgent, authorBotName, attachments, createdAt, supportEmail, isLast, onReply, onNote }: MessageCardProps) {
+export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, authorAgent, authorBotName, attachments, createdAt, cc, supportEmail, isLast, onReply, onNote }: MessageCardProps) {
   const [collapsed, setCollapsed] = useState(false)
 
   // Bot-generated reply — render with Sparkles avatar + AI badge
@@ -234,6 +235,9 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d-text)' }}>{author.name ?? author.email}</span>
             <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>&lt;{author.email}&gt;</span>
             <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>{toLine}</span>
+            {cc && cc.length > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--d-text-4)' }}>cc: {cc.join(', ')}</span>
+            )}
           </div>
           <span style={{ fontSize: 11, color: 'var(--d-text-4)', flexShrink: 0, marginLeft: 12 }}>{fmtDate(createdAt)}</span>
         </div>

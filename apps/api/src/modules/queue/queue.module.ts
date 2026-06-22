@@ -14,6 +14,7 @@ export const EMAIL_SEND_CONFIRMATION_QUEUE = 'email:send-confirmation'
 export const EMAIL_SEND_VERIFICATION_QUEUE = 'email:send-verification'
 export const EMAIL_SEND_PASSWORD_RESET_QUEUE = 'email:send-password-reset'
 export const EMAIL_INGEST_THREAD_QUEUE = 'email:ingest-thread'
+export const FETCH_TMR_METADATA_QUEUE = 'tmr:fetch-metadata'
 
 @Global()
 @Module({

@@ -4,19 +4,19 @@
 
 /* ─── DARK THEME (default) ───────────────────────────────────────────────── */
 :root {
-  --d-bg: #0A0A0A;
-  --d-surface: #141414;
+  --d-bg: #0B0C0E;
+  --d-surface: #141519;
   --d-raised: #1C1C1E;
-  --d-raised-2: #232326;
-  --d-border: #27272A;
-  --d-border-2: #1F1F22;
-  --d-text: #FAFAFA;
-  --d-text-2: #D4D4D8;
-  --d-text-3: #A1A1AA;
-  --d-text-4: #71717A;
-  --d-accent: #3B82F6;
-  --d-accent-hv: #60A5FA;
-  --d-accent-bg: rgba(59,130,246,0.12);
+  --d-raised-2: #23262E;
+  --d-border: #2A2D36;
+  --d-border-2: #212329;
+  --d-text: #EDEEF0;
+  --d-text-2: #A6AAB2;
+  --d-text-3: #787C85;
+  --d-text-4: #5C606A;
+  --d-accent: #FF6700;
+  --d-accent-hv: #FF7E26;
+  --d-accent-bg: rgba(255,103,0,0.13);
   --d-success: #22C55E;
   --d-success-bg: rgba(34,197,94,0.14);
   --d-warning: #F59E0B;
@@ -31,6 +31,15 @@
   --d-shadow-card: 0 1px 2px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25);
   --d-shadow-lg:   0 4px 12px rgba(0,0,0,0.45), 0 16px 32px rgba(0,0,0,0.35);
   --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 12px;
+  --d-headline: #33363F;
+  --d-unread: #1C1F28;
+  --d-chip: #262931;
+  --d-rail:            #08090B;
+  --d-rail-border:     var(--d-border-2);
+  --d-rail-icon-active:var(--d-accent);
+  --d-rail-icon-muted: var(--d-text-2);
+  --d-rail-pill:       var(--d-accent-bg);
+  --d-rail-hover:      var(--d-raised);
   /* next/font/google loads Geist + Geist Mono and exposes them via these CSS
      variables on <html> (see apps/bridge/src/app/layout.tsx). The chain below
      consumes those vars first, then falls back if the pipeline ever fails. */
@@ -43,25 +52,25 @@
    Dark theme is completely unaffected. Zero existing code changes needed.   */
 html[data-theme="light"] {
   /* Surfaces */
-  --d-bg:      #F4F5F7;
-  --d-surface: #F8F9FB;
+  --d-bg:      #F3F3F1;
+  --d-surface: #FFFFFF;
   --d-raised:  #FFFFFF;
-  --d-raised-2:#FAFBFC;
+  --d-raised-2:#F5F5F1;
 
   /* Borders */
-  --d-border:   #E4E7EC;
-  --d-border-2: #EFF1F4;
+  --d-border:   #E8E8E2;
+  --d-border-2: #F1F1ED;
 
   /* Text */
-  --d-text:   #0B0D12;
-  --d-text-2: #4B5563;
-  --d-text-3: #6B7280;
-  --d-text-4: #9CA3AF;
+  --d-text:   #1A1A1A;
+  --d-text-2: #5C5F66;
+  --d-text-3: #94979E;
+  --d-text-4: #B4B4AE;
 
   /* Accent */
-  --d-accent:    #2563EB;
-  --d-accent-hv: #1D4ED8;
-  --d-accent-bg: #EFF4FF;
+  --d-accent:    #FF6700;
+  --d-accent-hv: #FF7E26;
+  --d-accent-bg: rgba(255,103,0,0.10);
 
   /* Semantic */
   --d-success:    #047857;
@@ -77,6 +86,17 @@ html[data-theme="light"] {
   --d-note-bg:   #FEF7E6;
   --d-note-line: #D97706;
   --d-note-text: #92400E;
+
+  /* New tokens (light overrides) */
+  --d-headline: #E6E6DF;
+  --d-unread:   #FCFCFA;
+  --d-chip:     #F4F4F1;
+  --d-rail:            #FBFBF9;
+  --d-rail-border:     #E8E8E2;
+  --d-rail-icon-active:#1A1A1A;
+  --d-rail-icon-muted: #9A9DA3;
+  --d-rail-pill:       rgba(0,0,0,0.065);
+  --d-rail-hover:      rgba(0,0,0,0.04);
 
   /* Shadows (replace tone-only elevation from dark) */
   --d-shadow-card: 0 1px 3px rgba(16,24,40,0.07), 0 4px 12px rgba(16,24,40,0.08);
@@ -147,24 +167,18 @@ h3 { letter-spacing: -0.01em; line-height: 1.25; }
 .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.01em; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
-/* Dark pill colours (default) */
-.d-new    { color: #FCA5A5; background: rgba(239,68,68,0.14); }
-.d-open   { color: #93C5FD; background: rgba(59,130,246,0.14); }
-.d-prog   { color: #FCD34D; background: rgba(245,158,11,0.14); }
-.d-wait   { color: #C4B5FD; background: rgba(167,139,250,0.16); }
-.d-res    { color: #86EFAC; background: rgba(34,197,94,0.14); }
-.d-urgent { color: #FCA5A5; background: rgba(239,68,68,0.14); }
-
-/* Light pill overrides */
-html[data-theme="light"] .d-new    { color: #B91C1C; background: #FEF2F2; }
-html[data-theme="light"] .d-open   { color: #1D4ED8; background: #EFF4FF; }
-html[data-theme="light"] .d-prog   { color: #B45309; background: #FEF3C7; }
-html[data-theme="light"] .d-wait   { color: #6D28D9; background: #F3EEFF; }
-html[data-theme="light"] .d-res    { color: #047857; background: #ECFDF5; }
-html[data-theme="light"] .d-urgent { color: #B91C1C; background: #FEF2F2; }
+/* Pill colours — alpha-tint approach works in both light and dark themes */
+.d-new    { color: #FF6700; background: rgba(255,103,0,0.13); }
+.d-open   { color: #3B82F6; background: rgba(59,130,246,0.13); }
+.d-prog   { color: #E08A1E; background: rgba(224,138,30,0.13); }
+.d-wait   { color: #8B5CF6; background: rgba(139,92,246,0.13); }
+.d-res    { color: #21A359; background: rgba(33,163,89,0.13); }
+.d-closed { color: #7E8590; background: rgba(126,133,144,0.13); }
+.d-urgent { color: #EF4444; background: rgba(239,68,68,0.13); }
 
 /* ─── SHIMMER ────────────────────────────────────────────────────────────── */
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 .shimmer {
   background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 100%);
   background-size: 200% 100%;
@@ -203,3 +217,7 @@ html[data-theme="light"] .shimmer {
 .msg-html ol { margin: 4px 0 4px 20px; padding: 0; list-style-type: decimal; }
 .msg-html a { color: var(--d-accent); text-decoration: underline; }
 .msg-html div + div { margin-top: 2px; }
+
+/* ─── HELPERS ─────────────────────────────────────────────────────────────── */
+.tnum { font-variant-numeric: tabular-nums; }
+[data-inbox-row]:focus-visible { outline: 2px solid var(--d-accent); outline-offset: -2px; }

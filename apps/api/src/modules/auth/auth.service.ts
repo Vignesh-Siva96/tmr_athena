@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, InternalServerErrorException, ConflictException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, InternalServerErrorException, ConflictException, BadRequestException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as crypto from 'crypto'
 import { PrismaService } from '../database/prisma.service'
@@ -8,7 +8,7 @@ import { MagicTokenType } from '@prisma/client'
 import type { User, Agent } from '@prisma/client'
 import { decrypt } from '../../common/crypto/credentials-cipher'
 import { AppConfigService } from '../config/config.service'
-import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto, SsoDto } from './auth.dto'
+import type { SignupDto, SigninDto, GoogleAuthDto, GuestDto, AgentSigninDto, AgentGoogleDto, SsoDto, AcceptInviteDto } from './auth.dto'
 
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // 24h
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1h
@@ -413,6 +413,22 @@ export class AuthService {
     if (!claims.jti) throw new UnauthorizedException('SSO token missing jti claim')
 
     return claims as SsoTokenClaims
+  }
+
+  async acceptAgentInvite(dto: AcceptInviteDto): Promise<{ agent: Omit<Agent, 'password'>; token: string }> {
+    const agent = await this.db.agent.findUnique({ where: { inviteToken: dto.token } })
+    if (!agent) throw new BadRequestException('Invalid or expired invite link')
+    if (!agent.isActive) throw new BadRequestException('This invitation is no longer active')
+
+    const hashedPassword = await this.hashPassword(dto.password)
+    const updated = await this.db.agent.update({
+      where: { id: agent.id },
+      data: { password: hashedPassword, inviteAccepted: true, inviteToken: null, isActive: true },
+    })
+
+    await this.db.agent.update({ where: { id: updated.id }, data: { lastActiveAt: new Date() } })
+    const token = this.issueToken({ sub: updated.id, role: 'agent' })
+    return { agent: omitPassword(updated), token }
   }
 
   async ssoAuth(dto: SsoDto): Promise<{ user: Omit<User, 'password'>; token: string; isNew: boolean }> {

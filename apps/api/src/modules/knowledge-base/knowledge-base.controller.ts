@@ -258,7 +258,7 @@ export class KnowledgeBaseController {
   }
 
   private async runManualScan(url: string): Promise<void> {
-    await this.indexer.scanPage(url)
+    const scannedChunks = await this.indexer.scanPage(url)
 
     // Refresh cost estimate in AppConfig
     const cfg = await this.getAppConfig()
@@ -266,6 +266,17 @@ export class KnowledgeBaseController {
 
     // Only update if we're in a state where it's relevant
     if (cfg.kbPhase === 'IDLE' || cfg.kbPhase === 'AWAITING_CONFIRM' || cfg.kbPhase === 'DONE') {
+      if (scannedChunks === 0 && chunkCount === 0) {
+        // URL was unreachable or returned no content — surface a clear error
+        await this.db.appConfig.update({
+          where: { id: cfg.id },
+          data: {
+            kbPhase: 'FAILED',
+            kbError: `Could not reach ${url} — check the URL is valid and publicly accessible`,
+          },
+        })
+        return
+      }
       await this.db.appConfig.update({
         where: { id: cfg.id },
         data: {

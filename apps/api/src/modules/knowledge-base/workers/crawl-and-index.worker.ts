@@ -167,6 +167,19 @@ export class CrawlAndIndexWorker implements OnModuleInit {
         // Compute cost estimate from pending SCANNED chunks
         const { chunkCount, tokenEstimate, costUsd } = await this.indexer.estimatePendingCost()
 
+        if (chunkCount === 0) {
+          await this.db.appConfig.update({
+            where: { id: cfg.id },
+            data: {
+              kbPhase: 'FAILED',
+              kbScanPagesSeen: pagesSeen,
+              kbError: `Could not reach ${rootUrl} — check the URL is valid and publicly accessible`,
+            },
+          })
+          this.logger.warn(`KB_SCAN_QUEUE: 0 chunks scanned from ${rootUrl} — marking FAILED`)
+          return
+        }
+
         await this.db.appConfig.update({
           where: { id: cfg.id },
           data: {
