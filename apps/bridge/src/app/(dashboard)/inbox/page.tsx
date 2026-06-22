@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useMemo, useRef, useCallback, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Search, X } from 'lucide-react'
+import { ChevronDown, Search, X, Github } from 'lucide-react'
 import { CategoryPill, STATUS_CLS, STATUS_LABEL, CAT_LABEL, UserCategoryBadge } from '@/components/dashboard/TicketPreviewPanel'
 import { EmailNotConfiguredGate } from '@/components/dashboard/EmailNotConfiguredGate'
 import { useAuth } from '@/lib/auth'
@@ -24,6 +24,7 @@ interface TicketListItem {
   status: TicketStatus; priority: TicketPriority; category: TicketCategory
   field2?: string | null; assignee?: Assignee | null; user: TicketUser
   tags?: Tag[]
+  githubUpdatePending?: boolean
   hasUnreadReply: boolean; updatedAt: string
   lastMessage?: { body: string; createdAt: string } | null
   dismissedAt?: string | null
@@ -442,7 +443,15 @@ function InboxInner() {
 
                             {/* Meta column: timestamp on top, status pill + assignee below */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                              <span className="tnum" style={{ fontSize: 11, color: 'var(--d-text-4)', whiteSpace: 'nowrap' }}>{timeAgo(t.updatedAt)}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {t.githubUpdatePending && (
+                                  <span title="Linked GitHub issue updated" style={{ position: 'relative', display: 'inline-flex', color: 'var(--d-text-3)' }}>
+                                    <Github size={13} />
+                                    <span style={{ position: 'absolute', top: -2, right: -3, width: 6, height: 6, borderRadius: '50%', background: 'var(--d-accent)', border: '1.5px solid var(--d-bg)' }} />
+                                  </span>
+                                )}
+                                <span className="tnum" style={{ fontSize: 11, color: 'var(--d-text-4)', whiteSpace: 'nowrap' }}>{timeAgo(t.updatedAt)}</span>
+                              </div>
                               {(t.isTicket || t.assignee) && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                   {t.isTicket && (

@@ -73,6 +73,16 @@ export class TicketsController {
     return this.ticketsService.update(id, dto)
   }
 
+  @Post(':id/github/acknowledge')
+  @UseGuards(AgentGuard)
+  acknowledgeGithub(
+    @CurrentAgent() agent: Agent,
+    @Param('id') id: string,
+  ) {
+    if (!agent) throw new ForbiddenException('Agent access required')
+    return this.ticketsService.acknowledgeGithubUpdate(id)
+  }
+
   @Post(':id/convert')
   @UseGuards(AgentGuard)
   convert(

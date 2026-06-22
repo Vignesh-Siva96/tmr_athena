@@ -80,7 +80,10 @@ RespondToNewTicketWorker
         │       ├─ Gate 5: any citation outside kbRootUrl origin → ESCALATE (anti-fabrication)
         │       │
         │       ├─ ANSWER: appendSource() adds "Learn more:" link from citations[0]
-        │       │          → create Message(authorBotName), status → WAITING, send email
+        │       │          (label = chunk.headingPath, sanitized via stripInlineMarkdown
+        │       │           so anchor-linked headings don't leak markdown — see R259)
+        │       │          → create Message(body=markdown, bodyHtml=MarkdownService.render),
+        │       │            status → WAITING, send email (HTML body — see email.md / R258)
         │       └─ ESCALATE: ShiftResolverService → assign ticket, create SYSTEM_EVENT
         │
         └─ Write BotInteraction audit row (always)
@@ -109,7 +112,8 @@ CrawlAndIndexWorker
                 ├─ fetch HTML (or skip if contentHash unchanged)
                 ├─ ChunkerService.chunk(html, url)
                 │       ├─ Turndown HTML → Markdown
-                │       ├─ Split on H2/H3 boundaries
+                │       ├─ Split on H2/H3 boundaries (heading text run through
+                │       │   stripInlineMarkdown first → clean headingPath + anchor; R259)
                 │       ├─ Merge undersized (<200 tokens) with sibling
                 │       ├─ Split oversized (>800 tokens) at paragraph boundary
                 │       └─ Never split mid-code-block

@@ -44,12 +44,16 @@ async function makeService(db: Record<string, unknown>) {
   const config = { get: vi.fn().mockReturnValue(undefined) }
   const appConfigService = { get: vi.fn().mockResolvedValue(GOOGLE_CONFIG) }
   const tokenRefresher = { getValidAccessToken: vi.fn().mockResolvedValue('access-tok') }
+  const dbObj = db as { attachment?: unknown }
+  if (!dbObj.attachment) dbObj.attachment = { findMany: vi.fn().mockResolvedValue([]) }
+  const files = { getAttachmentBuffer: vi.fn() }
   // mailCapture omitted (undefined) so send() takes the Gmail API path, not capture.
   return new EmailService(
     config as never,
     appConfigService as never,
     db as never,
     tokenRefresher as never,
+    files as never,
   )
 }
 

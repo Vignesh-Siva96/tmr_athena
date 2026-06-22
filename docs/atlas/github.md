@@ -2,7 +2,7 @@
 title: GitHub
 stack: [Octokit, NestJS, HMAC-SHA256, OAuth]
 status: working
-last-reviewed: 2026-05-21
+last-reviewed: 2026-06-22
 ---
 
 # GitHub
@@ -13,8 +13,9 @@ Two-way connection between a ticket and a GitHub Issue:
 
 1. **OAuth connect**: admin in Bridge clicks "Connect GitHub" → standard OAuth code-exchange flow → access token stored in `AppConfig`.
 2. **Issue creation / linking**: from a ticket's GitHub panel, the agent creates a new issue in the configured default repo, or links an existing issue by URL / `owner/repo#123`.
-3. **Webhook**: GitHub fires `issues` events at our endpoint. When a `fix-deployed` label is added to a linked issue, we create an in-app `Notification` for every agent and surface an amber banner on the ticket.
-4. **Pending-confirmation flag**: agent can click "Mark pending customer confirmation" on a ticket — adds a `pending-customer-confirmation` label on the linked issue (and removes `fix-deployed` simultaneously).
+3. **Webhook → attention flag**: GitHub fires `issues` events at our endpoint. When a developer changes a **label** or the **open/closed state** of a *linked* issue, we sync the issue's live labels + state onto the ticket, append a `GithubIssueEvent` to an activity timeline, raise a **separate attention flag** (`Ticket.githubUpdatePending`) — deliberately **without** touching the workflow `TicketStatus` — and create a `GITHUB_ISSUE_UPDATED` notification. The agent reviews the change and decides the next step; the flag clears on acknowledge or when the agent opens the ticket.
+
+There is **no label configuration** and **no agent→GitHub label push** — a label is just a signal that surfaces the issue change to the agent, not a mapping to an automated action.
 
 ## Stack
 
@@ -49,7 +50,7 @@ sequenceDiagram
 
 The callback page uses a `cancelled` ref so React Strict Mode double-invocation doesn't double-exchange the code, and the fetch has a 15s wrapper timeout in addition to the 10s SDK timeout.
 
-## Webhook flow (fix-deployed)
+## Webhook flow (label / state change → attention flag)
 
 ```mermaid
 sequenceDiagram
@@ -58,22 +59,19 @@ sequenceDiagram
   participant API as GithubController
   participant Svc as GithubService
   participant DB as Postgres
-  participant Bridge as Bridge (polls /notifications)
+  participant Bridge as Bridge (SSE + bell)
 
-  GitHub->>API: POST /api/v1/github/webhook<br/>X-Hub-Signature-256: sha256=…<br/>{event=issues, action=labeled, label=fix-deployed}
+  GitHub->>API: POST /api/v1/github/webhook<br/>X-Hub-Signature-256: sha256=…<br/>{event=issues, action=labeled|closed|…}
   API->>API: verify HMAC against rawBody + appConfig.githubWebhookSecret
-  API->>Svc: handle event
-  Svc->>DB: find Ticket via GithubIssue.issueNumber + repo
-  Svc->>DB: INSERT Notification(type=GITHUB_FIX_DEPLOYED,<br/>ticketId, repoUrl, issueNumber)
-  Svc->>DB: UPDATE AppConfig.webhookVerifiedAt = now()
+  API->>Svc: handleIssueEvent (labeled/unlabeled/opened/closed/reopened)
+  Svc->>DB: find GithubIssue by issueNumber + repo (must be linked)
+  Svc->>DB: $transaction:<br/>1. UPDATE GithubIssue.labels + state + lastSyncedAt<br/>2. INSERT GithubIssueEvent (summary, actor, old/new state)<br/>3. UPDATE Ticket.githubUpdatePending=true (status untouched)
+  Svc->>DB: createAndBroadcast Notification(type=GITHUB_ISSUE_UPDATED)
+  Svc-->>Bridge: SSE notification-created
   API-->>GitHub: 200 OK
-  loop every 30s
-    Bridge->>API: GET /notifications + /notifications/unread-count
-    API-->>Bridge: list with new fix-deployed event
-  end
 ```
 
-The same path handles the inverse: when an agent presses "Mark pending" on a ticket, we call Octokit to add `pending-customer-confirmation` and remove `fix-deployed`. The next webhook for `unlabeled` arrives and we silently no-op (already reflected in DB).
+Only **linked** issues react; events for unknown issues are a no-op 200. Unhandled `issues` actions (assigned, milestoned, edited, …) are ignored. The flag is cleared by `POST /tickets/:id/github/acknowledge` (the card's "Acknowledge" button) or automatically the next time an **agent** opens the ticket (`findById`); portal/customer reads never clear it.
 
 ## Issue creation from a ticket
 
@@ -92,19 +90,19 @@ flowchart LR
   UnlinkAPI --> DB
 ```
 
-A linked issue can be removed again via `DELETE /tickets/:id/github/link` (`GithubService.unlinkIssue()`), and `POST /tickets/:id/github/pending` marks the linked issue as pending-customer-confirmation (applies the configured pending label).
+A linked issue can be removed again via `DELETE /tickets/:id/github/link` (`GithubService.unlinkIssue()`). Creating or linking an issue also captures its current labels onto `GithubIssue.labels` so the ticket card renders them immediately.
 
 ## Key files
 
 | File | Role |
 |---|---|
-| [`apps/api/src/modules/github/github.controller.ts`](../../apps/api/src/modules/github/github.controller.ts) | All HTTP — OAuth, webhook, issue link, label management |
-| [`apps/api/src/modules/github/github.service.ts`](../../apps/api/src/modules/github/github.service.ts) | Octokit calls, webhook HMAC verify, label add/remove |
+| [`apps/api/src/modules/github/github.controller.ts`](../../apps/api/src/modules/github/github.controller.ts) | HTTP — OAuth, webhook, issue create/link/unlink, webhook secret |
+| [`apps/api/src/modules/github/github.service.ts`](../../apps/api/src/modules/github/github.service.ts) | Octokit calls, webhook HMAC verify, label/state sync + event/flag/notification |
+| [`apps/api/src/modules/tickets/tickets.service.ts`](../../apps/api/src/modules/tickets/tickets.service.ts) | `acknowledgeGithubUpdate`, agent-open auto-clear, ticket-detail `githubIssue.events`, portal DTO guard |
 | [`apps/api/src/main.ts`](../../apps/api/src/main.ts) | `rawBody: true` enabled (required for signature verification) |
-| [`apps/bridge/src/app/settings/github/page.tsx`](../../apps/bridge/src/app/settings/github/page.tsx) | OAuth connect UI, default repo dropdown, webhook secret panel, label config |
-| [`apps/bridge/src/app/settings/github/callback/page.tsx`](../../apps/bridge/src/app/settings/github/callback/page.tsx) | OAuth callback → token exchange |
-| [`apps/bridge/src/app/github/page.tsx`](../../apps/bridge/src/app/github/page.tsx) | "Action Needed" page (notifications + ticket context split view) |
-| [`apps/bridge/src/components/dashboard/NotificationsPanel.tsx`](../../apps/bridge/src/components/dashboard/NotificationsPanel.tsx) | Slide-over notifications list |
+| [`apps/bridge/src/app/(dashboard)/settings/github/page.tsx`](../../apps/bridge/src/app/(dashboard)/settings/github/page.tsx) | OAuth connect UI, default repo dropdown, webhook secret panel |
+| [`apps/bridge/src/app/(dashboard)/tickets/[id]/page.tsx`](../../apps/bridge/src/app/(dashboard)/tickets/[id]/page.tsx) | Linked-issue card: live labels, attention banner + Acknowledge, activity timeline, header badge |
+| [`apps/bridge/src/components/dashboard/NotificationsPanel.tsx`](../../apps/bridge/src/components/dashboard/NotificationsPanel.tsx) | Type-driven slide-over notifications list (bell), opened from the rail |
 
 ## Endpoints
 
@@ -112,7 +110,7 @@ See `GithubController` in [_generated/api-routes.md](_generated/api-routes.md#gi
 
 ## Data model touched
 
-`AppConfig` (`githubWebhookSecret`, `webhookVerifiedAt`, `fixDeployedLabel`, `pendingConfirmationLabel`), `GithubIssue` (ticket ↔ issue link with `owner`, `repo`, `issueNumber`), `Notification` (fix-deployed events; `NotificationRead` per-agent), `Ticket` (via the `GithubIssue` relation). See [_generated/erd.md](_generated/erd.md).
+`AppConfig` (`githubWebhookSecret`, `webhookVerifiedAt`), `GithubIssue` (ticket ↔ issue link with `repo`, `issueNumber`, current `labels` JSON, `state`, `lastSyncedAt`), `GithubIssueEvent` (append-only activity timeline per issue), `Notification` (`GITHUB_ISSUE_UPDATED`; `NotificationRead` per-agent), `Ticket` (`githubUpdatePending` + `githubUpdatedAt` attention flag, plus the `GithubIssue` relation). See [_generated/erd.md](_generated/erd.md).
 
 ## Environment variables
 
@@ -127,13 +125,16 @@ The webhook secret lives in DB (`AppConfig.githubWebhookSecret`), not env — ad
 ## Notable decisions
 
 - **rawBody at the Nest level** — required for HMAC verification because any JSON re-serialization would produce different bytes than GitHub signed.
-- **Label names are config-driven** (`fixDeployedLabel`, `pendingConfirmationLabel`) — not hardcoded — so each org can use their own label vocabulary.
+- **Attention flag, not status** — a label/state change raises `Ticket.githubUpdatePending` (a dedicated marker), never the workflow `TicketStatus`. Analytics, the bot, and kanban all bucket on `TicketStatus`; injecting GitHub state into it would corrupt those. The agent stays in control of the real next step.
+- **`GithubIssueEvent` is a table, not a JSON column** — appends stay atomic under GitHub's near-simultaneous webhook deliveries, and the timeline is ordered/queryable.
+- **No label configuration / no agent→GitHub push** — deliberately dropped. The old `fixDeployedLabel` / `pendingConfirmationLabel` config and the "Mark pending confirmation" button are gone; a label is purely an inbound signal.
+- **Acknowledge lives on the tickets controller** (`POST /tickets/:id/github/acknowledge`) and agent-open auto-clears the flag, because it mutates `Ticket` and rides the existing `findById` path.
 - **Webhook tunnel for local dev is manual** — ngrok or Cloudflare Tunnel; set the tunnel URL as `NEXT_PUBLIC_API_URL` and into GitHub's webhook config.
-- **Notifications are global** (every agent sees every fix-deployed event). Per-agent scoping wasn't worth the complexity for a single-tenant app.
+- **Notifications are global** (every agent sees every event). Per-agent scoping wasn't worth the complexity for a single-tenant app.
 - **OAuth callback fix** — switched from raw `https.request` (no timeout, would hang forever) to `fetch` + `AbortSignal.timeout(10s)`; the callback page also has a 15s outer timeout + `cancelled` ref to handle React Strict Mode double-invocation.
 
 ## Known gaps
 
-- No GitHub Analytics view yet (Phase 2) — issue volume by destination/connector, resolution time trends.
 - No webhook secret rotation flow with grace period — regenerating invalidates immediately.
 - Issue link supports only one issue per ticket — a ticket needing multiple linked issues falls back to manual mention in messages.
+- Label colours come from the webhook payload; if a label is recoloured in GitHub without any issue event, the stored colour can drift until the next event re-syncs.

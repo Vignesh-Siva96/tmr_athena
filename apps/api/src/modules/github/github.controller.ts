@@ -83,14 +83,6 @@ export class GithubController {
     return this.githubService.generateWebhookSecret()
   }
 
-  @Patch('github/webhook-config')
-  @UseGuards(AuthGuard, AgentGuard, AdminGuard)
-  updateWebhookConfig(
-    @Body() dto: { fixDeployedLabel?: string; pendingConfirmationLabel?: string },
-  ) {
-    return this.githubService.updateWebhookConfig(dto)
-  }
-
   // --- Ticket GitHub routes ---
 
   @Post('tickets/:id/github/issues')
@@ -115,13 +107,5 @@ export class GithubController {
   @UseGuards(AuthGuard, AgentGuard)
   unlinkIssue(@Param('id') id: string) {
     return this.githubService.unlinkIssue(id)
-  }
-
-  // --- Mark issue as pending-customer-confirmation ---
-
-  @Post('tickets/:id/github/pending')
-  @UseGuards(AuthGuard, AgentGuard)
-  markIssuePending(@Param('id') id: string) {
-    return this.githubService.markIssuePending(id)
   }
 }

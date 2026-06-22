@@ -1,13 +1,15 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { X, ArrowUpRight } from 'lucide-react'
+import { X, ArrowUpRight, Github, TrendingDown, Bell } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import Link from 'next/link'
 
-interface GithubNotification {
+type NotificationType = 'GITHUB_ISSUE_UPDATED' | 'CHURN_RISK_DETECTED'
+
+interface Notification {
   id: string
-  type: 'GITHUB_FIX_DEPLOYED'
+  type: NotificationType
   title: string
   body: string | null
   isRead: boolean
@@ -23,6 +25,12 @@ interface GithubNotification {
   githubIssueTitle: string | null
 }
 
+// Type-driven presentation so the panel renders any notification kind from one map.
+const TYPE_META: Record<NotificationType, { label: string; color: string; bg: string; icon: typeof Github }> = {
+  GITHUB_ISSUE_UPDATED: { label: 'GitHub', color: 'var(--d-warning)', bg: 'var(--d-warning-bg)', icon: Github },
+  CHURN_RISK_DETECTED: { label: 'Churn risk', color: 'var(--d-danger)', bg: 'var(--d-danger-bg)', icon: TrendingDown },
+}
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
@@ -36,12 +44,12 @@ interface Props { onClose: () => void }
 
 export function NotificationsPanel({ onClose }: Props) {
   const { token } = useAuth()
-  const [notifications, setNotifications] = useState<GithubNotification[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const load = useCallback(() => {
     if (!token) return
-    api.get<GithubNotification[]>('/notifications', token)
+    api.get<Notification[]>('/notifications', token)
       .then(setNotifications)
       .catch(console.error)
       .finally(() => setIsLoading(false))
@@ -79,7 +87,7 @@ export function NotificationsPanel({ onClose }: Props) {
 
       {/* Panel */}
       <div style={{
-        position: 'fixed', left: 220, top: 0, bottom: 0, width: 400,
+        position: 'fixed', left: 48, top: 0, bottom: 0, width: 400,
         background: 'var(--d-surface)', borderRight: '1px solid var(--d-border)',
         zIndex: 61, display: 'flex', flexDirection: 'column',
         boxShadow: '4px 0 24px rgba(0,0,0,0.4)',
@@ -90,15 +98,13 @@ export function NotificationsPanel({ onClose }: Props) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <svg height="18" width="18" viewBox="0 0 16 16" fill="var(--d-text)">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-            </svg>
-            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--d-text)' }}>GitHub Notifications</span>
+            <Bell size={18} style={{ color: 'var(--d-text)' }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--d-text)' }}>Notifications</span>
             {unread.length > 0 && (
               <span style={{
                 fontSize: 11, fontWeight: 700, padding: '2px 7px',
                 borderRadius: 999,
-                background: 'rgba(239,68,68,0.15)', color: '#FCA5A5',
+                background: 'var(--d-accent-bg)', color: 'var(--d-accent)',
               }}>
                 {unread.length} new
               </span>
@@ -140,21 +146,22 @@ export function NotificationsPanel({ onClose }: Props) {
               alignItems: 'center', justifyContent: 'center',
               height: '60%', gap: 12, color: 'var(--d-text-4)',
             }}>
-              <svg height="36" width="36" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.3 }}>
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-              </svg>
-              <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>No GitHub notifications</p>
-              <p style={{ fontSize: 13, color: 'var(--d-text-4)', margin: 0 }}>Label issues fix-deployed to get notified</p>
+              <Bell size={36} style={{ opacity: 0.3 }} />
+              <p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>No notifications</p>
+              <p style={{ fontSize: 13, color: 'var(--d-text-4)', margin: 0 }}>You&apos;re all caught up</p>
             </div>
           ) : (
             <div style={{ padding: '8px 0' }}>
-              {notifications.map((n) => (
+              {notifications.map((n) => {
+                const meta = TYPE_META[n.type] ?? TYPE_META.GITHUB_ISSUE_UPDATED
+                const Icon = meta.icon
+                return (
                 <div
                   key={n.id}
                   style={{
                     padding: '14px 20px',
                     borderBottom: '1px solid var(--d-border-2)',
-                    background: n.isRead ? 'transparent' : 'rgba(59,130,246,0.06)',
+                    background: n.isRead ? 'transparent' : 'rgba(255,103,0,0.05)',
                     borderLeft: n.isRead ? '3px solid transparent' : '3px solid var(--d-accent)',
                     opacity: n.isRead ? 0.5 : 1,
                   }}
@@ -164,25 +171,28 @@ export function NotificationsPanel({ onClose }: Props) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
                           fontSize: 11, fontWeight: 600, padding: '2px 7px',
                           borderRadius: 999,
-                          background: 'var(--d-success-bg)', color: 'var(--d-success)',
-                          border: '1px solid var(--d-success)',
+                          background: meta.bg, color: meta.color,
+                          border: `1px solid ${meta.color}`,
                         }}>
-                          fix-deployed
+                          <Icon size={11} /> {meta.label}
                         </span>
                         {!n.isRead && (
                           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--d-accent)', flexShrink: 0 }} />
                         )}
                       </div>
-                      {n.githubIssueTitle && (
-                        <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--d-text)', margin: '0 0 4px', lineHeight: 1.4 }}>
-                          {n.githubRepo}#{n.githubIssueNumber} — {n.githubIssueTitle}
+                      <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--d-text)', margin: '0 0 4px', lineHeight: 1.4 }}>
+                        {n.title}
+                      </p>
+                      {n.body && (
+                        <p style={{ fontSize: 12, color: 'var(--d-text-2)', margin: '0 0 4px', lineHeight: 1.4 }}>
+                          {n.body}
                         </p>
                       )}
                       {n.ticket && (
                         <p style={{ fontSize: 12, color: 'var(--d-text-3)', margin: 0 }}>
-                          Linked to{' '}
                           <span className="mono" style={{ color: 'var(--d-accent)' }}>TMR-{n.ticket.ref}</span>
                           {' '}· {n.ticket.user.name ?? n.ticket.user.email}
                         </p>
@@ -198,7 +208,7 @@ export function NotificationsPanel({ onClose }: Props) {
                     <div style={{ display: 'flex', gap: 8 }}>
                       <Link
                         href={`/tickets/${n.ticket.id}`}
-                        onClick={() => { void markRead(n.id) }}
+                        onClick={() => { void markRead(n.id); onClose() }}
                         style={{
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                           height: 28, padding: '0 12px',
@@ -212,7 +222,8 @@ export function NotificationsPanel({ onClose }: Props) {
                     </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

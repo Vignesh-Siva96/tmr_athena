@@ -7,6 +7,12 @@ import { PortalNav } from '@/components/portal/PortalNav'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { sanitizeHtml, isHtmlBody } from '@tmr/ui/sanitize'
+import { useAppConfig, type DropdownOption } from '@/lib/brand'
+
+/** Resolve a stored field value to its configured display label, falling back to the raw value. */
+function labelForValue(value: string, options: DropdownOption[]): string {
+  return options.find((o) => o.value === value)?.label ?? value
+}
 
 type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketCategory = 'BUG_REPORT' | 'FEATURE_REQUEST' | 'QUESTION' | 'BILLING' | 'OTHER'
@@ -145,6 +151,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const { id } = use(params)
   const router = useRouter()
   const { user, token, isLoading: authLoading } = useAuth()
+  const appConfig = useAppConfig()
   const [ticket, setTicket] = useState<TicketDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hasContent, setHasContent] = useState(false)
@@ -585,8 +592,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               <p style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--p-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', margin: '0 0 12px' }}>Details</p>
               {[
                 { label: 'Category', value: `${CATEGORY_ICONS[ticket.category]} ${CATEGORY_LABELS[ticket.category]}` },
-                ...(ticket.field1 ? [{ label: 'Field 1', value: ticket.field1 }] : []),
-                ...(ticket.field2 ? [{ label: 'Field 2', value: ticket.field2 }] : []),
+                ...(ticket.field1 ? [{ label: appConfig.field1Label || 'Field 1', value: labelForValue(ticket.field1, appConfig.field1Options) }] : []),
+                ...(ticket.field2 ? [{ label: appConfig.field2Label || 'Field 2', value: labelForValue(ticket.field2, appConfig.field2Options) }] : []),
                 { label: 'Opened', value: new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) },
               ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>

@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox } from 'lucide-react'
+import { LifeBuoy, Settings, LogOut, BarChart2, Activity, Users, Inbox, Bell } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { useBackfillStatus } from '@/lib/useBackfillStatus'
@@ -10,28 +10,9 @@ import { NotificationsPanel } from './NotificationsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = 'tickets' | 'customers' | 'github' | 'analytics' | 'settings'
+type Section = 'tickets' | 'customers' | 'analytics' | 'settings'
 
 interface Stats { byStatus: Record<string, number>; byCategory: Record<string, number>; unassigned: number; newCount?: number }
-
-interface GithubNotif {
-  id: string; isRead: boolean; createdAt: string; githubRepo: string | null
-  githubIssueNumber: number | null; githubIssueTitle: string | null
-  ticket: { id: string; ref: string } | null
-}
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const OCTOCAT = 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
 
 // ─── Main sidebar ─────────────────────────────────────────────────────────────
 
@@ -42,9 +23,6 @@ export function DashboardSidebar() {
 
   const [stats, setStats] = useState<Stats | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [notifications, setNotifications] = useState<GithubNotif[]>([])
-  const [notifsLoaded, setNotifsLoaded] = useState(false)
-  const [githubConnected, setGithubConnected] = useState(false)
   const [activeSection, setActiveSection] = useState<Section>('tickets')
   const [showFullNotifs, setShowFullNotifs] = useState(false)
   const [appName, setAppName] = useState('TMR Support')
@@ -55,7 +33,6 @@ export function DashboardSidebar() {
   // Auto-detect section from pathname
   useEffect(() => {
     if (pathname.startsWith('/analytics')) setActiveSection('analytics')
-    else if (pathname.startsWith('/github')) setActiveSection('github')
     else if (pathname.startsWith('/customers')) setActiveSection('customers')
     else if (pathname.startsWith('/settings')) setActiveSection('settings')
     else setActiveSection('tickets')
@@ -65,8 +42,6 @@ export function DashboardSidebar() {
     if (!token) return
     const loadStats = () => api.get<Stats>('/tickets/stats', token).then(setStats).catch(() => {})
     loadStats()
-    api.get<{ connected: boolean }>('/github/status', token)
-      .then((r) => setGithubConnected(r.connected)).catch(() => {})
     api.get<{ appName: string; logoUrl: string | null }>('/config', token)
       .then((r) => { setAppName(r.appName || 'TMR Support'); setAppLogo(r.logoUrl) })
       .catch(() => {})
@@ -100,33 +75,7 @@ export function DashboardSidebar() {
     return () => clearInterval(interval)
   }, [fetchUnread])
 
-  // Load notifications when GitHub section opens
-  useEffect(() => {
-    if (activeSection !== 'github' || notifsLoaded || !token) return
-    api.get<GithubNotif[]>('/notifications', token)
-      .then((n) => { setNotifications(n); setNotifsLoaded(true) })
-      .catch(() => {})
-  }, [activeSection, notifsLoaded, token])
-
-  const totalOpen = stats ? (stats.byStatus['OPEN'] ?? 0) + (stats.byStatus['IN_PROGRESS'] ?? 0) + (stats.byStatus['WAITING'] ?? 0) : undefined
-  void totalOpen
-  const totalAll = stats ? Object.values(stats.byStatus).reduce((a, b) => a + b, 0) : undefined
-  void totalAll
   const newBadge = stats ? (stats.newCount ?? 0) : 0
-
-  const markRead = async (id: string) => {
-    if (!token) return
-    await api.patch(`/notifications/${id}/read`, {}, token)
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, isRead: true } : n))
-    setUnreadCount((c) => Math.max(0, c - 1))
-  }
-
-  const markAllRead = async () => {
-    if (!token) return
-    await api.patch('/notifications/read-all', {}, token)
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
-    setUnreadCount(0)
-  }
 
   // ─── Rail button ───────────────────────────────────────────────────────────
 
@@ -189,11 +138,30 @@ export function DashboardSidebar() {
             )}
           </div>
           <RailBtn section="customers" icon={<Users size={17} />} navigateTo="/customers" />
-          <RailBtn section="github" icon={<svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor"><path d={OCTOCAT} /></svg>} badge={unreadCount} navigateTo="/github" />
           <RailBtn section="analytics" icon={<BarChart2 size={17} />} navigateTo="/analytics/operations" />
 
           {/* Spacer */}
           <div style={{ flex: 1 }} />
+
+          {/* Notifications bell */}
+          <button
+            type="button"
+            title="Notifications"
+            onClick={() => setShowFullNotifs(true)}
+            style={{
+              width: 40, height: 40, borderRadius: 'var(--r-md)', margin: '2px 4px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', border: 'none', cursor: 'pointer', position: 'relative',
+              color: 'var(--d-rail-icon-muted)', transition: 'background 120ms, color 120ms',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--d-rail-hover)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+          >
+            <Bell size={17} />
+            {unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: '50%', background: 'var(--d-accent)', border: '1.5px solid var(--d-bg)' }} />
+            )}
+          </button>
 
           {/* Agent avatar */}
           <div title={`${agent?.name ?? 'Agent'} · ${agent?.role === 'ADMIN' ? 'Admin' : 'Agent'}`}
@@ -220,41 +188,6 @@ export function DashboardSidebar() {
             <p style={{ fontSize: 11, color: 'var(--d-text-4)', margin: 0 }}>{agent?.name ?? 'Agent'} · {agent?.role === 'ADMIN' ? 'Admin' : 'Agent'}</p>
           </div>
 
-          {/* GITHUB PANEL */}
-          {activeSection === 'github' && (
-            <div style={{ padding: '8px 8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 4px 8px' }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.09em', margin: 0 }}>GitHub</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: githubConnected ? 'var(--d-success)' : 'var(--d-text-4)' }} />
-                  <Link href="/settings/github" title="Settings" style={{ color: 'var(--d-text-4)', display: 'flex' }}><Settings size={11} /></Link>
-                </div>
-              </div>
-
-              {[
-                { href: '/github', label: 'Action needed', icon: '⚡', badge: unreadCount > 0 ? unreadCount : undefined },
-                { href: '/github/dashboard', label: 'Dashboard', icon: '📊', soon: true },
-              ].map(({ href, label, icon, badge, soon }) => {
-                const active = pathname === href
-                return (
-                  <Link key={href} href={soon ? '#' : href}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 32, padding: '0 8px', borderRadius: 'var(--r-sm)', marginBottom: 1, textDecoration: 'none', background: active ? 'var(--d-accent-bg)' : 'transparent', borderLeft: active ? '2px solid var(--d-accent)' : '2px solid transparent', marginLeft: -2, pointerEvents: soon ? 'none' : 'auto', opacity: soon ? 0.5 : 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 12 }}>{icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? 'var(--d-text)' : 'var(--d-text-2)' }}>{label}</span>
-                    </div>
-                    {badge !== undefined && badge > 0
-                      ? <span style={{ minWidth: 18, height: 18, borderRadius: 999, padding: '0 4px', background: '#EF4444', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{badge}</span>
-                      : soon
-                        ? <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 999, background: 'var(--d-raised-2)', color: 'var(--d-text-4)', border: '1px solid var(--d-border)' }}>Soon</span>
-                        : null
-                    }
-                  </Link>
-                )
-              })}
-            </div>
-          )}
-
           {/* ANALYTICS PANEL */}
           {activeSection === 'analytics' && (
             <div style={{ padding: '8px 8px' }}>
@@ -278,7 +211,7 @@ export function DashboardSidebar() {
         )}
       </aside>
 
-      {showFullNotifs && <NotificationsPanel onClose={() => setShowFullNotifs(false)} />}
+      {showFullNotifs && <NotificationsPanel onClose={() => { setShowFullNotifs(false); fetchUnread() }} />}
     </>
   )
 }

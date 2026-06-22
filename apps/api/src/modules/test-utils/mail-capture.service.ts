@@ -8,6 +8,8 @@ export interface CapturedMail {
   subject?: string
   text?: string
   html?: string
+  /** Filenames of file attachments on the message (empty when none). */
+  attachments?: string[]
   headers: Record<string, string>
   raw: string
 }

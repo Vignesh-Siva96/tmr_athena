@@ -8,6 +8,7 @@ import { RetrievalService } from './retrieval.service'
 import { GeneratorService } from './generator.service'
 import { ShiftResolverService } from './shift-resolver.service'
 import { isFeatureSuppressed } from '../config/feature-flags'
+import { stripInlineMarkdown } from '../knowledge-base/chunker.service'
 
 @Injectable()
 export class BotService {
@@ -279,8 +280,10 @@ export class BotService {
     if (!url) return cleaned
 
     const match = chunks.find((c) => c.deepUrl === url)
+    // Defensively strip any inline markdown from the heading path — chunks indexed
+    // before the chunker fix can carry `[Prerequisites](#prerequisites)` as a heading.
     const label = match?.headingPath?.length
-      ? match.headingPath.join(' › ')
+      ? match.headingPath.map((h) => stripInlineMarkdown(h)).join(' › ')
       : 'Read the full article'
     const href = match?.deepUrl ?? url
 

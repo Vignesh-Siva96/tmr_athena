@@ -6,6 +6,7 @@ import { AppConfigService } from '../config/config.service'
 import { PrismaService } from '../database/prisma.service'
 import { TokenRefresher } from '../email-oauth/token-refresher'
 import { MailCaptureService } from '../test-utils/mail-capture.service'
+import { FilesService } from '../files/files.service'
 import type { Ticket, Agent, Message, AppConfig, User } from '@tmr/db'
 import { formatRef } from '../tickets/util/generate-ref'
 
@@ -46,6 +47,7 @@ export class EmailService implements OnModuleInit {
     private readonly appConfigService: AppConfigService,
     private readonly db: PrismaService,
     private readonly tokenRefresher: TokenRefresher,
+    private readonly files: FilesService,
     // Test-only: present only when TestUtilsModule is loaded (NODE_ENV === 'test').
     // E2E flows assert on captured mail via GET /__test/captured-mail.
     @Optional() private readonly mailCapture?: MailCaptureService,
@@ -314,6 +316,9 @@ export class EmailService implements OnModuleInit {
           subject: mail.subject ? String(mail.subject) : undefined,
           text: typeof mail.text === 'string' ? mail.text : undefined,
           html: typeof mail.html === 'string' ? mail.html : undefined,
+          attachments: Array.isArray(mail.attachments)
+            ? mail.attachments.map((a) => String(a.filename ?? ''))
+            : [],
           headers,
           raw: JSON.stringify({ ...mail, attachments: undefined }),
         })
@@ -412,6 +417,51 @@ export class EmailService implements OnModuleInit {
       .join('\n\n')
   }
 
+  /**
+   * Derive a readable plain-text fallback from an HTML body, for mail clients that
+   * prefer `text/plain`. Keeps link URLs (`label (url)`), turns list items into dash
+   * bullets, and decodes the handful of entities `MarkdownService` emits.
+   */
+  private htmlToPlainText(html: string): string {
+    return html
+      .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '$2 ($1)')
+      .replace(/<li[^>]*>/gi, '\n- ')
+      .replace(/<\/(p|div|h[1-6]|li|ul|ol|tr)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  /**
+   * Build nodemailer attachment parts from the files an agent attached to a message.
+   * Link-type attachments (`isLink`) carry no bytes and are skipped — they live in the
+   * body, not as file parts. A single file that fails to fetch is logged and dropped
+   * rather than failing the whole send (the reply text still reaches the customer).
+   */
+  private async loadEmailAttachments(
+    messageId: string,
+  ): Promise<NonNullable<nodemailer.SendMailOptions['attachments']>> {
+    const rows = await this.db.attachment.findMany({
+      where: { messageId, isLink: false },
+    })
+    const parts: NonNullable<nodemailer.SendMailOptions['attachments']> = []
+    for (const row of rows) {
+      try {
+        const content = await this.files.getAttachmentBuffer(row)
+        parts.push({ filename: row.filename, content, contentType: row.mimeType })
+      } catch (err) {
+        this.logger.error(`Failed to load attachment ${row.id} (${row.filename}) for email: ${String(err)}`)
+      }
+    }
+    return parts
+  }
+
   /** Marks messages as delivered to the customer's email. Idempotent — only un-marked rows are touched. */
   async markMessagesEmailed(messageIds: string[]): Promise<void> {
     if (messageIds.length === 0) return
@@ -473,13 +523,16 @@ export class EmailService implements OnModuleInit {
     const msgId = this.generateMessageId(domain)
     const gmailThreadId = (ticket as unknown as { externalThreadId?: string | null }).externalThreadId ?? null
 
-    const bodyLines = [
-      message.body,
-      '',
-      `— ${appConfig.appName} Support Team`,
-    ]
+    // The reply body is HTML — either pre-rendered (`bodyHtml`, e.g. the bot's markdown)
+    // or composed directly in the agent's rich-text editor (`body`). Send it as `html`
+    // so formatting renders, with a stripped plain-text fallback for text-only clients.
+    const signature = `— ${appConfig.appName} Support Team`
+    const htmlSource = message.bodyHtml ?? message.body
+    const html = `${htmlSource}\n<p>${signature}</p>`
+    const text = `${this.htmlToPlainText(htmlSource)}\n\n${signature}`
 
     const msgCc = (message as MessageWithAgent & { cc?: string[] }).cc
+    const attachments = await this.loadEmailAttachments(message.id)
     const result = await this.send(
       {
         from: this.getFromAddress(appConfig),
@@ -489,8 +542,10 @@ export class EmailService implements OnModuleInit {
         messageId: msgId,
         inReplyTo,
         references,
-        text: bodyLines.join('\n'),
+        text,
+        html,
         ...(msgCc?.length ? { cc: msgCc } : {}),
+        ...(attachments.length ? { attachments } : {}),
       },
       appConfig,
       gmailThreadId,
@@ -520,15 +575,25 @@ export class EmailService implements OnModuleInit {
     const msgId = this.generateMessageId(domain)
     const gmailThreadId = (ticket as unknown as { externalThreadId?: string | null }).externalThreadId ?? null
 
-    const bodyLines = [
-      `Hi ${ticket.user.name ?? 'there'},`,
+    // The customer's portal reply body can be HTML — echo it back as `html` so it
+    // isn't shown as literal tags, with a plain-text fallback.
+    const greeting = `Hi ${ticket.user.name ?? 'there'},`
+    const signature = `— ${appConfig.appName} Support Team`
+    const html = [
+      `<p>${greeting}</p>`,
+      `<p>Received your response:</p>`,
+      message.body,
+      `<p>${signature}</p>`,
+    ].join('\n')
+    const text = [
+      greeting,
       '',
       `Received your response:`,
       '',
-      message.body,
+      this.htmlToPlainText(message.body),
       '',
-      `— ${appConfig.appName} Support Team`,
-    ]
+      signature,
+    ].join('\n')
 
     const result = await this.send(
       {
@@ -539,7 +604,8 @@ export class EmailService implements OnModuleInit {
         messageId: msgId,
         inReplyTo,
         references,
-        text: bodyLines.join('\n'),
+        text,
+        html,
       },
       appConfig,
       gmailThreadId,

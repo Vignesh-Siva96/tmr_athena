@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Copy, Eye, EyeOff, RefreshCw, Github, ExternalLink, Tag, Webhook, AlertCircle, CheckCircle2, Lock, Search, GitBranch } from 'lucide-react'
+import { Copy, Eye, EyeOff, RefreshCw, Github, Webhook, AlertCircle, CheckCircle2, Lock, Search, GitBranch } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { api } from '@/lib/api'
 import { Skeleton } from '@/components/Skeleton'
@@ -8,8 +8,6 @@ import { Skeleton } from '@/components/Skeleton'
 interface WebhookConfig {
   hasSecret: boolean
   webhookVerifiedAt: string | null
-  fixDeployedLabel: string
-  pendingConfirmationLabel: string
 }
 
 interface GithubStatus {
@@ -63,10 +61,6 @@ export default function GithubSettingsPage() {
   const [copiedUrl, setCopiedUrl] = useState(false)
 
   // Label config
-  const [fixLabel, setFixLabel] = useState('')
-  const [pendingLabel, setPendingLabel] = useState('')
-  const [isSavingLabels, setIsSavingLabels] = useState(false)
-  const [labelsSaved, setLabelsSaved] = useState(false)
 
   // Setup instructions
   const [showInstructions, setShowInstructions] = useState(false)
@@ -129,11 +123,7 @@ export default function GithubSettingsPage() {
   const loadConfig = useCallback(() => {
     if (!token) return
     api.get<WebhookConfig>('/github/webhook-config', token)
-      .then((res) => {
-        setConfig(res)
-        setFixLabel(res.fixDeployedLabel)
-        setPendingLabel(res.pendingConfirmationLabel)
-      })
+      .then(setConfig)
       .catch(console.error)
   }, [token])
 
@@ -213,23 +203,6 @@ export default function GithubSettingsPage() {
     await navigator.clipboard.writeText(url)
     setCopiedUrl(true)
     setTimeout(() => setCopiedUrl(false), 2000)
-  }
-
-  const handleSaveLabels = async () => {
-    if (!token) return
-    setIsSavingLabels(true)
-    try {
-      await api.patch('/github/webhook-config', {
-        fixDeployedLabel: fixLabel,
-        pendingConfirmationLabel: pendingLabel,
-      }, token)
-      setLabelsSaved(true)
-      setTimeout(() => setLabelsSaved(false), 2000)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setIsSavingLabels(false)
-    }
   }
 
   const webhookUrl = `${process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001'}/api/v1/github/webhook`
@@ -715,135 +688,6 @@ export default function GithubSettingsPage() {
         </div>
       )}
 
-      {/* Section 3 — Label Configuration */}
-      {status?.connected && (
-        <div style={cardStyle}>
-          <div style={cardHeaderStyle}>
-            <Tag size={18} style={{ color: 'var(--d-text-3)' }} />
-            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--d-text)' }}>Label Configuration</span>
-          </div>
-
-          <div style={{ padding: '20px 24px' }}>
-            <p style={{ fontSize: 13, color: 'var(--d-text-3)', marginBottom: 20 }}>
-              When a GitHub issue gets these labels, TMR Support reacts automatically.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20 }}>
-              {/* Row 1 — Fix Deployed */}
-              <div style={{
-                padding: '16px',
-                background: 'var(--d-raised)',
-                border: '1px solid var(--d-border-2)',
-                borderRadius: 'var(--r-sm)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <input
-                    value={fixLabel}
-                    onChange={(e) => setFixLabel(e.target.value)}
-                    style={{
-                      flex: 1, height: 34, padding: '0 12px',
-                      background: 'var(--d-bg)',
-                      border: '1px solid var(--d-border)',
-                      borderRadius: 'var(--r-sm)',
-                      fontSize: 13, fontFamily: 'var(--font-mono)',
-                      color: 'var(--d-text)',
-                      outline: 'none',
-                    }}
-                  />
-                  <span style={{
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    fontSize: 12, fontWeight: 600,
-                    background: 'var(--d-success-bg)',
-                    border: '1px solid var(--d-success)',
-                    color: 'var(--d-success)',
-                    flexShrink: 0,
-                  }}>
-                    {fixLabel || 'fix-deployed'}
-                  </span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: 0, lineHeight: 1.5 }}>
-                  Triggers a notification to all agents to reply to the customer
-                </p>
-              </div>
-
-              {/* Row 2 — Pending Confirmation */}
-              <div style={{
-                padding: '16px',
-                background: 'var(--d-raised)',
-                border: '1px solid var(--d-border-2)',
-                borderRadius: 'var(--r-sm)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <input
-                    value={pendingLabel}
-                    onChange={(e) => setPendingLabel(e.target.value)}
-                    style={{
-                      flex: 1, height: 34, padding: '0 12px',
-                      background: 'var(--d-bg)',
-                      border: '1px solid var(--d-border)',
-                      borderRadius: 'var(--r-sm)',
-                      fontSize: 13, fontFamily: 'var(--font-mono)',
-                      color: 'var(--d-text)',
-                      outline: 'none',
-                    }}
-                  />
-                  <span style={{
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    fontSize: 12, fontWeight: 600,
-                    background: 'var(--d-warning-bg)',
-                    border: '1px solid var(--d-warning)',
-                    color: 'var(--d-warning)',
-                    flexShrink: 0,
-                  }}>
-                    {pendingLabel || 'pending-customer-confirmation'}
-                  </span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: 0, lineHeight: 1.5 }}>
-                  Added by agents after replying — tells the team this is awaiting customer response
-                </p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-              <button
-                type="button"
-                disabled={isSavingLabels}
-                onClick={() => { void handleSaveLabels() }}
-                style={{
-                  height: 34, padding: '0 18px',
-                  background: 'var(--d-accent)', color: '#fff',
-                  border: 'none', borderRadius: 'var(--r-sm)',
-                  fontSize: 13, fontWeight: 600,
-                  cursor: isSavingLabels ? 'not-allowed' : 'pointer',
-                  opacity: isSavingLabels ? 0.7 : 1,
-                  fontFamily: 'inherit',
-                }}
-              >
-                {isSavingLabels ? 'Saving…' : 'Save label configuration'}
-              </button>
-              {labelsSaved && (
-                <span style={{ fontSize: 12, color: 'var(--d-success)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <CheckCircle2 size={13} /> Saved ✓
-                </span>
-              )}
-            </div>
-
-            <p style={{ fontSize: 12, color: 'var(--d-text-4)', margin: 0, lineHeight: 1.6 }}>
-              Create these labels in your GitHub repo before using them. Labels are case-sensitive.{' '}
-              <a
-                href="https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: 'var(--d-accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
-              >
-                How to create GitHub labels <ExternalLink size={11} />
-              </a>
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -20,9 +20,3 @@ export const linkIssueSchema = z.object({
   issueNumber: z.number().int().positive(),
 })
 export type LinkIssueDto = z.infer<typeof linkIssueSchema>
-
-export const updateWebhookConfigSchema = z.object({
-  fixDeployedLabel: z.string().min(1).optional(),
-  pendingConfirmationLabel: z.string().min(1).optional(),
-})
-export type UpdateWebhookConfigDto = z.infer<typeof updateWebhookConfigSchema>

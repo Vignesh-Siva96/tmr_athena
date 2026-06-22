@@ -14,6 +14,7 @@ import { useEmailConfig } from '@/lib/useEmailConfig'
 import { type FieldConfig, labelForValue } from '@/lib/useFieldConfig'
 import { api } from '@/lib/api'
 import { sseEventBus } from '@/lib/sseEventBus'
+import { PromptDialog } from '@/components/ui/Dialog'
 
 type TicketStatus = 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED'
 type TicketPriority = 'NORMAL' | 'HIGH' | 'URGENT'
@@ -24,7 +25,9 @@ type EmailStatus = 'ACTIVE' | 'BOUNCING' | 'BLOCKED'
 interface Author { id: string; name: string | null; email: string; avatarUrl: string | null; emailStatus?: EmailStatus }
 interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean }
 interface Message { id: string; type: MessageType; body: string; bodyHtml?: string | null; isInternal: boolean; authorUser?: Author | null; authorAgent?: Author | null; authorBotName?: string | null; attachments: Attachment[]; createdAt: string; cc?: string[] }
-interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; reviewers: number; daysOpen: number }
+interface GithubLabel { name: string; color: string }
+interface GithubIssueEvent { id: string; action: 'labeled' | 'unlabeled' | 'opened' | 'closed' | 'reopened'; actorLogin: string | null; labelName: string | null; oldState: string | null; newState: string | null; summary: string; occurredAt: string; createdAt: string }
+interface GithubIssue { issueNumber: number; repo: string; issueUrl: string; title: string; state: string; labels?: GithubLabel[]; events?: GithubIssueEvent[] }
 interface AiRating { aiRating: number | null; aiEffortScore: number | null; aiSummary: string | null }
 interface Tag { id: string; name: string; color: string }
 interface Participant { id: string; email: string; name: string | null; source: string }
@@ -34,7 +37,7 @@ interface TicketDetail {
   user: Author; assignee?: Author | null; messages: Message[]; attachments: Attachment[]
   tags: Tag[]
   participants?: Participant[]
-  githubIssue?: GithubIssue | null; rating?: AiRating | null; createdAt: string; updatedAt: string
+  githubIssue?: GithubIssue | null; githubUpdatePending?: boolean; githubUpdatedAt?: string | null; rating?: AiRating | null; createdAt: string; updatedAt: string
 }
 
 // Only lifecycle statuses are settable via dropdown — NEW/DISMISSED are set via convert/dismiss
@@ -53,6 +56,19 @@ function initials(name: string | null, email: string): string {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function timeAgo(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+const GH_EVENT_LABEL: Record<GithubIssueEvent['action'], string> = {
+  labeled: 'Labeled', unlabeled: 'Removed label', opened: 'Opened', closed: 'Closed', reopened: 'Reopened',
 }
 
 
@@ -352,9 +368,9 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
   const tmrLazySyncedRef = useRef(false)
   const composeRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDivElement | null>(null)
-  const [fixDeployedNotif, setFixDeployedNotif] = useState<{ id: string } | null>(null)
-  const [hasReplied, setHasReplied] = useState(false)
-  const [isMarkingPending, setIsMarkingPending] = useState(false)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const savedRangeRef = useRef<Range | null>(null)
+  const [showActivity, setShowActivity] = useState(false)
   const [supportEmail, setSupportEmail] = useState<string>('')
   const [fieldConfig, setFieldConfig] = useState<FieldConfig | null>(null)
   const [isConverting, setIsConverting] = useState(false)
@@ -454,26 +470,6 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
       .catch(() => setTmrSyncing(false))
   }, [ticket?.user?.id, token, loadUserTmr])
 
-  // Check for fix-deployed notification for this ticket
-  useEffect(() => {
-    if (!token || !ticket) return
-    api.get<Array<{ id: string; type: string; ticketId: string | null; isRead: boolean }>>('/notifications', token)
-      .then((notifs) => {
-        const match = notifs.find((n) => n.type === 'GITHUB_FIX_DEPLOYED' && n.ticketId === ticket.id && !n.isRead)
-        setFixDeployedNotif(match ?? null)
-      })
-      .catch(() => {})
-  }, [token, ticket])
-
-  // Check if agent has replied in this ticket
-  useEffect(() => {
-    if (!ticket || !agent) return
-    const agentReplied = ticket.messages.some(
-      (m) => m.authorAgent?.id === agent.id && m.type === 'REPLY' && !m.isInternal
-    )
-    setHasReplied(agentReplied)
-  }, [ticket, agent])
-
   // Sync CC list from ticket participants (sticky auto-populate)
   useEffect(() => {
     if (!ticket) return
@@ -529,7 +525,6 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
       setReplyAttachments([])
       if (editorRef.current) editorRef.current.innerHTML = ''
       setShowCompose(false)
-      if (composeTab !== 'note') setHasReplied(true)
     } catch (err) { console.error(err) } finally { setIsSending(false) }
   }, [token, ticket, composeTab, replyAttachments, ccList])
 
@@ -563,12 +558,30 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
         sel.addRange(range)
       }
     } else if (type === 'link') {
-      const url = window.prompt('Enter URL:', 'https://')
-      if (url) document.execCommand('createLink', false, url)
+      // Capture the current selection before the dialog steals focus and collapses it.
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+      setLinkDialogOpen(true)
+      return
     } else if (type === 'list') {
       document.execCommand('insertUnorderedList', false)
     }
 
+    setBody(editor.innerHTML)
+  }
+
+  const insertLink = (url: string) => {
+    setLinkDialogOpen(false)
+    const editor = editorRef.current
+    if (!editor) return
+    editor.focus()
+    // Restore the selection captured before the dialog opened.
+    const sel = window.getSelection()
+    if (sel && savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
+    document.execCommand('createLink', false, url)
     setBody(editor.innerHTML)
   }
 
@@ -766,57 +779,16 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
             <span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span>
             <CategoryPill category={ticket.category} size="sm" />
             {ticket.assignee && (<><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>·</span><span style={{ fontSize: 12, color: 'var(--d-text-3)' }}>Assigned to {ticket.assignee.name}</span></>)}
-          </div>
-        </div>
-
-        {/* Fix-deployed amber banner */}
-        {fixDeployedNotif && ticket.githubIssue && (
-          <div style={{
-            margin: '0', padding: '12px 24px',
-            background: 'rgba(245,158,11,0.08)',
-            borderBottom: '1px solid rgba(245,158,11,0.2)',
-            display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
-          }}>
-            <span style={{ fontSize: 16 }}>⚡</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#FCD34D' }}>
-                Issue #{ticket.githubIssue.issueNumber} marked as fix-deployed
-              </span>
-              <span style={{ fontSize: 13, color: 'var(--d-text-3)', marginLeft: 8 }}>
-                Reply to the customer to confirm the fix.
-              </span>
-            </div>
-            {hasReplied ? (
-              <button
-                type="button"
-                disabled={isMarkingPending}
-                onClick={async () => {
-                  if (!token || !ticket) return
-                  setIsMarkingPending(true)
-                  try {
-                    await api.post(`/tickets/${ticket.id}/github/pending`, {}, token)
-                    await api.patch(`/notifications/${fixDeployedNotif.id}/read`, {}, token)
-                    setFixDeployedNotif(null)
-                  } catch (err) { console.error(err) }
-                  finally { setIsMarkingPending(false) }
-                }}
-                style={{
-                  height: 30, padding: '0 14px', flexShrink: 0,
-                  background: 'rgba(245,158,11,0.15)', color: '#FCD34D',
-                  border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--r-sm)',
-                  fontSize: 12, fontWeight: 600, cursor: isMarkingPending ? 'wait' : 'pointer',
-                  fontFamily: 'inherit', whiteSpace: 'nowrap',
-                }}
-              >
-                {isMarkingPending ? 'Marking…' : '✓ Mark as pending confirmation'}
+            {ticket.githubUpdatePending && (
+              <button type="button"
+                title="A developer changed the linked GitHub issue — click to view"
+                onClick={() => document.getElementById('github')?.scrollIntoView({ behavior: 'smooth' })}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 9px', background: 'var(--d-warning-bg)', border: '1px solid var(--d-warning)', borderRadius: 999, fontSize: 11, fontWeight: 600, color: 'var(--d-warning)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <Github size={11} /> GitHub issue updated
               </button>
-            ) : (
-              <span style={{ fontSize: 12, color: 'var(--d-text-4)', flexShrink: 0, fontStyle: 'italic' }}>
-                Reply first, then mark pending
-              </span>
             )}
           </div>
-        )}
+        </div>
 
         {/* Messages */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 32px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1132,8 +1104,32 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
           <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>GitHub</p>
 
           {ticket.githubIssue ? (
-            /* Already linked — show the issue card */
+            /* Already linked — show the live issue card */
             <div>
+              {/* Attention banner — a developer changed the linked issue. Status is untouched. */}
+              {ticket.githubUpdatePending && (
+                <div style={{ padding: '10px 12px', background: 'var(--d-warning-bg)', border: '1px solid var(--d-warning)', borderRadius: 'var(--r-sm)', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--d-warning)', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--d-warning)' }}>
+                      GitHub issue updated{ticket.githubUpdatedAt ? ` · ${timeAgo(ticket.githubUpdatedAt)}` : ''}
+                    </span>
+                    <button type="button"
+                      onClick={() => {
+                        if (!token) return
+                        setTicket((prev) => prev ? { ...prev, githubUpdatePending: false } : prev)
+                        void api.post(`/tickets/${ticket.id}/github/acknowledge`, {}, token).catch(console.error)
+                      }}
+                      style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: 'var(--d-text-2)', background: 'var(--d-raised-2)', border: '1px solid var(--d-border)', borderRadius: 'var(--r-xs)', padding: '3px 9px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                      Acknowledge
+                    </button>
+                  </div>
+                  {ticket.githubIssue.events?.[0] && (
+                    <p style={{ fontSize: 11, color: 'var(--d-text-2)', margin: '6px 0 0 15px' }}>{ticket.githubIssue.events[0].summary}</p>
+                  )}
+                </div>
+              )}
+
               <a href={ticket.githubIssue.issueUrl} target="_blank" rel="noreferrer"
                 style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', padding: 10, background: 'var(--d-raised)', borderRadius: 'var(--r-sm)', border: '1px solid var(--d-border)', marginBottom: 6 }}>
                 <Github size={14} style={{ color: 'var(--d-text-3)', flexShrink: 0 }} />
@@ -1142,12 +1138,51 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                   <p style={{ fontSize: 11, color: 'var(--d-text-4)', margin: '2px 0 0', fontFamily: 'var(--font-mono)' }}>{ticket.githubIssue.repo}#{ticket.githubIssue.issueNumber}</p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, color: ticket.githubIssue.state === 'open' ? '#FCD34D' : '#86EFAC', background: ticket.githubIssue.state === 'open' ? 'rgba(245,158,11,0.14)' : 'rgba(34,197,94,0.14)' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, color: ticket.githubIssue.state === 'open' ? 'var(--d-warning)' : 'var(--d-success)', background: ticket.githubIssue.state === 'open' ? 'var(--d-warning-bg)' : 'var(--d-success-bg)' }}>
                     {ticket.githubIssue.state}
                   </span>
                   <ExternalLink size={11} style={{ color: 'var(--d-text-4)' }} />
                 </div>
               </a>
+
+              {/* Current labels (synced from GitHub) */}
+              {ticket.githubIssue.labels && ticket.githubIssue.labels.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                  {ticket.githubIssue.labels.map((l) => (
+                    <span key={l.name} style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999, fontFamily: 'var(--font-mono)', color: `#${l.color}`, background: `#${l.color}22`, border: `1px solid #${l.color}66` }}>
+                      {l.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Expandable activity timeline */}
+              {ticket.githubIssue.events && ticket.githubIssue.events.length > 0 && (
+                <div style={{ marginBottom: 6 }}>
+                  <button type="button" onClick={() => setShowActivity((s) => !s)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', fontFamily: 'inherit', fontSize: 10, fontWeight: 600, color: 'var(--d-text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <ChevronDown size={12} style={{ transform: showActivity ? 'none' : 'rotate(-90deg)', transition: 'transform 120ms' }} />
+                    Issue activity ({ticket.githubIssue.events.length})
+                  </button>
+                  {showActivity && (
+                    <div style={{ position: 'relative', paddingLeft: 14, marginTop: 10 }}>
+                      <span style={{ position: 'absolute', left: 3, top: 4, bottom: 4, width: 1, background: 'var(--d-border)' }} />
+                      {ticket.githubIssue.events.map((e, i) => (
+                        <div key={e.id} style={{ position: 'relative', marginBottom: i === ticket.githubIssue!.events!.length - 1 ? 0 : 12 }}>
+                          <span style={{ position: 'absolute', left: -14, top: 4, width: 7, height: 7, borderRadius: '50%', background: i === 0 ? 'var(--d-accent)' : 'var(--d-text-4)' }} />
+                          <p style={{ fontSize: 12, margin: 0, color: i === 0 ? 'var(--d-text)' : 'var(--d-text-2)' }}>
+                            {GH_EVENT_LABEL[e.action]}{e.labelName ? ` ${e.labelName}` : ''}
+                          </p>
+                          <p style={{ fontSize: 11, margin: '2px 0 0', color: 'var(--d-text-4)' }}>
+                            {e.actorLogin ? `@${e.actorLogin} · ` : ''}{timeAgo(e.occurredAt)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button type="button"
                 onClick={() => {
                   if (!token) return
@@ -1204,6 +1239,16 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
       {/* Customer profile slide-over */}
       {showProfile && (
         <CustomerProfilePanel userId={ticket.user.id} onClose={() => setShowProfile(false)} />
+      )}
+      {linkDialogOpen && (
+        <PromptDialog
+          title="Insert link"
+          placeholder="https://"
+          initialValue="https://"
+          confirmLabel="Insert"
+          onConfirm={insertLink}
+          onCancel={() => setLinkDialogOpen(false)}
+        />
       )}
     </>
   )

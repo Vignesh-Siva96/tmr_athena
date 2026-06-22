@@ -284,7 +284,15 @@
     "entity:GithubIssue": {
       "summary": "GithubIssue table",
       "connects": [
+        "entity:GithubIssueEvent",
         "entity:Ticket",
+        "feature:github"
+      ]
+    },
+    "entity:GithubIssueEvent": {
+      "summary": "GithubIssueEvent table — append-only activity timeline for a linked GitHub issue",
+      "connects": [
+        "entity:GithubIssue",
         "feature:github"
       ]
     },
@@ -405,6 +413,13 @@
       "summary": "PATCH /api/v1/tickets/:id → TicketsController.update",
       "connects": [
         "feature:tickets",
+        "module:TicketsModule"
+      ]
+    },
+    "route:POST /api/v1/tickets/:id/github/acknowledge": {
+      "summary": "POST /api/v1/tickets/:id/github/acknowledge → TicketsController.acknowledgeGithub (clears the GitHub attention flag)",
+      "connects": [
+        "feature:github",
         "module:TicketsModule"
       ]
     },
@@ -731,7 +746,7 @@
       ]
     },
     "feature:email": {
-      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain.",
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments — fetched from MinIO via FilesService.getAttachmentBuffer — so agent-uploaded files reach the customer's email, not just the portal (R260).",
       "connects": [
         "entity:AppConfig",
         "entity:Attachment",
@@ -799,20 +814,22 @@
       ]
     },
     "feature:github": {
-      "summary": "Links tickets to GitHub issues (create/link/unlink), receives webhook events to post fix-deployed notifications, and surfaces repo/issue status on the ticket.",
+      "summary": "Links tickets to GitHub issues (create/link/unlink). A webhook on issue label/state changes syncs the issue's live labels+state onto the ticket, appends a GithubIssueEvent timeline entry, raises the Ticket.githubUpdatePending attention flag (without touching TicketStatus), and posts a GITHUB_ISSUE_UPDATED notification. No label configuration.",
       "connects": [
         "entity:GithubConfig",
         "entity:GithubIssue",
+        "entity:GithubIssueEvent",
         "entity:Notification",
         "entity:Ticket",
         "ext:GitHub",
         "module:GithubModule",
         "route:POST /api/v1/github/webhook",
-        "route:POST /api/v1/tickets/:id/github/issues"
+        "route:POST /api/v1/tickets/:id/github/issues",
+        "route:POST /api/v1/tickets/:id/github/acknowledge"
       ]
     },
     "feature:notifications": {
-      "summary": "In-app agent notifications (GitHub fix-deployed, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE.",
+      "summary": "In-app agent notifications (GitHub issue-updated, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE and surfaced in the dashboard bell panel.",
       "connects": [
         "entity:Agent",
         "entity:Notification",
@@ -906,7 +923,7 @@
       ]
     },
     "feature:bot": {
-      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently.",
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time.",
       "connects": [
         "entity:Agent",
         "entity:AiUsage",
@@ -2019,12 +2036,12 @@
           "type": "String"
         },
         {
-          "name": "reviewers",
-          "type": "Int"
+          "name": "labels",
+          "type": "Json"
         },
         {
-          "name": "daysOpen",
-          "type": "Int"
+          "name": "lastSyncedAt",
+          "type": "DateTime?"
         }
       ],
       "relations": [
@@ -2032,13 +2049,75 @@
           "to": "entity:Ticket",
           "kind": "belongsTo",
           "field": "ticket"
+        },
+        {
+          "to": "entity:GithubIssueEvent",
+          "kind": "hasMany",
+          "field": "events"
         }
       ],
       "writtenBy": [
         "feature:github"
       ],
       "connects": [
+        "entity:GithubIssueEvent",
         "entity:Ticket",
+        "feature:github"
+      ]
+    },
+    "entity:GithubIssueEvent": {
+      "kind": "entity",
+      "table": "GithubIssueEvent",
+      "columns": [
+        {
+          "name": "id",
+          "type": "String"
+        },
+        {
+          "name": "githubIssueId",
+          "type": "String"
+        },
+        {
+          "name": "action",
+          "type": "String"
+        },
+        {
+          "name": "actorLogin",
+          "type": "String?"
+        },
+        {
+          "name": "labelName",
+          "type": "String?"
+        },
+        {
+          "name": "oldState",
+          "type": "String?"
+        },
+        {
+          "name": "newState",
+          "type": "String?"
+        },
+        {
+          "name": "summary",
+          "type": "String"
+        },
+        {
+          "name": "occurredAt",
+          "type": "DateTime"
+        }
+      ],
+      "relations": [
+        {
+          "to": "entity:GithubIssue",
+          "kind": "belongsTo",
+          "field": "githubIssue"
+        }
+      ],
+      "writtenBy": [
+        "feature:github"
+      ],
+      "connects": [
+        "entity:GithubIssue",
         "feature:github"
       ]
     },
@@ -2915,6 +2994,18 @@
         "module:GithubModule"
       ]
     },
+    "route:POST /api/v1/tickets/:id/github/acknowledge": {
+      "kind": "route",
+      "method": "POST",
+      "path": "/api/v1/tickets/:id/github/acknowledge",
+      "module": "module:TicketsModule",
+      "handler": "TicketsController.acknowledgeGithub",
+      "feature": "feature:github",
+      "connects": [
+        "feature:github",
+        "module:TicketsModule"
+      ]
+    },
     "route:GET /api/v1/analytics": {
       "kind": "route",
       "method": "GET",
@@ -3242,7 +3333,7 @@
     "feature:email": {
       "kind": "feature",
       "title": "Email Sync",
-      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain.",
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments — fetched from MinIO via FilesService.getAttachmentBuffer — so agent-uploaded files reach the customer's email, not just the portal (R260).",
       "stack": [
         "Gmail REST API",
         "Microsoft Graph API",
@@ -3439,7 +3530,7 @@
     "feature:github": {
       "kind": "feature",
       "title": "GitHub Integration",
-      "summary": "Links tickets to GitHub issues (create/link/unlink), receives webhook events to post fix-deployed notifications, and surfaces repo/issue status on the ticket.",
+      "summary": "Links tickets to GitHub issues (create/link/unlink). A webhook on issue label/state changes syncs the issue's live labels+state onto the ticket, appends a GithubIssueEvent timeline entry, raises the Ticket.githubUpdatePending attention flag (without touching TicketStatus), and posts a GITHUB_ISSUE_UPDATED notification. No label configuration.",
       "stack": [
         "GitHub REST API",
         "GitHub Webhooks"
@@ -3450,12 +3541,14 @@
       "entities": [
         "entity:GithubConfig",
         "entity:GithubIssue",
+        "entity:GithubIssueEvent",
         "entity:Notification",
         "entity:Ticket"
       ],
       "routes": [
         "route:POST /api/v1/github/webhook",
-        "route:POST /api/v1/tickets/:id/github/issues"
+        "route:POST /api/v1/tickets/:id/github/issues",
+        "route:POST /api/v1/tickets/:id/github/acknowledge"
       ],
       "externals": [
         "ext:GitHub"
@@ -3463,27 +3556,31 @@
       "queues": [],
       "keyFiles": [
         "apps/api/src/modules/github/github.service.ts",
-        "apps/api/src/modules/github/github.controller.ts"
+        "apps/api/src/modules/github/github.controller.ts",
+        "apps/api/src/modules/tickets/tickets.service.ts"
       ],
-      "why": "A single GithubConfig row (single-tenant model) stores the connected account's access token; webhooks are verified against AppConfig.githubWebhookSecret.",
+      "why": "A single GithubConfig row (single-tenant model) stores the connected account's access token; webhooks are verified against AppConfig.githubWebhookSecret. A label/state change is treated as a human-in-the-loop signal (attention flag), never an automated TicketStatus change — analytics/bot/kanban bucket on TicketStatus.",
       "gaps": [
-        "fixDeployedLabel / pendingConfirmationLabel are configurable strings on AppConfig — webhook label matching is exact-string"
+        "Label colours are sourced from the webhook payload and can drift if a label is recoloured with no subsequent issue event",
+        "Only one linked issue per ticket"
       ],
       "connects": [
         "entity:GithubConfig",
         "entity:GithubIssue",
+        "entity:GithubIssueEvent",
         "entity:Notification",
         "entity:Ticket",
         "ext:GitHub",
         "module:GithubModule",
         "route:POST /api/v1/github/webhook",
-        "route:POST /api/v1/tickets/:id/github/issues"
+        "route:POST /api/v1/tickets/:id/github/issues",
+        "route:POST /api/v1/tickets/:id/github/acknowledge"
       ]
     },
     "feature:notifications": {
       "kind": "feature",
       "title": "Notifications",
-      "summary": "In-app agent notifications (GitHub fix-deployed, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE.",
+      "summary": "In-app agent notifications (GitHub issue-updated, churn-risk detected), with per-agent read tracking and unread counts; delivered in real time via SSE and surfaced in the dashboard bell panel.",
       "stack": [
         "NestJS",
         "Prisma",
@@ -3793,7 +3890,7 @@
     "feature:bot": {
       "kind": "feature",
       "title": "Athena Bot (First Responder + KB)",
-      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently.",
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time.",
       "stack": [
         "Gemini",
         "pgvector",

@@ -2,10 +2,52 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { ConfigService } from '@nestjs/config'
 import { Octokit } from '@octokit/rest'
 import * as crypto from 'crypto'
+import type { Prisma } from '@tmr/db'
 import { PrismaService } from '../database/prisma.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import type { ConnectGithubDto, UpdateGithubConfigDto, CreateIssueDto, LinkIssueDto } from './github.dto'
 import { formatRef } from '../tickets/util/generate-ref'
 import { isFeatureSuppressed } from '../config/feature-flags'
+
+/** A GitHub label reduced to what the dashboard renders (name + hex colour). */
+interface IssueLabel {
+  name: string
+  color: string
+}
+
+/** GitHub `issues` webhook actions we react to. */
+const HANDLED_ACTIONS = ['labeled', 'unlabeled', 'opened', 'closed', 'reopened'] as const
+type HandledAction = (typeof HANDLED_ACTIONS)[number]
+
+interface IssuesWebhookEvent {
+  action?: string
+  label?: { name?: string }
+  sender?: { login?: string }
+  issue?: {
+    number?: number
+    title?: string
+    html_url?: string
+    state?: string
+    labels?: Array<{ name?: string; color?: string } | string>
+  }
+  repository?: { full_name?: string }
+}
+
+/**
+ * Normalise a GitHub issue's `labels[]` (objects or bare strings) to `{ name, color }[]`,
+ * typed as a Prisma JSON value for storage on `GithubIssue.labels`.
+ */
+function normalizeLabels(labels: unknown): Prisma.InputJsonValue {
+  if (!Array.isArray(labels)) return []
+  const out: IssueLabel[] = labels
+    .map((l): IssueLabel => {
+      if (typeof l === 'string') return { name: l, color: '8b949e' }
+      const obj = (l ?? {}) as { name?: string; color?: string | null }
+      return { name: obj.name ?? '', color: obj.color ?? '8b949e' }
+    })
+    .filter((l) => l.name)
+  return out as unknown as Prisma.InputJsonValue
+}
 
 interface GitHubOAuthResponse {
   access_token?: string
@@ -45,6 +87,7 @@ export class GithubService {
   constructor(
     private readonly db: PrismaService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async getStatus(): Promise<{ connected: boolean; username?: string; defaultRepo?: string }> {
@@ -176,7 +219,7 @@ export class GithubService {
     try {
       issue = await this.db.$transaction(async (tx) => {
         const created = await tx.githubIssue.create({
-          data: { ticketId, issueNumber: ghIssue.number, repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+          data: { ticketId, issueNumber: ghIssue.number, repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state, labels: normalizeLabels(ghIssue.labels) },
         })
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${repo}:#${ghIssue.number}` } })
         return created
@@ -210,7 +253,7 @@ export class GithubService {
     try {
       issue = await this.db.$transaction(async (tx) => {
         const created = await tx.githubIssue.create({
-          data: { ticketId, issueNumber: ghIssue.number, repo: dto.repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state },
+          data: { ticketId, issueNumber: ghIssue.number, repo: dto.repo, issueUrl: ghIssue.html_url, title: ghIssue.title, state: ghIssue.state, labels: normalizeLabels(ghIssue.labels) },
         })
         await tx.message.create({ data: { ticketId, type: 'SYSTEM_EVENT', body: `github_linked:${dto.repo}:#${ghIssue.number}` } })
         return created
@@ -253,31 +296,11 @@ export class GithubService {
       select: {
         githubWebhookSecret: true,
         webhookVerifiedAt: true,
-        fixDeployedLabel: true,
-        pendingConfirmationLabel: true,
       },
     })
     return {
       hasSecret: !!config?.githubWebhookSecret,
       webhookVerifiedAt: config?.webhookVerifiedAt ?? null,
-      fixDeployedLabel: config?.fixDeployedLabel ?? 'fix-deployed',
-      pendingConfirmationLabel: config?.pendingConfirmationLabel ?? 'pending-customer-confirmation',
-    }
-  }
-
-  async updateWebhookConfig(dto: { fixDeployedLabel?: string; pendingConfirmationLabel?: string }): Promise<unknown> {
-    const config = await this.db.appConfig.findFirst()
-    if (!config) throw new NotFoundException('AppConfig not found')
-    const updated = await this.db.appConfig.update({
-      where: { id: config.id },
-      data: {
-        ...(dto.fixDeployedLabel && { fixDeployedLabel: dto.fixDeployedLabel }),
-        ...(dto.pendingConfirmationLabel && { pendingConfirmationLabel: dto.pendingConfirmationLabel }),
-      },
-    })
-    return {
-      fixDeployedLabel: updated.fixDeployedLabel,
-      pendingConfirmationLabel: updated.pendingConfirmationLabel,
     }
   }
 
@@ -313,79 +336,104 @@ export class GithubService {
       return
     }
 
-    const event = payload as { action?: string; label?: { name?: string }; issue?: { number?: number; title?: string; html_url?: string }; repository?: { full_name?: string } }
+    const event = payload as IssuesWebhookEvent
+    const action = event.action
+    const issueNumber = event.issue?.number
+    const repo = event.repository?.full_name
 
-    // Only handle label events
-    if (event.action !== 'labeled' || !event.label?.name || !event.issue?.number || !event.repository?.full_name) {
+    // Only react to issue lifecycle / label changes on a tracked issue. GitHub fires many
+    // other `issues` actions (assigned, milestoned, edited, …) — ignore them silently.
+    if (!action || !HANDLED_ACTIONS.includes(action as HandledAction) || !issueNumber || !repo) {
       return
     }
 
-    const labelName = event.label.name
-    const issueNumber = event.issue.number
-    const repo = event.repository.full_name
-    const issueTitle = event.issue.title ?? ''
-
-    if (labelName === config.fixDeployedLabel) {
-      await this.handleFixDeployedLabel(issueNumber, repo, issueTitle, config.id)
-    }
+    await this.handleIssueEvent(action as HandledAction, issueNumber, repo, event, config.id)
   }
 
-  private async handleFixDeployedLabel(issueNumber: number, repo: string, issueTitle: string, appConfigId: string): Promise<void> {
-    const githubIssue = await this.db.githubIssue.findFirst({
-      where: { issueNumber, repo },
-      include: { ticket: { include: { user: true } } },
-    })
-
+  /**
+   * A developer changed a label or the open/closed state of a linked issue. Sync the live
+   * state onto the ticket, append a timeline event, raise the `githubUpdatePending` attention
+   * flag (NOT the workflow status), and notify agents. The agent decides the real next step.
+   */
+  private async handleIssueEvent(
+    action: HandledAction,
+    issueNumber: number,
+    repo: string,
+    event: IssuesWebhookEvent,
+    appConfigId: string,
+  ): Promise<void> {
+    const githubIssue = await this.db.githubIssue.findFirst({ where: { issueNumber, repo } })
     if (!githubIssue) {
-      this.logger.warn(`Webhook: no linked ticket for ${repo}#${issueNumber}`)
+      this.logger.warn(`Webhook: no linked ticket for ${repo}#${issueNumber} (${action})`)
       return
     }
 
-    await this.db.notification.create({
-      data: {
-        type: 'GITHUB_FIX_DEPLOYED',
-        title: `Fix deployed: ${repo}#${issueNumber}`,
-        body: issueTitle,
-        ticketId: githubIssue.ticketId,
-        githubIssueNumber: issueNumber,
-        githubRepo: repo,
-        githubIssueTitle: issueTitle,
-        appConfigId,
-      },
+    const actor = event.sender?.login ?? undefined
+    const labelName = event.label?.name ?? undefined
+    const newState = event.issue?.state ?? githubIssue.state
+    const oldState = githubIssue.state
+    const labels = normalizeLabels(event.issue?.labels)
+    const issueTitle = event.issue?.title ?? githubIssue.title
+    const summary = buildChangeSummary(action, { actor, labelName, oldState, newState })
+
+    await this.db.$transaction([
+      // 1. Sync the issue's current labels + state
+      this.db.githubIssue.update({
+        where: { id: githubIssue.id },
+        data: { state: newState, labels, title: issueTitle, lastSyncedAt: new Date() },
+      }),
+      // 2. Append the change to the activity timeline
+      this.db.githubIssueEvent.create({
+        data: {
+          githubIssueId: githubIssue.id,
+          action,
+          actorLogin: actor,
+          labelName,
+          oldState: oldState !== newState ? oldState : null,
+          newState: oldState !== newState ? newState : null,
+          summary,
+          occurredAt: new Date(),
+        },
+      }),
+      // 3. Raise the attention flag — the workflow `status` is deliberately untouched
+      this.db.ticket.update({
+        where: { id: githubIssue.ticketId },
+        data: { githubUpdatePending: true, githubUpdatedAt: new Date() },
+      }),
+    ])
+
+    // 4. Notify agents (persist + SSE broadcast) — only after the state is durable
+    await this.notifications.createAndBroadcast({
+      type: 'GITHUB_ISSUE_UPDATED',
+      title: `${repo}#${issueNumber} updated`,
+      body: summary,
+      ticket: { connect: { id: githubIssue.ticketId } },
+      githubIssueNumber: issueNumber,
+      githubRepo: repo,
+      githubIssueTitle: issueTitle,
+      appConfig: { connect: { id: appConfigId } },
     })
 
-    this.logger.log(`Created GITHUB_FIX_DEPLOYED notification for ${repo}#${issueNumber}`)
+    this.logger.log(`GitHub issue ${repo}#${issueNumber} ${action} → flagged ticket ${githubIssue.ticketId}`)
   }
+}
 
-  async markIssuePending(ticketId: string): Promise<{ success: boolean }> {
-    const issue = await this.db.githubIssue.findUnique({ where: { ticketId } })
-    if (!issue) throw new NotFoundException('No GitHub issue linked to this ticket')
-
-    const cfg = await this.db.githubConfig.findFirst()
-    if (!cfg) throw new BadRequestException('GitHub not connected')
-
-    const appConfig = await this.db.appConfig.findFirst()
-    if (!appConfig) throw new BadRequestException('AppConfig not found')
-
-    const [owner, repoName] = issue.repo.split('/') as [string, string]
-    const octokit = new Octokit({ auth: cfg.accessToken })
-
-    // Add pending-customer-confirmation label
-    await octokit.issues.addLabels({
-      owner, repo: repoName,
-      issue_number: issue.issueNumber,
-      labels: [appConfig.pendingConfirmationLabel],
-    })
-
-    // Remove fix-deployed label (best-effort)
-    try {
-      await octokit.issues.removeLabel({
-        owner, repo: repoName,
-        issue_number: issue.issueNumber,
-        name: appConfig.fixDeployedLabel,
-      })
-    } catch { /* label may not exist */ }
-
-    return { success: true }
+/** Build the one-line "what changed" summary stored on the event + shown in the banner. */
+function buildChangeSummary(
+  action: HandledAction,
+  ctx: { actor?: string; labelName?: string; oldState?: string; newState?: string },
+): string {
+  const who = ctx.actor ? `@${ctx.actor}` : 'A developer'
+  switch (action) {
+    case 'labeled':
+      return `${who} added label "${ctx.labelName ?? ''}"`
+    case 'unlabeled':
+      return `${who} removed label "${ctx.labelName ?? ''}"`
+    case 'closed':
+      return `${who} closed the issue`
+    case 'reopened':
+      return `${who} reopened the issue`
+    case 'opened':
+      return `${who} opened the issue`
   }
 }

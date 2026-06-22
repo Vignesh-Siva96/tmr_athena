@@ -26,8 +26,6 @@ model AppConfig {
   // GitHub webhook config
   githubWebhookSecret        String?
   webhookVerifiedAt          DateTime?
-  fixDeployedLabel           String  @default("fix-deployed")
-  pendingConfirmationLabel   String  @default("pending-customer-confirmation")
 
   // Email OAuth (Google / Microsoft)
   oauthProvider           OAuthProvider?
@@ -339,6 +337,10 @@ model Ticket {
   firstResolvedAt DateTime?
   convertedAt     DateTime? // set when an email conversation is converted to a real ticket
 
+  // GitHub linked-issue attention flag (decoupled from `status` — see STATE.md)
+  githubUpdatePending Boolean   @default(false)
+  githubUpdatedAt     DateTime?
+
   githubIssue     GithubIssue?
   messages        Message[]
   attachments     Attachment[]
@@ -529,9 +531,32 @@ model GithubIssue {
   issueUrl     String
   title        String
   state        String @default("open")
-  reviewers    Int    @default(0)
-  daysOpen     Int    @default(0)
+  // Current label set, synced from the webhook payload as `{ name, color }[]`
+  labels       Json   @default("[]")
   lastSyncedAt DateTime?
+
+  events GithubIssueEvent[]
+}
+
+// Append-only activity log for a linked GitHub issue (drives the ticket timeline UI).
+// A relational table (not a Json column) keeps appends atomic under GitHub's
+// near-simultaneous webhook deliveries and gives ordered/queryable history.
+model GithubIssueEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  githubIssueId String
+  githubIssue   GithubIssue @relation(fields: [githubIssueId], references: [id], onDelete: Cascade)
+
+  action     String  // labeled | unlabeled | opened | closed | reopened
+  actorLogin String?
+  labelName  String?
+  oldState   String?
+  newState   String?
+  summary    String  // pre-rendered "what changed" line
+  occurredAt DateTime
+
+  @@index([githubIssueId, createdAt])
 }
 
 // ─── CANNED RESPONSES ─────────────────────────────────────────────────────────
@@ -607,7 +632,7 @@ model NotificationRead {
 }
 
 enum NotificationType {
-  GITHUB_FIX_DEPLOYED
+  GITHUB_ISSUE_UPDATED
   CHURN_RISK_DETECTED
 }
 

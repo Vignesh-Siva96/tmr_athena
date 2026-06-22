@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { QueueService } from '../queue/queue.service'
 import { SseService } from '../events/sse.service'
@@ -12,7 +12,7 @@ const TICKET_DETAIL_INCLUDE = {
   user: { select: { id: true, name: true, email: true, avatarUrl: true, category: true, emailStatus: true } },
   assignee: { select: { id: true, name: true, avatarUrl: true } },
   tags: true,
-  githubIssue: true,
+  githubIssue: { include: { events: { orderBy: { createdAt: 'desc' as const }, take: 50 } } },
   rating: { select: { aiRating: true, aiEffortScore: true, aiSummary: true } },
   messages: {
     where: { deletedAt: null },
@@ -39,6 +39,8 @@ export interface TicketListResult {
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name)
+
   constructor(
     private readonly db: PrismaService,
     private readonly queueService: QueueService,
@@ -226,10 +228,34 @@ export class TicketsService {
     // Portal must not deep-link pre-triage conversation threads
     if (caller.role === 'user' && !ticket.isTicket) throw new NotFoundException('Ticket not found')
 
-    // Strip agent-only fields for Portal callers
-    const { tags: _tags, ...ticketForPortal } = ticket as typeof ticket & { tags?: unknown }
-    const payload = caller.role === 'user' ? ticketForPortal : ticket
-    return { ticket: { ...payload, displayId: formatRef(ticket.ref) } }
+    if (caller.role === 'user') {
+      // Strip agent-only fields for Portal callers. The GitHub issue is shown to customers
+      // as a bare link only — internal label churn / activity / attention flag never leak.
+      const { tags: _tags, githubUpdatePending: _f, githubUpdatedAt: _fa, githubIssue, ...rest } = ticket as typeof ticket & { tags?: unknown }
+      const safeGithubIssue = githubIssue
+        ? { issueNumber: githubIssue.issueNumber, repo: githubIssue.repo, issueUrl: githubIssue.issueUrl, title: githubIssue.title, state: githubIssue.state }
+        : null
+      return { ticket: { ...rest, githubIssue: safeGithubIssue, displayId: formatRef(ticket.ref) } }
+    }
+
+    // Agent opened the ticket → the GitHub-update attention flag is acknowledged.
+    // Fire-and-forget so the read isn't blocked; the returned payload still shows it as pending.
+    if (ticket.githubUpdatePending) {
+      this.db.ticket.update({ where: { id: ticketId }, data: { githubUpdatePending: false } })
+        .catch((err) => this.logger.warn(`Failed to auto-clear githubUpdatePending for ${ticketId}: ${String(err)}`))
+    }
+
+    return { ticket: { ...ticket, displayId: formatRef(ticket.ref) } }
+  }
+
+  // ─── GitHub attention flag ──────────────────────────────────────────────────
+
+  /** Clear the GitHub linked-issue attention flag (agent acknowledged the update). */
+  async acknowledgeGithubUpdate(ticketId: string): Promise<{ success: boolean }> {
+    const ticket = await this.db.ticket.findUnique({ where: { id: ticketId }, select: { id: true } })
+    if (!ticket) throw new NotFoundException('Ticket not found')
+    await this.db.ticket.update({ where: { id: ticketId }, data: { githubUpdatePending: false } })
+    return { success: true }
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────

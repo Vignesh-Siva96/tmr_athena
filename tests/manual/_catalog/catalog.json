@@ -170,6 +170,106 @@
       ]
     },
     {
+      "key": "settings-gates",
+      "title": "Maintenance mode & feature gates",
+      "phase": 1,
+      "cases": [
+        {
+          "id": "settings-gates.maintenance-on",
+          "type": "DO",
+          "action": "Settings → General → turn Maintenance mode ON and confirm the modal",
+          "see": "A banner shows automated actions are paused; the individual feature toggles dim/disable",
+          "tags": [
+            "bridge",
+            "settings"
+          ]
+        },
+        {
+          "id": "settings-gates.maintenance-blocks",
+          "type": "DONT",
+          "action": "With Maintenance ON, submit a portal ticket and resolve an existing ticket",
+          "see": "No confirmation email, no Athena bot reply, no AI sentiment/topic scoring, and no CSAT email are produced",
+          "tags": [
+            "bridge",
+            "email",
+            "bot",
+            "negative"
+          ]
+        },
+        {
+          "id": "settings-gates.maintenance-off",
+          "type": "DO",
+          "action": "Turn Maintenance mode OFF again",
+          "see": "Automated actions resume according to each individual feature flag's state",
+          "tags": [
+            "bridge",
+            "settings"
+          ]
+        },
+        {
+          "id": "settings-gates.flag-confirmation",
+          "type": "DO",
+          "action": "Turn OFF only the confirmation-email flag, then create a new ticket",
+          "see": "No confirmation email is sent, but the bot and AI analysis still run normally",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "settings-gates.flag-bot",
+          "type": "DO",
+          "action": "Turn OFF only the bot-reply flag, then have a customer start a new ticket",
+          "see": "Athena posts no auto-reply; other automation is unaffected",
+          "tags": [
+            "bridge",
+            "bot"
+          ]
+        },
+        {
+          "id": "settings-gates.flag-ai",
+          "type": "DO",
+          "action": "Turn OFF only the AI-analysis flag, then create/convert a ticket",
+          "see": "No sentiment/topic/CSAT scoring appears on the ticket",
+          "tags": [
+            "bridge",
+            "ai"
+          ]
+        },
+        {
+          "id": "settings-gates.flag-csat",
+          "type": "DO",
+          "action": "Turn OFF only the CSAT-survey flag, then resolve a ticket",
+          "see": "No rating (CSAT) email is sent to the customer",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "settings-gates.flag-github",
+          "type": "DONT",
+          "action": "Turn OFF the GitHub-issue-creation flag, then open a ticket's GitHub panel",
+          "see": "Creating a GitHub issue is blocked with a clear message",
+          "tags": [
+            "bridge",
+            "negative",
+            "optional"
+          ]
+        },
+        {
+          "id": "settings-gates.non-admin",
+          "type": "DONT",
+          "action": "Sign in as a non-admin agent and open Settings → General",
+          "see": "Maintenance mode and the feature-flag toggles are not available to change",
+          "tags": [
+            "bridge",
+            "negative"
+          ]
+        }
+      ]
+    },
+    {
       "key": "email-setup",
       "title": "Connect the support inbox",
       "phase": 1,
@@ -295,17 +395,6 @@
           "type": "DO",
           "action": "Copy the webhook URL, generate a webhook secret, and reveal/regenerate it",
           "see": "URL copies to clipboard; secret generates, can be revealed briefly, and regenerates on confirm",
-          "tags": [
-            "bridge",
-            "settings",
-            "optional"
-          ]
-        },
-        {
-          "id": "github-setup.labels",
-          "type": "DO",
-          "action": "Change the “fix-deployed” and “pending-confirmation” label names and save",
-          "see": "The label badges update and persist after reload",
           "tags": [
             "bridge",
             "settings",
@@ -976,6 +1065,15 @@
             "portal",
             "files"
           ]
+        },
+        {
+          "id": "portal-tickets.attachment-download",
+          "type": "DO",
+          "action": "On a ticket, download a file the agent attached to their reply",
+          "see": "The attachment downloads and opens correctly",
+          "tags": [
+            "portal"
+          ]
         }
       ]
     },
@@ -1227,6 +1325,56 @@
             "bridge",
             "negative"
           ]
+        },
+        {
+          "id": "agent-reply.multi-attachment-remove",
+          "type": "DO",
+          "action": "Attach several files to a reply, remove one before sending, then send",
+          "see": "Only the remaining files are attached to the sent message and reach the customer",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "agent-reply.attachment-oversize",
+          "type": "DONT",
+          "action": "Attach a file larger than the 10 MB limit to an agent reply",
+          "see": "It is rejected with a clear message; the reply is not sent with a broken attachment",
+          "tags": [
+            "bridge",
+            "negative"
+          ]
+        },
+        {
+          "id": "agent-reply.reply-resolved-reopens",
+          "type": "DO",
+          "action": "Send a public reply on a RESOLVED ticket",
+          "see": "The ticket returns to an active state (In Progress) and a status-change system event is logged",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "agent-reply.note-no-cc-leak",
+          "type": "DONT",
+          "action": "Switch to the Internal note tab and add a note",
+          "see": "The CC field is hidden; the note is clearly internal and is never emailed to anyone",
+          "tags": [
+            "bridge",
+            "negative"
+          ]
+        },
+        {
+          "id": "agent-reply.cc-remove-sticky",
+          "type": "DO",
+          "action": "Remove a CC chip and send; then open the composer again on the same ticket",
+          "see": "The removed address is dropped from that reply; the CC list re-populates from the ticket's participants next time",
+          "tags": [
+            "bridge",
+            "email"
+          ]
         }
       ]
     },
@@ -1337,13 +1485,62 @@
           ]
         },
         {
-          "id": "ticket-handling.fix-deployed",
+          "id": "ticket-handling.convert-downstream",
           "type": "DO",
-          "action": "On a ticket whose linked GitHub issue was marked fix-deployed, reply then “Mark pending confirmation”",
-          "see": "The amber fix-deployed banner appears and clears after marking pending",
+          "action": "Convert a NEW conversation to a ticket and watch what follows",
+          "see": "It gains a ticket ID and moves from the Inbox to Tickets, a confirmation email is sent, and AI analysis (sentiment/topic) begins appearing",
           "tags": [
             "bridge",
-            "optional"
+            "email",
+            "ai"
+          ]
+        },
+        {
+          "id": "ticket-handling.convert-backfill",
+          "type": "DO",
+          "action": "After converting, review the customer's earlier messages in the thread",
+          "see": "Prior customer messages are retroactively scored for sentiment (analysis backfills)",
+          "tags": [
+            "bridge",
+            "ai"
+          ]
+        },
+        {
+          "id": "ticket-handling.waiting-auto",
+          "type": "DO",
+          "action": "Send an agent reply on an Open/In-progress ticket",
+          "see": "The ticket status automatically moves to Waiting (awaiting the customer)",
+          "tags": [
+            "bridge"
+          ]
+        },
+        {
+          "id": "ticket-handling.system-events",
+          "type": "DO",
+          "action": "Change a ticket's status, then assign/unassign an agent",
+          "see": "Each change writes a visible system event line in the conversation timeline",
+          "tags": [
+            "bridge"
+          ]
+        },
+        {
+          "id": "ticket-handling.dismiss-resurface",
+          "type": "DO",
+          "action": "Dismiss a NEW conversation, then have that customer reply again (by email or portal)",
+          "see": "The dismissed conversation resurfaces as NEW and reappears in the inbox",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "ticket-handling.first-resolved-immutable",
+          "type": "DO",
+          "action": "Resolve a ticket, reopen it, then resolve it again",
+          "see": "The original first-resolved time is preserved (not overwritten) so resolution-time analytics stay correct",
+          "tags": [
+            "bridge",
+            "analytics"
           ]
         }
       ]
@@ -1377,6 +1574,16 @@
           "type": "DONT",
           "action": "Open an invalid or expired rating link",
           "see": "A graceful error, no crash",
+          "tags": [
+            "portal",
+            "negative"
+          ]
+        },
+        {
+          "id": "csat.already-rated",
+          "type": "DONT",
+          "action": "Open the rating link again after you've already submitted a rating",
+          "see": "It shows as already rated; you can't submit a second, different rating",
           "tags": [
             "portal",
             "negative"
@@ -1420,8 +1627,8 @@
         {
           "id": "notifications.github-action",
           "type": "DO",
-          "action": "Add the fix-deployed label on a linked GitHub issue, then check notifications",
-          "see": "A GitHub “needs action” notification appears for agents",
+          "action": "Change a label on (or close) a linked GitHub issue, then open the notifications bell",
+          "see": "A ‘GitHub issue updated’ notification appears; clicking it opens the linked ticket",
           "tags": [
             "bridge",
             "optional"
@@ -1518,17 +1725,67 @@
           "id": "github.link-unlink",
           "type": "DO",
           "action": "Link an existing issue number, then unlink it",
-          "see": "The link appears, then is removed",
+          "see": "The link appears (with the issue's current labels and open/closed state), then is removed",
           "tags": [
             "bridge",
             "optional"
           ]
         },
         {
-          "id": "github.webhook-sync",
+          "id": "github.label-sync",
           "type": "DO",
-          "action": "Change the issue’s state on GitHub",
-          "see": "The linked ticket reflects the change",
+          "action": "On the linked GitHub issue, a developer adds or changes a label",
+          "see": "The ticket's GitHub card updates to show the live label chips and the issue's state",
+          "tags": [
+            "bridge",
+            "optional"
+          ]
+        },
+        {
+          "id": "github.attention-flag",
+          "type": "DO",
+          "action": "After that label change, look at the ticket header and the inbox row",
+          "see": "An orange ‘GitHub issue updated’ badge shows on the ticket header and a GitHub icon-with-dot on the inbox row; the workflow status is unchanged",
+          "tags": [
+            "bridge",
+            "optional"
+          ]
+        },
+        {
+          "id": "github.activity-timeline",
+          "type": "DO",
+          "action": "Open the ticket and expand ‘Issue activity’ on the GitHub card",
+          "see": "The banner shows the latest change summary, and the timeline lists each label/state change with the developer and time, newest first",
+          "tags": [
+            "bridge",
+            "optional"
+          ]
+        },
+        {
+          "id": "github.closed-state",
+          "type": "DO",
+          "action": "A developer closes (or reopens) the linked GitHub issue",
+          "see": "The card's state syncs to closed/open, the timeline records it, and the attention flag is raised",
+          "tags": [
+            "bridge",
+            "optional"
+          ]
+        },
+        {
+          "id": "github.acknowledge",
+          "type": "DO",
+          "action": "Click ‘Acknowledge’ on the update banner (or simply open the ticket)",
+          "see": "The banner, the header badge, and the inbox icon-dot all clear",
+          "tags": [
+            "bridge",
+            "optional"
+          ]
+        },
+        {
+          "id": "github.bell-notification",
+          "type": "DO",
+          "action": "After a label/state change, open the notifications bell in the dashboard rail",
+          "see": "A ‘GitHub issue updated’ entry is listed; clicking it opens the linked ticket",
           "tags": [
             "bridge",
             "optional"
@@ -1628,53 +1885,6 @@
       ]
     },
     {
-      "key": "github-actions",
-      "title": "Action-needed (GitHub) queue",
-      "phase": 3,
-      "cases": [
-        {
-          "id": "github-actions.list",
-          "type": "DO",
-          "action": "Open the GitHub “Action needed” page and select a notification",
-          "see": "The related ticket and linked issue load in the detail panel",
-          "tags": [
-            "bridge",
-            "optional"
-          ]
-        },
-        {
-          "id": "github-actions.quick-reply",
-          "type": "DO",
-          "action": "Send a quick reply, and use Resolve, from the action-needed panel",
-          "see": "The reply posts (ticket stays open) / the ticket resolves",
-          "tags": [
-            "bridge",
-            "optional"
-          ]
-        },
-        {
-          "id": "github-actions.mark-all",
-          "type": "DO",
-          "action": "Use “Mark all read”",
-          "see": "The unread count clears",
-          "tags": [
-            "bridge",
-            "optional"
-          ]
-        },
-        {
-          "id": "github-actions.empty",
-          "type": "DO",
-          "action": "Open the page with nothing pending",
-          "see": "An “all clear” empty state",
-          "tags": [
-            "bridge",
-            "optional"
-          ]
-        }
-      ]
-    },
-    {
       "key": "email-channel",
       "title": "Email in & out",
       "phase": 4,
@@ -1758,6 +1968,74 @@
           "type": "DONT",
           "action": "Reply to a ticket whose customer address is invalid so the mail bounces",
           "see": "The ticket records a delivery-failure note; the customer is flagged as bouncing",
+          "tags": [
+            "email",
+            "negative"
+          ]
+        },
+        {
+          "id": "email-channel.convert-from-email",
+          "type": "DO",
+          "action": "An inbound email creates a NEW conversation; convert it to a ticket",
+          "see": "It becomes a real ticket with an ID and a confirmation email goes to the customer",
+          "tags": [
+            "bridge",
+            "email"
+          ]
+        },
+        {
+          "id": "email-channel.new-customer",
+          "type": "DO",
+          "action": "Receive an inbound email from an address that has never written in before",
+          "see": "A new customer record is created automatically and shown on the ticket",
+          "tags": [
+            "email"
+          ]
+        },
+        {
+          "id": "email-channel.subject-prefixes",
+          "type": "DO",
+          "action": "Reply by email with ‘Re:’/‘Fwd:’ added to the subject of an existing ticket thread",
+          "see": "The reply threads onto the same ticket; the subject is normalized (prefixes stripped)",
+          "tags": [
+            "email"
+          ]
+        },
+        {
+          "id": "email-channel.cc-participants",
+          "type": "DO",
+          "action": "Send an inbound email that CCs other people, then reply from the dashboard",
+          "see": "The CC'd people are captured as participants and are included on the outgoing reply",
+          "tags": [
+            "email",
+            "bridge"
+          ]
+        },
+        {
+          "id": "email-channel.duplicate",
+          "type": "DONT",
+          "action": "Cause the same email to be seen twice (e.g. it lands in both Inbox and Sent)",
+          "see": "It is not imported twice — only one message appears on the ticket",
+          "tags": [
+            "email",
+            "negative"
+          ]
+        },
+        {
+          "id": "email-channel.html-sanitize",
+          "type": "DONT",
+          "action": "Receive an inbound HTML email containing script-like markup and view it",
+          "see": "It renders safely as content — nothing pops up or executes",
+          "tags": [
+            "email",
+            "negative"
+          ]
+        },
+        {
+          "id": "email-channel.inline-oversize",
+          "type": "DONT",
+          "action": "Receive an inbound email with an inline image and an oversize (>25 MB) attachment",
+          "see": "The inline image renders and normal files download; the oversize file is skipped but the ticket is still created",
           "tags": [
             "email",
             "negative"

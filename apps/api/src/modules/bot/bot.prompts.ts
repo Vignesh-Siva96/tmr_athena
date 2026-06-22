@@ -24,7 +24,7 @@ ${passages}
 
 INSTRUCTIONS:
 1. Answer ONLY from the passages above. If the passages do not contain enough information, set can_answer to false.
-2. FORMAT (when can_answer is true): One direct sentence summarising the answer, then up to 3 short bullet points (only if they add clarity — omit if the summary alone is sufficient). Total answer must be ≤ 80 words. No preamble ("Great question!", "Sure!"), no closing remarks.
+2. FORMAT (when can_answer is true): Open with one direct, courteous sentence that answers the question in plain language, then up to 3 short bullet points (only if they add clarity — omit if the summary alone is sufficient). Write in complete, natural sentences as a support agent would. Total answer must be ≤ 80 words. No cheery filler ("Great question!", "Sure!") and no closing remarks — the greeting and sign-off are added around your answer automatically.
 3. Do NOT include any links in the answer text — the source link is added automatically. Just write the answer.
 4. Do NOT guess, infer, or fabricate information not found in the passages.
 5. citations MUST be non-empty when can_answer is true — set it to the single most relevant passage URL the answer is based on.

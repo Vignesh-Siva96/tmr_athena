@@ -121,9 +121,6 @@ export function CustomerProfilePanel({ userId, onClose, currentTicketId }: Props
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--d-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--d-text-4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Customer Profile</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button type="button" style={{ width: 28, height: 28, borderRadius: 'var(--r-xs)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>
-              <Edit2 size={14} />
-            </button>
             <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 'var(--r-xs)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d-text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>
               <X size={16} />
             </button>

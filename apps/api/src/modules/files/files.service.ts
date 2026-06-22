@@ -89,6 +89,36 @@ export class FilesService {
     return { attachment }
   }
 
+  /**
+   * Fetch the raw bytes of a stored attachment from MinIO. Used by the email path
+   * to attach agent-uploaded files to outbound replies.
+   *
+   * The MinIO object key isn't stored on the row — only the presigned `url` is — so
+   * we recover the key from the URL path (`/<bucket>/<objectName>`), which is how
+   * `storeBuffer` wrote it (path-style addressing).
+   */
+  async getAttachmentBuffer(attachment: Pick<Attachment, 'url' | 'isLink'>): Promise<Buffer> {
+    if (attachment.isLink) {
+      throw new BadRequestException('Cannot fetch bytes for a link attachment')
+    }
+    const objectName = this.objectNameFromUrl(attachment.url)
+    const stream = await this.minioClient.getObject(this.bucket, objectName)
+    const chunks: Buffer[] = []
+    return new Promise<Buffer>((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk))
+      stream.on('end', () => resolve(Buffer.concat(chunks)))
+      stream.on('error', reject)
+    })
+  }
+
+  /** Recover the MinIO object key from a presigned (or plain) object URL. */
+  private objectNameFromUrl(url: string): string {
+    const pathname = decodeURIComponent(new URL(url).pathname).replace(/^\/+/, '')
+    return pathname.startsWith(`${this.bucket}/`)
+      ? pathname.slice(this.bucket.length + 1)
+      : pathname
+  }
+
   async uploadLink(linkUrl: string, ticketId?: string): Promise<{ attachment: unknown }> {
     const attachment = await this.db.attachment.create({
       data: {

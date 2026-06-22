@@ -58,7 +58,7 @@ export class ChunkerService {
             lines: [...currentLines],
           })
         }
-        const headingText = h2Match[1].trim()
+        const headingText = stripInlineMarkdown(h2Match[1].trim())
         currentHeadingPath = [headingText]
         currentAnchor = slugify(headingText)
         currentLines = [line]
@@ -70,7 +70,7 @@ export class ChunkerService {
             lines: [...currentLines],
           })
         }
-        const headingText = h3Match[1].trim()
+        const headingText = stripInlineMarkdown(h3Match[1].trim())
         // Keep H2 in path if exists, replace H3 level
         currentHeadingPath = currentHeadingPath.length > 0
           ? [currentHeadingPath[0], headingText]
@@ -201,4 +201,22 @@ function slugify(text: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Strip inline markdown from heading text. Turndown converts anchor-linked HTML
+ * headings (e.g. `<h2><a href="#prereq">Prerequisites</a></h2>`) into markdown
+ * links (`[Prerequisites](#prereq)`); left unstripped these leak into both the
+ * heading-path label and a doubled slug (`prerequisites-prerequisites`).
+ */
+export function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // [label](url) / ![alt](url) → label
+    .replace(/`([^`]*)`/g, '$1') // `code` → code
+    .replace(/\*\*([^*]+)\*\*/g, '$1') // **bold**
+    .replace(/__([^_]+)__/g, '$1') // __bold__
+    .replace(/\*([^*]+)\*/g, '$1') // *italic*
+    .replace(/_([^_]+)_/g, '$1') // _italic_
+    .replace(/^#+\s*/, '') // stray leading hashes
+    .trim()
 }

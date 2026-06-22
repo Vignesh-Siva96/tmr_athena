@@ -37,8 +37,9 @@ async function makeService(mailCapture: MailCaptureService) {
   const config = { get: vi.fn().mockReturnValue(undefined) }
   const appConfigService = { get: vi.fn().mockResolvedValue(APP_CONFIG) }
   const tokenRefresher = { getValidAccessToken: vi.fn().mockResolvedValue('tok') }
-  const db = { message: { findMany: makeFindMany() } }
-  return new EmailService(config as never, appConfigService as never, db as never, tokenRefresher as never, mailCapture)
+  const db = { message: { findMany: makeFindMany() }, attachment: { findMany: vi.fn().mockResolvedValue([]) } }
+  const files = { getAttachmentBuffer: vi.fn() }
+  return new EmailService(config as never, appConfigService as never, db as never, tokenRefresher as never, files as never, mailCapture)
 }
 
 describe('sendAgentReply — CC', () => {

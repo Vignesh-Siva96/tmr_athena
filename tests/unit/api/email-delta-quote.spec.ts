@@ -46,11 +46,15 @@ async function makeService(db: Record<string, unknown>, mailCapture: MailCapture
   const config = { get: vi.fn().mockReturnValue(undefined) }
   const appConfigService = { get: vi.fn().mockResolvedValue(APP_CONFIG) }
   const tokenRefresher = { getValidAccessToken: vi.fn().mockResolvedValue('access-tok') }
+  const dbObj = db as { attachment?: unknown }
+  if (!dbObj.attachment) dbObj.attachment = { findMany: vi.fn().mockResolvedValue([]) }
+  const files = { getAttachmentBuffer: vi.fn() }
   return new EmailService(
     config as never,
     appConfigService as never,
     db as never,
     tokenRefresher as never,
+    files as never,
     mailCapture,
   )
 }
