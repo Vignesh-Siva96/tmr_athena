@@ -28,18 +28,15 @@ export class TmrDataService {
   private getConfig(): {
     baseUrl: string;
     apiKey: string;
-    keyHeader: string;
   } | null {
     const baseUrl = this.config.get<string>("TMR_DATA_SERVICE_BASE_URL");
     const apiKey = this.config.get<string>("TMR_DATA_SERVICE_API_KEY");
     if (!baseUrl || !apiKey) return null;
-    const keyHeader =
-      this.config.get<string>("TMR_DATA_SERVICE_API_KEY_HEADER") ?? "x-api-key";
-    return { baseUrl, apiKey, keyHeader };
+    return { baseUrl, apiKey };
   }
 
   private async post<T>(
-    cfg: { baseUrl: string; apiKey: string; keyHeader: string },
+    cfg: { baseUrl: string; apiKey: string },
     path: string,
     body: unknown
   ): Promise<T> {
@@ -47,7 +44,11 @@ export class TmrDataService {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        [cfg.keyHeader]: cfg.apiKey,
+        // Service-to-service auth: the secret rides in Authorization (so logging
+        // tools auto-redact it); x-auth-mode is an inert routing flag that tells
+        // the back-office to take the API-key branch instead of the frontend JWT.
+        Authorization: `Bearer ${cfg.apiKey}`,
+        "x-auth-mode": "service",
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TMR_TIMEOUT),

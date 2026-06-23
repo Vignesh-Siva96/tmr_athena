@@ -149,7 +149,9 @@ Run from the repo root unless noted. Package manager is **pnpm** (Node ≥20); w
 | New release QA report (manual test checklist) | `pnpm qa:new "<release-name>" [--features a,b]` → `tests/manual/reports/<date>_<slug>/` (checklist composed from `tests/manual/_catalog/catalog.json`; see [tests/manual/README.md](tests/manual/README.md)) |
 | DB migrate / push / seed / studio | `pnpm --filter @tmr/db db:migrate` · `db:push` · `db:seed` · `db:studio` |
 
-Local infra (Postgres + MinIO): `cd docker && docker compose up postgres minio -d`.
+Local infra (Postgres + MinIO) runs as standalone containers — see [`DEPLOY.md`](DEPLOY.md) →
+"Local development infra". Production deploys via **PM2** (`ecosystem.config.cjs`), not Docker —
+full runbook in [`DEPLOY.md`](DEPLOY.md).
 Dev URLs — Portal http://localhost:3000 · API http://localhost:3001 · Bridge http://localhost:3002
 · MinIO console http://localhost:9001. Seeded logins and full env details live in
 `STATE.md` → Quick Reference.
@@ -182,7 +184,8 @@ Dev URLs — Portal http://localhost:3000 · API http://localhost:3001 · Bridge
 ├── worldgraph/                ← AI-maintained app map (atlas.world.json) + viewer (:3003)
 │                                fully decoupled: own package.json/install, not in pnpm-workspace.yaml
 │                                or turbo — see worldgraph/README.md
-└── docker/                    ← docker-compose.yml, nginx.conf
+├── ecosystem.config.cjs       ← PM2 process definitions (api/portal/bridge) for production
+└── DEPLOY.md                  ← production deploy runbook (clone → PM2)
 ```
 
 Design tokens live in each app's `src/globals.css` (the original `design/` reference folder was removed).

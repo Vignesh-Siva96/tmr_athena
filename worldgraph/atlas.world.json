@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "updated": "2026-06-22",
+  "updated": "2026-06-23",
   "index": {
     "module:AgentsModule": {
-      "summary": "NestJS module — apps/api/src/modules/agents",
+      "summary": "NestJS module \u2014 apps/api/src/modules/agents",
       "connects": []
     },
     "module:AiModule": {
-      "summary": "NestJS module — apps/api/src/modules/ai",
+      "summary": "NestJS module \u2014 apps/api/src/modules/ai",
       "connects": [
         "feature:ai",
         "module:DatabaseModule",
@@ -15,7 +15,7 @@
       ]
     },
     "module:AnalyticsModule": {
-      "summary": "NestJS module — apps/api/src/modules/analytics",
+      "summary": "NestJS module \u2014 apps/api/src/modules/analytics",
       "connects": [
         "feature:analytics",
         "module:AppConfigModule",
@@ -23,7 +23,7 @@
       ]
     },
     "module:AppConfigModule": {
-      "summary": "NestJS module — apps/api/src/modules/config",
+      "summary": "NestJS module \u2014 apps/api/src/modules/config",
       "connects": [
         "feature:settings",
         "module:DatabaseModule",
@@ -31,17 +31,17 @@
       ]
     },
     "module:AppEventsModule": {
-      "summary": "NestJS module — apps/api/src/modules/app-events",
+      "summary": "NestJS module \u2014 apps/api/src/modules/app-events",
       "connects": []
     },
     "module:AuthModule": {
-      "summary": "NestJS module — apps/api/src/modules/auth",
+      "summary": "NestJS module \u2014 apps/api/src/modules/auth",
       "connects": [
         "feature:auth"
       ]
     },
     "module:BotModule": {
-      "summary": "NestJS module — apps/api/src/modules/bot",
+      "summary": "NestJS module \u2014 apps/api/src/modules/bot",
       "connects": [
         "feature:bot",
         "module:DatabaseModule",
@@ -51,11 +51,11 @@
       ]
     },
     "module:DatabaseModule": {
-      "summary": "NestJS module — apps/api/src/modules/database",
+      "summary": "NestJS module \u2014 apps/api/src/modules/database",
       "connects": []
     },
     "module:EmailModule": {
-      "summary": "NestJS module — apps/api/src/modules/email",
+      "summary": "NestJS module \u2014 apps/api/src/modules/email",
       "connects": [
         "feature:email",
         "feature:messages",
@@ -65,7 +65,7 @@
       ]
     },
     "module:EmailOAuthModule": {
-      "summary": "NestJS module — apps/api/src/modules/email-oauth",
+      "summary": "NestJS module \u2014 apps/api/src/modules/email-oauth",
       "connects": [
         "feature:email",
         "module:AppConfigModule",
@@ -73,7 +73,7 @@
       ]
     },
     "module:EmailSyncModule": {
-      "summary": "NestJS module — apps/api/src/modules/email-sync",
+      "summary": "NestJS module \u2014 apps/api/src/modules/email-sync",
       "connects": [
         "feature:email",
         "module:AppConfigModule",
@@ -84,34 +84,34 @@
       ]
     },
     "module:EventsModule": {
-      "summary": "NestJS module — apps/api/src/modules/events",
+      "summary": "NestJS module \u2014 apps/api/src/modules/events",
       "connects": []
     },
     "module:FilesModule": {
-      "summary": "NestJS module — apps/api/src/modules/files",
+      "summary": "NestJS module \u2014 apps/api/src/modules/files",
       "connects": [
         "feature:files"
       ]
     },
     "module:GithubModule": {
-      "summary": "NestJS module — apps/api/src/modules/github",
+      "summary": "NestJS module \u2014 apps/api/src/modules/github",
       "connects": [
         "feature:github"
       ]
     },
     "module:HealthModule": {
-      "summary": "NestJS module — apps/api/src/modules/health",
+      "summary": "NestJS module \u2014 apps/api/src/modules/health",
       "connects": []
     },
     "module:KnowledgeBaseModule": {
-      "summary": "NestJS module — apps/api/src/modules/knowledge-base",
+      "summary": "NestJS module \u2014 apps/api/src/modules/knowledge-base",
       "connects": [
         "feature:bot",
         "module:DatabaseModule"
       ]
     },
     "module:MessagesModule": {
-      "summary": "NestJS module — apps/api/src/modules/messages",
+      "summary": "NestJS module \u2014 apps/api/src/modules/messages",
       "connects": [
         "feature:messages",
         "feature:tickets",
@@ -119,34 +119,34 @@
       ]
     },
     "module:NotificationsModule": {
-      "summary": "NestJS module — apps/api/src/modules/notifications",
+      "summary": "NestJS module \u2014 apps/api/src/modules/notifications",
       "connects": [
         "feature:notifications"
       ]
     },
     "module:QueueModule": {
-      "summary": "NestJS module — apps/api/src/modules/queue",
+      "summary": "NestJS module \u2014 apps/api/src/modules/queue",
       "connects": [
         "feature:ai",
         "feature:queue"
       ]
     },
     "module:ShiftsModule": {
-      "summary": "NestJS module — apps/api/src/modules/shifts",
+      "summary": "NestJS module \u2014 apps/api/src/modules/shifts",
       "connects": [
         "feature:bot",
         "module:DatabaseModule"
       ]
     },
     "module:TicketsModule": {
-      "summary": "NestJS module — apps/api/src/modules/tickets",
+      "summary": "NestJS module \u2014 apps/api/src/modules/tickets",
       "connects": [
         "feature:tickets",
         "module:TagsModule"
       ]
     },
     "module:UsersModule": {
-      "summary": "NestJS module — apps/api/src/modules/users",
+      "summary": "NestJS module \u2014 apps/api/src/modules/users",
       "connects": [
         "feature:tickets"
       ]
@@ -184,7 +184,7 @@
       ]
     },
     "entity:SsoUsedToken": {
-      "summary": "SsoUsedToken table — replay protection for SSO handoff JWTs (jti uniqueness)",
+      "summary": "SsoUsedToken table \u2014 replay protection for SSO handoff JWTs (jti uniqueness)",
       "connects": [
         "feature:auth"
       ]
@@ -290,7 +290,7 @@
       ]
     },
     "entity:GithubIssueEvent": {
-      "summary": "GithubIssueEvent table — append-only activity timeline for a linked GitHub issue",
+      "summary": "GithubIssueEvent table \u2014 append-only activity timeline for a linked GitHub issue",
       "connects": [
         "entity:GithubIssue",
         "feature:github"
@@ -389,147 +389,147 @@
       ]
     },
     "route:POST /api/v1/tickets": {
-      "summary": "POST /api/v1/tickets → TicketsController.create",
+      "summary": "POST /api/v1/tickets \u2192 TicketsController.create",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:GET /api/v1/tickets": {
-      "summary": "GET /api/v1/tickets → TicketsController.list",
+      "summary": "GET /api/v1/tickets \u2192 TicketsController.list",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:GET /api/v1/tickets/:id": {
-      "summary": "GET /api/v1/tickets/:id → TicketsController.findById",
+      "summary": "GET /api/v1/tickets/:id \u2192 TicketsController.findById",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:PATCH /api/v1/tickets/:id": {
-      "summary": "PATCH /api/v1/tickets/:id → TicketsController.update",
+      "summary": "PATCH /api/v1/tickets/:id \u2192 TicketsController.update",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:POST /api/v1/tickets/:id/github/acknowledge": {
-      "summary": "POST /api/v1/tickets/:id/github/acknowledge → TicketsController.acknowledgeGithub (clears the GitHub attention flag)",
+      "summary": "POST /api/v1/tickets/:id/github/acknowledge \u2192 TicketsController.acknowledgeGithub (clears the GitHub attention flag)",
       "connects": [
         "feature:github",
         "module:TicketsModule"
       ]
     },
     "route:POST /api/v1/tickets/:id/convert": {
-      "summary": "POST /api/v1/tickets/:id/convert → TicketsController.convert",
+      "summary": "POST /api/v1/tickets/:id/convert \u2192 TicketsController.convert",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:POST /api/v1/tickets/:id/discard": {
-      "summary": "POST /api/v1/tickets/:id/discard → TicketsController.discard",
+      "summary": "POST /api/v1/tickets/:id/discard \u2192 TicketsController.discard",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:GET /api/v1/tickets/stats": {
-      "summary": "GET /api/v1/tickets/stats → TicketsController.stats",
+      "summary": "GET /api/v1/tickets/stats \u2192 TicketsController.stats",
       "connects": [
         "feature:tickets",
         "module:TicketsModule"
       ]
     },
     "route:GET /api/v1/users": {
-      "summary": "GET /api/v1/users → UsersController.listCustomers",
+      "summary": "GET /api/v1/users \u2192 UsersController.listCustomers",
       "connects": [
         "feature:tickets",
         "module:UsersModule"
       ]
     },
     "route:GET /api/v1/users/:id": {
-      "summary": "GET /api/v1/users/:id → UsersController.findById",
+      "summary": "GET /api/v1/users/:id \u2192 UsersController.findById",
       "connects": [
         "feature:tickets",
         "module:UsersModule"
       ]
     },
     "route:PATCH /api/v1/users/:id": {
-      "summary": "PATCH /api/v1/users/:id → UsersController.updateCategory",
+      "summary": "PATCH /api/v1/users/:id \u2192 UsersController.updateCategory",
       "connects": [
         "feature:tickets",
         "module:UsersModule"
       ]
     },
     "route:POST /api/v1/tickets/:ticketId/messages": {
-      "summary": "POST /api/v1/tickets/:ticketId/messages → MessagesController.create",
+      "summary": "POST /api/v1/tickets/:ticketId/messages \u2192 MessagesController.create",
       "connects": [
         "feature:messages",
         "module:MessagesModule"
       ]
     },
     "route:PATCH /api/v1/tickets/:ticketId/messages/:messageId": {
-      "summary": "PATCH /api/v1/tickets/:ticketId/messages/:messageId → MessagesController.update",
+      "summary": "PATCH /api/v1/tickets/:ticketId/messages/:messageId \u2192 MessagesController.update",
       "connects": [
         "feature:messages",
         "module:MessagesModule"
       ]
     },
     "route:GET /api/v1/sync/status": {
-      "summary": "GET /api/v1/sync/status → EmailSyncController.getStatus",
+      "summary": "GET /api/v1/sync/status \u2192 EmailSyncController.getStatus",
       "connects": [
         "feature:email",
         "module:EmailSyncModule"
       ]
     },
     "route:POST /api/v1/sync/poll/now": {
-      "summary": "POST /api/v1/sync/poll/now → EmailSyncController.pollNow",
+      "summary": "POST /api/v1/sync/poll/now \u2192 EmailSyncController.pollNow",
       "connects": [
         "feature:email",
         "module:EmailSyncModule"
       ]
     },
     "route:POST /api/v1/sync/backfill/run": {
-      "summary": "POST /api/v1/sync/backfill/run → EmailSyncController.runBackfill",
+      "summary": "POST /api/v1/sync/backfill/run \u2192 EmailSyncController.runBackfill",
       "connects": [
         "feature:email",
         "module:EmailSyncModule"
       ]
     },
     "route:GET /api/v1/config/email/oauth/:provider/start": {
-      "summary": "GET /api/v1/config/email/oauth/:provider/start → EmailOAuthController.getAuthUrl",
+      "summary": "GET /api/v1/config/email/oauth/:provider/start \u2192 EmailOAuthController.getAuthUrl",
       "connects": [
         "feature:email",
         "module:EmailOAuthModule"
       ]
     },
     "route:POST /api/v1/auth/signin": {
-      "summary": "POST /api/v1/auth/signin → AuthController.signin",
+      "summary": "POST /api/v1/auth/signin \u2192 AuthController.signin",
       "connects": [
         "feature:auth",
         "module:AuthModule"
       ]
     },
     "route:POST /api/v1/auth/signup": {
-      "summary": "POST /api/v1/auth/signup → AuthController.signup",
+      "summary": "POST /api/v1/auth/signup \u2192 AuthController.signup",
       "connects": [
         "feature:auth",
         "module:AuthModule"
       ]
     },
     "route:POST /api/v1/auth/google": {
-      "summary": "POST /api/v1/auth/google → AuthController.googleAuth",
+      "summary": "POST /api/v1/auth/google \u2192 AuthController.googleAuth",
       "connects": [
         "feature:auth",
         "module:AuthModule"
       ]
     },
     "route:POST /api/v1/auth/sso": {
-      "summary": "POST /api/v1/auth/sso → AuthController.ssoAuth — exchanges a host-signed HS256 handoff JWT for a portal session",
+      "summary": "POST /api/v1/auth/sso \u2192 AuthController.ssoAuth \u2014 exchanges a host-signed HS256 handoff JWT for a portal session",
       "connects": [
         "entity:SsoUsedToken",
         "entity:User",
@@ -538,105 +538,105 @@
       ]
     },
     "route:POST /api/v1/github/webhook": {
-      "summary": "POST /api/v1/github/webhook → GithubController.handleWebhook",
+      "summary": "POST /api/v1/github/webhook \u2192 GithubController.handleWebhook",
       "connects": [
         "feature:github",
         "module:GithubModule"
       ]
     },
     "route:POST /api/v1/tickets/:id/github/issues": {
-      "summary": "POST /api/v1/tickets/:id/github/issues → GithubController.createIssue",
+      "summary": "POST /api/v1/tickets/:id/github/issues \u2192 GithubController.createIssue",
       "connects": [
         "feature:github",
         "module:GithubModule"
       ]
     },
     "route:GET /api/v1/analytics": {
-      "summary": "GET /api/v1/analytics → AnalyticsController.getOverview",
+      "summary": "GET /api/v1/analytics \u2192 AnalyticsController.getOverview",
       "connects": [
         "feature:analytics",
         "module:AnalyticsModule"
       ]
     },
     "route:GET /api/v1/analytics/customers": {
-      "summary": "GET /api/v1/analytics/customers → CustomersController.getCustomerInsights",
+      "summary": "GET /api/v1/analytics/customers \u2192 CustomersController.getCustomerInsights",
       "connects": [
         "feature:analytics",
         "module:AnalyticsModule"
       ]
     },
     "route:GET /api/v1/rate/:token": {
-      "summary": "GET /api/v1/rate/:token → RatingController.getRatingForm",
+      "summary": "GET /api/v1/rate/:token \u2192 RatingController.getRatingForm",
       "connects": [
         "feature:analytics",
         "module:AnalyticsModule"
       ]
     },
     "route:POST /api/v1/rate/:token": {
-      "summary": "POST /api/v1/rate/:token → RatingController.submitRating",
+      "summary": "POST /api/v1/rate/:token \u2192 RatingController.submitRating",
       "connects": [
         "feature:analytics",
         "module:AnalyticsModule"
       ]
     },
     "route:GET /api/v1/config": {
-      "summary": "GET /api/v1/config → ConfigController.get",
+      "summary": "GET /api/v1/config \u2192 ConfigController.get",
       "connects": [
         "feature:settings",
         "module:AppConfigModule"
       ]
     },
     "route:GET /api/v1/config/field-usage": {
-      "summary": "GET /api/v1/config/field-usage → ConfigController.fieldUsage (admin) — per-value ticket counts for field1/field2, powers the delete-option warning",
+      "summary": "GET /api/v1/config/field-usage \u2192 ConfigController.fieldUsage (admin) \u2014 per-value ticket counts for field1/field2, powers the delete-option warning",
       "connects": [
         "feature:settings",
         "module:AppConfigModule"
       ]
     },
     "route:POST /api/v1/files/upload": {
-      "summary": "POST /api/v1/files/upload → FilesController.upload",
+      "summary": "POST /api/v1/files/upload \u2192 FilesController.upload",
       "connects": [
         "feature:files",
         "module:FilesModule"
       ]
     },
     "route:POST /api/v1/kb/scan/start": {
-      "summary": "POST /api/v1/kb/scan/start → KnowledgeBaseController.startScan",
+      "summary": "POST /api/v1/kb/scan/start \u2192 KnowledgeBaseController.startScan",
       "connects": [
         "feature:bot",
         "module:KnowledgeBaseModule"
       ]
     },
     "route:POST /api/v1/kb/embed/confirm": {
-      "summary": "POST /api/v1/kb/embed/confirm → KnowledgeBaseController.confirmEmbed",
+      "summary": "POST /api/v1/kb/embed/confirm \u2192 KnowledgeBaseController.confirmEmbed",
       "connects": [
         "feature:bot",
         "module:KnowledgeBaseModule"
       ]
     },
     "route:GET /api/v1/kb/status": {
-      "summary": "GET /api/v1/kb/status → KnowledgeBaseController.getStatus",
+      "summary": "GET /api/v1/kb/status \u2192 KnowledgeBaseController.getStatus",
       "connects": [
         "feature:bot",
         "module:KnowledgeBaseModule"
       ]
     },
     "route:GET /api/v1/shifts": {
-      "summary": "GET /api/v1/shifts → ShiftsController.findAll",
+      "summary": "GET /api/v1/shifts \u2192 ShiftsController.findAll",
       "connects": [
         "feature:bot",
         "module:ShiftsModule"
       ]
     },
     "route:GET /api/v1/notifications": {
-      "summary": "GET /api/v1/notifications → NotificationsController.list",
+      "summary": "GET /api/v1/notifications \u2192 NotificationsController.list",
       "connects": [
         "feature:notifications",
         "module:NotificationsModule"
       ]
     },
     "route:GET /api/v1/settings/ai-usage": {
-      "summary": "GET /api/v1/settings/ai-usage → AiUsageController.getAiUsage",
+      "summary": "GET /api/v1/settings/ai-usage \u2192 AiUsageController.getAiUsage",
       "connects": [
         "feature:ai",
         "module:AppConfigModule"
@@ -668,7 +668,7 @@
       ]
     },
     "ext:MinIO": {
-      "summary": "MinIO (S3-compatible object storage)",
+      "summary": "S3-compatible object storage — MinIO (local dev) / E2E Object Storage (prod). Accessed via the @aws-sdk/client-s3 client (forcePathStyle) in FilesService; the bucket is shared and must be provisioned ahead of time (not auto-created).",
       "connects": [
         "feature:files"
       ]
@@ -746,7 +746,7 @@
       ]
     },
     "feature:email": {
-      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments — fetched from MinIO via FilesService.getAttachmentBuffer — so agent-uploaded files reach the customer's email, not just the portal (R260).",
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free \u2014 thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments \u2014 fetched from MinIO via FilesService.getAttachmentBuffer \u2014 so agent-uploaded files reach the customer's email, not just the portal (R260).",
       "connects": [
         "entity:AppConfig",
         "entity:Attachment",
@@ -768,7 +768,7 @@
       ]
     },
     "feature:tickets": {
-      "summary": "Core ticketing aggregate — status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
+      "summary": "Core ticketing aggregate \u2014 status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
       "connects": [
         "entity:Agent",
         "entity:Attachment",
@@ -839,7 +839,7 @@
       ]
     },
     "feature:analytics": {
-      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true — NEW conversations and DISMISSED rows are excluded from both dashboards.",
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true \u2014 NEW conversations and DISMISSED rows are excluded from both dashboards.",
       "connects": [
         "entity:AiUsage",
         "entity:CustomerNote",
@@ -857,7 +857,7 @@
       ]
     },
     "feature:ai": {
-      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true — NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment.",
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true \u2014 NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment. Both analysis workers classify failures via isTransientGeminiError (common/ai/transient-error.ts): transient Gemini errors (503/429, network) are rethrown so pg-boss retries with backoff, terminal errors (4xx, zod/JSON parse) are swallowed so a deterministic failure doesn't burn the retry budget (R266).",
       "connects": [
         "entity:AiUsage",
         "entity:CustomerSignal",
@@ -874,11 +874,12 @@
       ]
     },
     "feature:files": {
-      "summary": "Upload/storage for ticket attachments and inline message/email attachments via MinIO (S3-compatible).",
+      "summary": "Upload/storage for ticket & message attachments in S3-compatible object storage (MinIO local / E2E prod) via the @aws-sdk/client-s3 client. Config (endpoint/SSL/region) is env-driven (S3_* vars). Downloads are signed fresh on click (short-lived URL), not persisted.",
       "connects": [
         "entity:Attachment",
         "ext:MinIO",
         "module:FilesModule",
+        "route:GET /api/v1/files/:id/sign",
         "route:POST /api/v1/files/upload"
       ]
     },
@@ -906,7 +907,7 @@
       ]
     },
     "feature:queue": {
-      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing — durable Postgres-backed queues, no separate broker.",
+      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing \u2014 durable Postgres-backed queues, no separate broker.",
       "connects": [
         "module:QueueModule",
         "queue:ai-analyze-message",
@@ -923,7 +924,7 @@
       ]
     },
     "feature:bot": {
-      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time.",
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time. On a Gemini failure, respondTo classifies via isTransientGeminiError (common/ai/transient-error.ts): a transient error (503/429/network) with retries left is rethrown so pg-boss retries the job with backoff (retryLimit 3); it escalates to a human only on a terminal error or the final attempt (isFinalAttempt, threaded from job.retrycount/retrylimit) — previously a single 503 escalated immediately and the queue's retryLimit never fired (R266).",
       "connects": [
         "entity:Agent",
         "entity:AiUsage",
@@ -949,20 +950,20 @@
       ]
     },
     "module:TagsModule": {
-      "summary": "NestJS module — apps/api/src/modules/tags (tag CRUD: name-unique, fixed palette, agent-only)",
+      "summary": "NestJS module \u2014 apps/api/src/modules/tags (tag CRUD: name-unique, fixed palette, agent-only)",
       "connects": [
         "entity:Tag",
         "module:TicketsModule"
       ]
     },
     "module:CannedResponsesModule": {
-      "summary": "NestJS module — apps/api/src/modules/canned-responses (canned response CRUD; slash-command insertion in composer)",
+      "summary": "NestJS module \u2014 apps/api/src/modules/canned-responses (canned response CRUD; slash-command insertion in composer)",
       "connects": [
         "entity:CannedResponse"
       ]
     },
     "module:TmrDataModule": {
-      "summary": "NestJS module — apps/api/src/modules/tmr-data (TMR product metadata sync via back-office API; cached on User row)",
+      "summary": "NestJS module \u2014 apps/api/src/modules/tmr-data (TMR product metadata sync via back-office API; cached on User row)",
       "connects": [
         "module:DatabaseModule",
         "module:QueueModule",
@@ -972,7 +973,7 @@
       ]
     },
     "feature:tmr-data": {
-      "summary": "TMR product metadata — fetches account/plan/team data from internal tmr_data_service and caches on User; shown in bridge CustomerProfilePanel + ticket sidebar",
+      "summary": "TMR product metadata \u2014 fetches account/plan/team data from internal tmr_data_service and caches on User; shown in bridge CustomerProfilePanel + ticket sidebar. Server-to-server auth: Authorization: Bearer <TMR_DATA_SERVICE_API_KEY> + x-auth-mode: service marker, validated by the back-office's constant-time API-key branch (separate from its frontend JWT flow).",
       "connects": [
         "module:TmrDataModule"
       ]
@@ -984,9 +985,16 @@
       ]
     },
     "ext:GoogleCloudLogging": {
-      "summary": "GCP Cloud Logging — managed log aggregation/Error Reporting sink.",
+      "summary": "GCP Cloud Logging \u2014 managed log aggregation/Error Reporting sink.",
       "connects": [
         "feature:logging"
+      ]
+    },
+    "route:GET /api/v1/files/:id/sign": {
+      "summary": "GET /api/v1/files/:id/sign \u2192 FilesController.sign (mint fresh short-lived download URL on click, auth+ownership checked)",
+      "connects": [
+        "feature:files",
+        "module:FilesModule"
       ]
     }
   },
@@ -1363,7 +1371,7 @@
         "feature:github",
         "feature:settings"
       ],
-      "notes": "Single-row instance config — ~80 columns spanning branding, email OAuth, GitHub webhook, bot/KB, feature flags. See _generated/erd.md for the full list."
+      "notes": "Single-row instance config \u2014 ~80 columns spanning branding, email OAuth, GitHub webhook, bot/KB, feature flags. See _generated/erd.md for the full list."
     },
     "entity:User": {
       "kind": "entity",
@@ -3333,7 +3341,7 @@
     "feature:email": {
       "kind": "feature",
       "title": "Email Sync",
-      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free — thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments — fetched from MinIO via FilesService.getAttachmentBuffer — so agent-uploaded files reach the customer's email, not just the portal (R260).",
+      "summary": "Two-way Gmail REST + Microsoft Graph polling sync; inbound mail becomes tickets/messages, outbound replies sent via Nodemailer/Graph. Confirmation email quotes customer's own portal description (delta watermark). Portal replies trigger a 'Received your response' ack to the customer (sendPortalReplyAck). Agent/bot reply emails are quote-free \u2014 thread lives in the email client's native chain. Reply + portal-ack sends carry an HTML body (bodyHtml ?? body) with a tag-stripped plain-text fallback (htmlToPlainText) so formatting renders instead of arriving as literal tags (R258). sendAgentReply also attaches the message's non-link file attachments \u2014 fetched from MinIO via FilesService.getAttachmentBuffer \u2014 so agent-uploaded files reach the customer's email, not just the portal (R260).",
       "stack": [
         "Gmail REST API",
         "Microsoft Graph API",
@@ -3403,7 +3411,7 @@
     "feature:tickets": {
       "kind": "feature",
       "title": "Tickets",
-      "summary": "Core ticketing aggregate — status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
+      "summary": "Core ticketing aggregate \u2014 status lifecycle (NEW/OPEN/IN_PROGRESS/WAITING/RESOLVED/CLOSED/DISMISSED), agent assignment, convert/discard for portal-submitted non-tickets, GitHub linking, configurable field1/field2.",
       "stack": [
         "NestJS",
         "Prisma",
@@ -3448,7 +3456,7 @@
       ],
       "why": "isTicket + status (NEW vs DISMISSED) distinguishes real support requests from other inbound mail/portal submissions; convert/discard let agents reclassify after triage.",
       "gaps": [
-        "A triage→status redesign (NEW/DISMISSED inbox split with dedicated tabs) was planned separately — see STATE.md decisions"
+        "A triage\u2192status redesign (NEW/DISMISSED inbox split with dedicated tabs) was planned separately \u2014 see STATE.md decisions"
       ],
       "connects": [
         "entity:Agent",
@@ -3559,7 +3567,7 @@
         "apps/api/src/modules/github/github.controller.ts",
         "apps/api/src/modules/tickets/tickets.service.ts"
       ],
-      "why": "A single GithubConfig row (single-tenant model) stores the connected account's access token; webhooks are verified against AppConfig.githubWebhookSecret. A label/state change is treated as a human-in-the-loop signal (attention flag), never an automated TicketStatus change — analytics/bot/kanban bucket on TicketStatus.",
+      "why": "A single GithubConfig row (single-tenant model) stores the connected account's access token; webhooks are verified against AppConfig.githubWebhookSecret. A label/state change is treated as a human-in-the-loop signal (attention flag), never an automated TicketStatus change \u2014 analytics/bot/kanban bucket on TicketStatus.",
       "gaps": [
         "Label colours are sourced from the webhook payload and can drift if a label is recoloured with no subsequent issue event",
         "Only one linked issue per ticket"
@@ -3616,7 +3624,7 @@
     "feature:analytics": {
       "kind": "feature",
       "title": "Analytics",
-      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true — NEW conversations and DISMISSED rows are excluded from both dashboards.",
+      "summary": "Operations dashboard (ticket volume/SLA/topics) and customer-intelligence dashboard (churn-risk/advocacy signals, CSAT), plus the customer-facing ratings form. All metrics and aggregates are scoped to isTicket=true \u2014 NEW conversations and DISMISSED rows are excluded from both dashboards.",
       "stack": [
         "NestJS",
         "Prisma",
@@ -3670,7 +3678,7 @@
     "feature:ai": {
       "kind": "feature",
       "title": "AI Ticket Analysis",
-      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true — NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment.",
+      "summary": "Background Gemini-powered analysis of tickets/messages: sentiment scoring, topic classification, CSAT request generation, and customer-signal (churn-risk/advocacy) extraction; usage/cost tracked per call. All analysis is gated on isTicket=true \u2014 NEW conversations and DISMISSED rows receive no AI processing. On convert(), prior unanalyzed customer messages are retroactively backfilled for sentiment. Both analysis workers classify failures via isTransientGeminiError (common/ai/transient-error.ts): transient Gemini errors (503/429, network) are rethrown so pg-boss retries with backoff, terminal errors (4xx, zod/JSON parse) are swallowed so a deterministic failure doesn't burn the retry budget (R266).",
       "stack": [
         "Gemini",
         "pg-boss"
@@ -3698,11 +3706,12 @@
         "queue:ai-classify-ticket"
       ],
       "keyFiles": [
-        "apps/api/src/modules/ai/ai.service.ts"
+        "apps/api/src/modules/ai/ai.service.ts",
+        "apps/api/src/common/ai/transient-error.ts"
       ],
-      "why": "Every Gemini call is recorded as an AiUsage row (model, tokens, cost, status) for the AI usage settings page and cost visibility — single-tenant so usage is instance-wide, not per-org.",
+      "why": "Every Gemini call is recorded as an AiUsage row (model, tokens, cost, status) for the AI usage settings page and cost visibility \u2014 single-tenant so usage is instance-wide, not per-org.",
       "gaps": [
-        "AiOperation also includes ATHENA_EMBED/ATHENA_GENERATE/KB_CONTEXTUAL_SUMMARY which belong to feature:bot's usage — AiUsage is shared across both features"
+        "AiOperation also includes ATHENA_EMBED/ATHENA_GENERATE/KB_CONTEXTUAL_SUMMARY which belong to feature:bot's usage \u2014 AiUsage is shared across both features"
       ],
       "connects": [
         "entity:AiUsage",
@@ -3722,10 +3731,12 @@
     "feature:files": {
       "kind": "feature",
       "title": "Files & Attachments",
-      "summary": "Upload/storage for ticket attachments and inline message/email attachments via MinIO (S3-compatible).",
+      "summary": "Upload/storage for ticket & message attachments in S3-compatible object storage (MinIO local / E2E prod) via the @aws-sdk/client-s3 client. Config (endpoint/SSL/region) is env-driven (S3_* vars). Downloads are signed fresh on click (short-lived URL), not persisted.",
       "stack": [
         "MinIO",
-        "S3 API"
+        "E2E Object Storage",
+        "S3 API",
+        "presigned URLs"
       ],
       "modules": [
         "module:FilesModule"
@@ -3734,7 +3745,8 @@
         "entity:Attachment"
       ],
       "routes": [
-        "route:POST /api/v1/files/upload"
+        "route:POST /api/v1/files/upload",
+        "route:GET /api/v1/files/:id/sign"
       ],
       "externals": [
         "ext:MinIO"
@@ -3744,12 +3756,16 @@
         "apps/api/src/modules/files/files.service.ts",
         "apps/api/src/modules/files/files.controller.ts"
       ],
-      "why": "Attachment.isLink/linkUrl lets large or external attachments be represented as links instead of stored blobs.",
-      "gaps": [],
+      "why": "Download URLs are minted per-click via GET /files/:id/sign (durable objectKey + short TTL) so links never go stale and a leaked URL expires fast; risky types are force-downloaded. Attachment.isLink/linkUrl represents external links instead of stored blobs.",
+      "gaps": [
+        "No virus scanning (deferred).",
+        "Upload extension block is minimal (.exe only)."
+      ],
       "connects": [
         "entity:Attachment",
         "ext:MinIO",
         "module:FilesModule",
+        "route:GET /api/v1/files/:id/sign",
         "route:POST /api/v1/files/upload"
       ]
     },
@@ -3779,7 +3795,7 @@
       ],
       "why": "Single-tenant: no Org model, so every cross-feature setting (branding, integration credentials, feature flags) lives on one AppConfig row instead of per-tenant config.",
       "gaps": [
-        "AppConfig has grown to ~80 columns spanning email/GitHub/bot/KB/branding/feature-flags — see _generated/erd.md for the full field list"
+        "AppConfig has grown to ~80 columns spanning email/GitHub/bot/KB/branding/feature-flags \u2014 see _generated/erd.md for the full field list"
       ],
       "connects": [
         "entity:AppConfig",
@@ -3822,9 +3838,9 @@
         "apps/bridge/src/app/settings/sso/page.tsx",
         "apps/bridge/src/app/auth/accept-invite/page.tsx"
       ],
-      "why": "MagicToken (EMAIL_VERIFICATION / PASSWORD_RESET) is a shared single-use-token table for both flows; guest sessions create an isGuest User so unauthenticated portal visitors can still open tickets. SSO handoff uses HMAC shared secret (HS256) matching Intercom's identity-verification model — simple, single-tenant, first-party-only. Agent invite accept flow: invite() sends email with token, accept-invite endpoint sets password + clears token.",
+      "why": "MagicToken (EMAIL_VERIFICATION / PASSWORD_RESET) is a shared single-use-token table for both flows; guest sessions create an isGuest User so unauthenticated portal visitors can still open tickets. SSO handoff uses HMAC shared secret (HS256) matching Intercom's identity-verification model \u2014 simple, single-tenant, first-party-only. Agent invite accept flow: invite() sends email with token, accept-invite endpoint sets password + clears token.",
       "gaps": [
-        "SsoUsedToken cleanup cron not yet implemented — expired rows accumulate indefinitely",
+        "SsoUsedToken cleanup cron not yet implemented \u2014 expired rows accumulate indefinitely",
         "RS256 mode (for untrusted third-party host apps) not yet supported"
       ],
       "connects": [
@@ -3842,7 +3858,7 @@
     "feature:queue": {
       "kind": "feature",
       "title": "Job Queue",
-      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing — durable Postgres-backed queues, no separate broker.",
+      "summary": "pg-boss-backed background job queues for email ingestion/sending, AI analysis, and bot/KB indexing \u2014 durable Postgres-backed queues, no separate broker.",
       "stack": [
         "pg-boss v9",
         "Postgres"
@@ -3870,7 +3886,7 @@
         "apps/api/src/modules/queue/queue.module.ts",
         "apps/api/src/modules/queue/queue.service.ts"
       ],
-      "why": "pg-boss was chosen over Redis/BullMQ to avoid an extra infra dependency — jobs are durable rows in the same Postgres database.",
+      "why": "pg-boss was chosen over Redis/BullMQ to avoid an extra infra dependency \u2014 jobs are durable rows in the same Postgres database.",
       "gaps": [],
       "connects": [
         "module:QueueModule",
@@ -3890,7 +3906,7 @@
     "feature:bot": {
       "kind": "feature",
       "title": "Athena Bot (First Responder + KB)",
-      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time.",
+      "summary": "AI first-responder that answers new tickets from a crawled knowledge base using hybrid RAG (pgvector + Postgres FTS, RRF fusion), escalating to the on-shift agent when it can't answer confidently. appendSource() appends a single 'Learn more' KB deep-link, label drawn from the chunk's headingPath and sanitized via stripInlineMarkdown so Turndown anchor-linked headings don't leak markdown / double the slug (R259); the chunker applies the same strip at index time. On a Gemini failure, respondTo classifies via isTransientGeminiError (common/ai/transient-error.ts): a transient error (503/429/network) with retries left is rethrown so pg-boss retries the job with backoff (retryLimit 3); it escalates to a human only on a terminal error or the final attempt (isFinalAttempt, threaded from job.retrycount/retrylimit) — previously a single 503 escalated immediately and the queue's retryLimit never fired (R266).",
       "stack": [
         "Gemini",
         "pgvector",
@@ -3930,12 +3946,13 @@
       ],
       "keyFiles": [
         "apps/api/src/modules/bot/bot.service.ts",
+        "apps/api/src/common/ai/transient-error.ts",
         "apps/api/src/modules/knowledge-base/knowledge-base.service.ts",
         "apps/api/src/modules/shifts/shifts.service.ts"
       ],
       "why": "Hybrid retrieval (vector similarity + keyword FTS, fused with RRF) covers both semantic and exact-term queries; BotInteraction records retrieval scores/confidence/cost per attempt for tuning. Shift-based escalation picks the on-shift agent (primaryAgentId by dayOfWeek/time window) when the bot doesn't answer.",
       "gaps": [
-        "KB scan/embed is a two-phase confirm flow (scan estimates cost, embed commits) — KbPhase enum tracks IDLE/SCANNING/AWAITING_CONFIRM/EMBEDDING/DONE/FAILED/CANCELLED on AppConfig; if 0 pages are successfully scanned (e.g. unreachable URL), kbPhase is set to FAILED with kbError message instead of AWAITING_CONFIRM"
+        "KB scan/embed is a two-phase confirm flow (scan estimates cost, embed commits) \u2014 KbPhase enum tracks IDLE/SCANNING/AWAITING_CONFIRM/EMBEDDING/DONE/FAILED/CANCELLED on AppConfig; if 0 pages are successfully scanned (e.g. unreachable URL), kbPhase is set to FAILED with kbError message instead of AWAITING_CONFIRM"
       ],
       "connects": [
         "entity:Agent",
@@ -4036,7 +4053,7 @@
     "feature:tmr-data": {
       "kind": "feature",
       "name": "tmr-data",
-      "summary": "TMR product metadata — fetches account/plan/team data from internal tmr_data_service and caches on User; shown in bridge CustomerProfilePanel + ticket sidebar",
+      "summary": "TMR product metadata \u2014 fetches account/plan/team data from internal tmr_data_service and caches on User; shown in bridge CustomerProfilePanel + ticket sidebar. Server-to-server auth: Authorization: Bearer <TMR_DATA_SERVICE_API_KEY> + x-auth-mode: service marker, validated by the back-office's constant-time API-key branch (separate from its frontend JWT flow).",
       "connects": [
         "module:TmrDataModule"
       ]
@@ -4045,7 +4062,7 @@
       "kind": "feature",
       "title": "Logging & Observability",
       "summary": "App-wide structured logging via winston (WinstonLogger, set as the Nest app logger in main.ts): daily-rotating JSON file logs (apps/api/logs/app-YYYY-MM-DD.log, shape {ts,level,context,msg}) plus GCP Cloud Logging. No console transport; 256KB payload truncation guard.",
-      "why": "Mirrors tmr_data_service/src/configs/logger.ts — centralizes logs in GCP for production while preserving the local jq-parseable file format. GCP writes are non-fatal (defaultCallback) so a missing/invalid key file logs to stderr and never crashes the app.",
+      "why": "Mirrors tmr_data_service/src/configs/logger.ts \u2014 centralizes logs in GCP for production while preserving the local jq-parseable file format. GCP writes are non-fatal (defaultCallback) so a missing/invalid key file logs to stderr and never crashes the app.",
       "stack": [
         "winston v3",
         "@google-cloud/logging-winston v6",
@@ -4076,6 +4093,18 @@
       ],
       "connects": [
         "feature:logging"
+      ]
+    },
+    "route:GET /api/v1/files/:id/sign": {
+      "kind": "route",
+      "method": "GET",
+      "path": "/api/v1/files/:id/sign",
+      "module": "module:FilesModule",
+      "handler": "FilesController.sign",
+      "feature": "feature:files",
+      "connects": [
+        "feature:files",
+        "module:FilesModule"
       ]
     }
   },
@@ -4180,7 +4209,7 @@
       ]
     },
     "journey:ticket-resolution-csat": {
-      "title": "Ticket resolved → AI analysis + CSAT",
+      "title": "Ticket resolved \u2192 AI analysis + CSAT",
       "beats": [
         {
           "node": "feature:tickets",
@@ -4246,7 +4275,7 @@
       ]
     },
     "journey:portal-support-flow": {
-      "title": "Portal ticket: open → confirm → bot → reply → resolve",
+      "title": "Portal ticket: open \u2192 confirm \u2192 bot \u2192 reply \u2192 resolve",
       "beats": [
         {
           "node": "feature:tickets",
@@ -4270,7 +4299,7 @@
         },
         {
           "node": "queue:email-send-reply",
-          "say": "SendReplyWorker emails the bot reply to the customer — no quoted history block"
+          "say": "SendReplyWorker emails the bot reply to the customer \u2014 no quoted history block"
         },
         {
           "node": "feature:email",
@@ -4278,12 +4307,12 @@
         },
         {
           "node": "queue:email-send-reply",
-          "say": "Agent replies from Bridge; sendAgentReply emails the customer — no quoted history block"
+          "say": "Agent replies from Bridge; sendAgentReply emails the customer \u2014 no quoted history block"
         }
       ]
     },
     "journey:email-support-flow": {
-      "title": "Direct email: inbound → ticket → ongoing thread replies",
+      "title": "Direct email: inbound \u2192 ticket \u2192 ongoing thread replies",
       "beats": [
         {
           "node": "ext:Gmail",
@@ -4311,11 +4340,11 @@
         },
         {
           "node": "entity:Message",
-          "say": "Customer replies in email thread → ingested, matched to ticket by externalThreadId, deduped by RFC Message-ID — no outbound ack (already in the thread)"
+          "say": "Customer replies in email thread \u2192 ingested, matched to ticket by externalThreadId, deduped by RFC Message-ID \u2014 no outbound ack (already in the thread)"
         },
         {
           "node": "queue:email-send-reply",
-          "say": "Agent replies from Bridge → sendAgentReply delivers email to customer (no quoted history)"
+          "say": "Agent replies from Bridge \u2192 sendAgentReply delivers email to customer (no quoted history)"
         }
       ]
     }

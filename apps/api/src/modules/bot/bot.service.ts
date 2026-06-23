@@ -9,6 +9,7 @@ import { GeneratorService } from './generator.service'
 import { ShiftResolverService } from './shift-resolver.service'
 import { isFeatureSuppressed } from '../config/feature-flags'
 import { stripInlineMarkdown } from '../knowledge-base/chunker.service'
+import { isTransientGeminiError } from '../../common/ai/transient-error'
 
 @Injectable()
 export class BotService {
@@ -31,7 +32,13 @@ export class BotService {
   private static readonly CONFIDENCE_THRESHOLD = 0.7
   private static readonly BOT_NAME = 'Athena'
 
-  async respondTo(ticketId: string): Promise<void> {
+  // `isFinalAttempt` is threaded in from the worker's pg-boss retry metadata. A
+  // transient Gemini failure (503 overload, 429, network blip) is rethrown so
+  // pg-boss retries the job with backoff instead of dumping the ticket on a
+  // human over a momentary blip — but only while retries remain. On the final
+  // attempt (or for a terminal error), we escalate as before so a sustained
+  // outage never leaves a customer silently un-answered.
+  async respondTo(ticketId: string, opts?: { isFinalAttempt?: boolean }): Promise<void> {
     const startMs = Date.now()
 
     // 1. Load AppConfig
@@ -91,6 +98,9 @@ export class BotService {
     let totalTokens = 0
     let costUsd = new Decimal('0')
     let botMessageId: string | null = null
+    // Set when we rethrow a transient failure for pg-boss to retry — suppresses
+    // the audit row + escalation below, since this attempt has no final outcome.
+    let rethrowForRetry = false
 
     try {
       // 5. Embed the question (RETRIEVAL_QUERY taskType via GeneratorService)
@@ -218,6 +228,15 @@ export class BotService {
       }
     } catch (err) {
       this.logger.error(`BotService.respondTo failed for ticket ${ticketId}: ${String(err)}`)
+      // Transient upstream failure with retries still available: rethrow so
+      // pg-boss retries the whole job with backoff instead of escalating to a
+      // human over a momentary Gemini blip. The escalation + audit write below
+      // run only once retries are exhausted (isFinalAttempt) or for a terminal
+      // error that a retry could never fix.
+      if (isTransientGeminiError(err) && !opts?.isFinalAttempt) {
+        rethrowForRetry = true
+        throw err
+      }
       try {
         const ticketForEscalate = await this.db.ticket.findUnique({
           where: { id: ticketId },
@@ -232,9 +251,11 @@ export class BotService {
         this.logger.error(`Escalation also failed for ticket ${ticketId}: ${String(escalateErr)}`)
       }
     } finally {
-      // 11. Always write BotInteraction audit row
+      // 11. Write the BotInteraction audit row — but not when rethrowing for a
+      // retry, since this attempt produced no final outcome (a later attempt, or
+      // the final-attempt escalation, writes the definitive row instead).
       const latencyMs = Date.now() - startMs
-      try {
+      if (!rethrowForRetry) try {
         await this.db.botInteraction.create({
           data: {
             ticketId,

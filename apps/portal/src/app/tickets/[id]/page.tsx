@@ -211,6 +211,28 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     return () => clearInterval(interval)
   }, [token, id])
 
+  // Open an attachment by minting a fresh short-lived URL on click (see /files/:id/sign).
+  // Synchronously open a blank tab first so the popup isn't blocked after the async fetch.
+  const openAttachment = async (att: Attachment) => {
+    if (att.isLink) {
+      window.open(att.linkUrl ?? att.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    const w = window.open('', '_blank')
+    try {
+      const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001'
+      const res = await fetch(`${apiUrl}/api/v1/files/${att.id}/sign`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Sign failed: ${res.status}`)
+      const json = await res.json() as { data: { url: string } }
+      if (w) w.location.href = json.data.url
+    } catch (err) {
+      console.error('Failed to open attachment:', err)
+      if (w) w.close()
+    }
+  }
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !token || !ticket) return
@@ -462,18 +484,19 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                   {msg.attachments.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, paddingLeft: 48 }}>
                       {msg.attachments.map((att) => (
-                        <a key={att.id} href={att.url} target="_blank" rel="noreferrer" style={{
+                        <button key={att.id} type="button" onClick={() => void openAttachment(att)} style={{
                           display: 'inline-flex', alignItems: 'center', gap: 6,
                           padding: '4px 8px',
                           background: '#fff',
                           border: '1px solid var(--p-border)',
                           borderRadius: 4,
                           fontSize: 12.5, color: 'var(--p-text)', textDecoration: 'none',
+                          cursor: 'pointer', font: 'inherit',
                         }}>
                           <Paperclip size={12} style={{ color: 'var(--p-text-3)', flexShrink: 0 }} />
                           {att.filename}
                           <span style={{ fontSize: 11, color: 'var(--p-text-4)' }}>{formatSize(att.size)}</span>
-                        </a>
+                        </button>
                       ))}
                     </div>
                   )}

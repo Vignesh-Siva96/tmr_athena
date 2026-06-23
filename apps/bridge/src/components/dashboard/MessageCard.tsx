@@ -6,7 +6,7 @@ import { sanitizeHtml, isHtmlBody, splitQuotedHtml } from '@tmr/ui/sanitize'
 type MessageType = 'REPLY' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT'
 
 interface Author { id: string; name: string | null; email: string; avatarUrl: string | null }
-interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean }
+interface Attachment { id: string; filename: string; size: number; url: string; isLink: boolean; linkUrl?: string | null }
 
 interface MessageCardProps {
   id: string
@@ -24,6 +24,7 @@ interface MessageCardProps {
   isLast?: boolean
   onReply?: () => void
   onNote?: () => void
+  onOpenAttachment?: (att: Attachment) => void
 }
 
 function initials(name: string | null, email: string): string {
@@ -129,7 +130,7 @@ function ReplyActions({ onReply, onNote }: { onReply?: () => void; onNote?: () =
   )
 }
 
-export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, authorAgent, authorBotName, attachments, createdAt, cc, supportEmail, isLast, onReply, onNote }: MessageCardProps) {
+export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, authorAgent, authorBotName, attachments, createdAt, cc, supportEmail, isLast, onReply, onNote, onOpenAttachment }: MessageCardProps) {
   const [collapsed, setCollapsed] = useState(false)
 
   // Bot-generated reply — render with Sparkles avatar + AI badge
@@ -247,10 +248,10 @@ export function MessageCard({ id, type, body, bodyHtml, isInternal, authorUser, 
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 14px 12px' }}>
             {attachments.map((att) => (
-              <a key={att.id} href={att.url} target="_blank" rel="noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-3)', textDecoration: 'none', background: 'var(--d-raised)' }}>
+              <button key={att.id} type="button" onClick={() => onOpenAttachment?.(att)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', border: '1px solid var(--d-border)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--d-text-3)', background: 'var(--d-raised)', cursor: 'pointer', font: 'inherit' }}>
                 📎 {att.filename}
-              </a>
+              </button>
             ))}
           </div>
         )}

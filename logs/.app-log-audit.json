@@ -9,6 +9,11 @@
             "date": 1782068053310,
             "name": "/home/vignesh/Development/athena/logs/app-2026-06-22.log",
             "hash": "94b76ed6108dd6b58c9943026dace4840dfdfc3666b6d6f742d27da2b393ea92"
+        },
+        {
+            "date": 1782206661602,
+            "name": "/home/vignesh/Development/athena/logs/app-2026-06-23.log",
+            "hash": "955185aae0dc7f26504893211d2051d1ed38391b9b0f484bdd8316eac907a490"
         }
     ],
     "hashType": "sha256"

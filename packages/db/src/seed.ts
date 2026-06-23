@@ -32,6 +32,18 @@ function hoursAfter(date: Date, h: number): Date {
 }
 
 async function main() {
+  // Guard: this seed inserts demo agents/customers/tickets (and a weak `admin123` login).
+  // It is a dev/test fixture only — never run it against production. Create the production
+  // admin manually via SQL instead (see DEPLOY.md → "Create the first admin").
+  if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force')) {
+    console.error(
+      '✋ Refusing to seed: NODE_ENV=production. This script injects demo data and a weak admin login.\n' +
+        '   Create the production admin via the SQL recipe in DEPLOY.md.\n' +
+        '   To override (NOT recommended), re-run with --force.',
+    )
+    process.exit(1)
+  }
+
   console.log('🌱 Seeding database…')
 
   // App config (single row)

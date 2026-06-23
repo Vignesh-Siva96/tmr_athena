@@ -5,6 +5,7 @@ import { GeminiService } from '../gemini.service'
 import { PrismaService } from '../../database/prisma.service'
 import type { Prisma } from '@tmr/db'
 import { isFeatureSuppressed } from '../../config/feature-flags'
+import { isTransientGeminiError } from '../../../common/ai/transient-error'
 
 @Injectable()
 export class ClassifyTicketWorker implements OnModuleInit {
@@ -116,7 +117,12 @@ export class ClassifyTicketWorker implements OnModuleInit {
         await this.db.$transaction(ops)
       } catch (err) {
         this.logger.error(`classify-ticket failed for ticket=${ticketId}: ${String(err)}`)
-        throw err
+        // Rethrow only transient failures so pg-boss retries with backoff. A
+        // terminal error (model drift failing zod, a Prisma constraint) fails
+        // identically on every retry, so we give up now rather than burn the
+        // remaining attempts (and their tokens). The ticket simply stays
+        // unclassified until a later resolve re-enqueues it.
+        if (isTransientGeminiError(err)) throw err
       }
     })
   }

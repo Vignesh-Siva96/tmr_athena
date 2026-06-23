@@ -58,8 +58,15 @@ which re-enqueues the worker. CustomerProfilePanel auto-calls this once if `stat
 
 ## External API contract
 
-Base URL + auth header from env (`TMR_DATA_SERVICE_BASE_URL`, `TMR_DATA_SERVICE_API_KEY`,
-`TMR_DATA_SERVICE_API_KEY_HEADER`).
+Base URL + API key from env (`TMR_DATA_SERVICE_BASE_URL`, `TMR_DATA_SERVICE_API_KEY`).
+
+**Auth (server-to-server).** Each call sends the key as `Authorization: Bearer <key>` plus a
+marker header `x-auth-mode: service`. The marker routes the back-office's `BackofficeMiddleware`
+to its API-key branch (constant-time compare via `crypto.timingSafeEqual` against
+`BACK_OFFICE_API_KEY`) instead of the existing frontend JWT flow, which is left untouched —
+frontend callers send no marker and fall through to JWT as before. The secret lives in
+`Authorization` (not a custom header) so logging/APM tooling redacts it by default. Must be HTTPS
+in production. (The old `TMR_DATA_SERVICE_API_KEY_HEADER` env var is removed.)
 
 1. `POST /back-office/getUsersByFuzzySearch` — `{ emailId }` → find EXACT case-insensitive email match in `data[]`
 2. `POST /back-office/getUserDetails` — `{ userId }` → `{ accounts[], teams[], dataSources[], queries[], schedules[] }`

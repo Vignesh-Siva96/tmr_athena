@@ -77,7 +77,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         NODE_ENV: 'test',
-        // DATABASE_URL + MINIO_* from the infra script's env file (see header comment).
+        // DATABASE_URL + S3_* from the infra script's env file (see header comment).
         ...e2eEnv,
         EMAIL_CREDS_KEY: '0'.repeat(64),
         BETTER_AUTH_SECRET: 'test-secret-for-playwright-0123456',

@@ -476,6 +476,28 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
     setCcList(ticket.participants?.map((p) => p.email) ?? [])
   }, [ticket?.id]) // only reset on ticket identity change, not every reload
 
+  // Open an attachment by minting a fresh short-lived URL on click (see /files/:id/sign).
+  // Synchronously open a blank tab first so the popup isn't blocked after the async fetch.
+  const openAttachment = useCallback(async (att: { id: string; isLink: boolean; linkUrl?: string | null; url: string }) => {
+    if (att.isLink) {
+      window.open(att.linkUrl ?? att.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    const w = window.open('', '_blank')
+    try {
+      const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001'
+      const res = await fetch(`${apiUrl}/api/v1/files/${att.id}/sign`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Sign failed: ${res.status}`)
+      const json = await res.json() as { data: { url: string } }
+      if (w) w.location.href = json.data.url
+    } catch (err) {
+      console.error('Failed to open attachment:', err)
+      if (w) w.close()
+    }
+  }, [token])
+
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !token || !ticket) return
@@ -812,6 +834,7 @@ export default function AgentTicketPage({ params }: { params: Promise<{ id: stri
                 isLast={i === lastIdx && !showCompose}
                 onReply={() => { setComposeTab('reply'); setShowCompose(true) }}
                 onNote={() => { setComposeTab('note'); setShowCompose(true) }}
+                onOpenAttachment={openAttachment}
               />
             ))
           })()}

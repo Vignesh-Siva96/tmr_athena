@@ -10,6 +10,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "@google-cloud/logging-winston": "^6.0.2",
     "@google/generative-ai": "^0.24.1",
     "@microsoft/microsoft-graph-client": "^3.0.7",
@@ -28,7 +30,6 @@
     "gmail-api-parse-message-ts": "^2.2.33",
     "isomorphic-fetch": "^3.0.0",
     "mdast-util-from-markdown": "^2.0.3",
-    "minio": "^8.0.7",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.7",
     "pg-boss": "^9.0.3",

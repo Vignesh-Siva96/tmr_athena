@@ -6,6 +6,7 @@ import { PrismaService } from '../../database/prisma.service'
 import { formatRef } from '../../tickets/util/generate-ref'
 import type { Prisma } from '@tmr/db'
 import { isFeatureSuppressed } from '../../config/feature-flags'
+import { isTransientGeminiError } from '../../../common/ai/transient-error'
 
 @Injectable()
 export class AnalyzeMessageWorker implements OnModuleInit {
@@ -122,7 +123,12 @@ export class AnalyzeMessageWorker implements OnModuleInit {
         await this.db.$transaction(ops)
       } catch (err) {
         this.logger.error(`analyze-message failed for msg=${messageId}: ${String(err)}`)
-        throw err
+        // Rethrow only transient failures so pg-boss retries with backoff. A
+        // terminal error (model drift failing zod, a Prisma constraint) would
+        // fail identically on every retry, so we give up now rather than burn
+        // the remaining attempts (and their tokens) on a hopeless retry. The
+        // message simply stays unanalysed (`analyzedAt` null) until a later edit.
+        if (isTransientGeminiError(err)) throw err
       }
     })
   }

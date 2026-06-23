@@ -211,6 +211,7 @@ describe('R194 — ClassifyTicketWorker: ticketCount only changes when topic ass
       ticket: {
         findUnique: vi.fn().mockResolvedValue({
           id: 't1',
+          isTicket: true,
           topicId,
           title: 'Test ticket',
           messages: [{ body: 'I need help', authorUserId: 'u1', authorAgentId: null }],

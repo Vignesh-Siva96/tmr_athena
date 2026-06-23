@@ -6,8 +6,8 @@ stack:
   - Next.js (Portal · Bridge)
   - NestJS (API)
   - PostgreSQL (data + pg-boss + pgvector)
-  - MinIO (file attachments)
-  - Nginx (reverse proxy)
+  - MinIO / S3-compatible object storage (file attachments)
+  - PM2 (production process manager)
 ---
 
 # Architecture — TMR Support Platform
@@ -143,17 +143,18 @@ Notable structural points:
 
 ---
 
-## Docker Compose (local dev)
+## Deployment & local infra
 
-```yaml
-services:
-  postgres:  image: postgres:15  port 5432
-  minio:     image: minio/minio  ports 9000 + 9001 (console)
-  # api / portal / bridge run via pnpm dev outside Docker in local dev
-  # nginx: image: nginx  ports 80 + 443 (production only)
-```
+**Production** runs the three Node apps under **PM2** (`ecosystem.config.cjs`): `athena-api` (3001),
+`athena-portal` (3000), `athena-bridge` (3002). A host-level reverse proxy (nginx/Caddy) + TLS sits
+in front. Postgres (pgvector) and S3-compatible object storage are provisioned separately and wired
+via the root `.env`. Docker is **not** used to deploy — full runbook in [`../../DEPLOY.md`](../../DEPLOY.md).
 
-No Redis service — pg-boss runs inside Postgres.
+**Local dev**: api/portal/bridge run via `pnpm dev`; Postgres + MinIO run as standalone containers
+(see DEPLOY.md → "Local development infra").
+
+No Redis service — pg-boss runs inside Postgres. The only remaining Docker usage is Testcontainers
+in the test suite (`tests/`), unrelated to deployment.
 
 ---
 

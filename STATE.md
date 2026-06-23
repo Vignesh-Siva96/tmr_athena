@@ -21,8 +21,13 @@ Last updated: 2026-06-14 (Plan in-portal-signup-flow-enumerated-clarke: Email ve
 ### Start the stack
 
 ```bash
-# 1. Start infra (if not running)
-cd docker && docker compose up postgres minio -d
+# 1. Start infra (if not running) — standalone containers, see DEPLOY.md
+docker run -d --name athena-pg -p 5432:5432 \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=tmr_support \
+  pgvector/pgvector:pg16
+docker run -d --name athena-minio -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+  minio/minio server /data --console-address ":9001"
 
 # 2. API
 pnpm --filter @tmr/api dev
@@ -63,7 +68,10 @@ ngrok http 3001
 | **Custom JWT** (HMAC-SHA256 via Node crypto) instead of Better Auth     | Better Auth's schema conflicts with our custom Prisma models                                                                       |
 | **`@prisma/client` imported directly** in `PrismaService`               | `@tmr/db` is TypeScript source — NestJS can't load `.ts` at runtime                                                                |
 | **`Attachment.ticketId` is optional**                                   | Files pre-uploaded before ticket creation; linked at ticket create time                                                            |
+| **Attachment download URLs signed on click, not persisted** (`GET /files/:id/sign` + `Attachment.objectKey`) | `storeBuffer` used to mint a **7-day** presigned URL once at upload and store it, so every link died 7 days after upload regardless of activity. Now each row keeps a durable `objectKey`; the endpoint authorizes (agent any / customer owns ticket) then re-signs a short-lived URL (`S3_READ_URL_TTL_SECONDS`, default 600 s) per click — links never go stale, leaked URLs expire fast. Rejected a static-link/longer-TTL approach (would break clicks on long-open pages) and a 302-redirect endpoint (bare anchors carry no Bearer token → 401); the click handler `fetch`es the endpoint then `window.open`s the URL. Object bytes are never deleted/lifecycle-expired — only the signature. Risky types (`.html`/`.svg`/`.exe`) force-download; `.exe` upload blocked. (2026-06-23) |
+| **Object storage via `@aws-sdk/client-s3`, not the `minio` client** (`FilesService`) | The `minio` client requires `endPoint` to be a bare host and threw `InvalidEndpointError` at construction when `S3_ENDPOINT` held a full URL — which, under NestFactory's default `abortOnError:true`, exited the API silently (error only in the file logger). Swapped to the AWS S3 SDK: one client (`forcePathStyle:true`) for both MinIO (local) and E2E (prod). The SDK takes `endpoint` as a **full URL** (the original `.env` value was correct all along; minio was the problem) and rejects a bare host / `host:port` — so `S3_ENDPOINT` is now a full URL passed straight through, and the minio-era `S3_PORT`/`S3_USE_SSL` split was dropped (scheme + port encode both). Env vars renamed `MINIO_*`→`S3_*`. Bucket is **not** auto-created (shared, pre-provisioned in prod; tests `CreateBucketCommand` it). `main.ts` now uses `abortOnError:false` so fatal bootstraps print instead of vanishing. (2026-06-23) |
 | **pg-boss queue** for inbound emails (replaces BullMQ + Redis)          | `email.inbound` queue backed by Postgres (`pgboss` schema); 5x exponential retry; same `DATABASE_URL`; zero extra infra to deploy |
+| **Transient Gemini failures are retried, not escalated/given-up** (`common/ai/transient-error.ts` → `isTransientGeminiError`) | A momentary Gemini 503 ("model experiencing high demand") used to escalate a bot ticket to a human on the **first** failure — `BotService.respondTo` caught the error and escalated without rethrowing, so the queue's `retryLimit:3` never fired. Now every Gemini caller classifies the error: **transient** (status 408/429/500/502/503/504, or a network/abort/timeout message) is rethrown so pg-boss retries with backoff; **terminal** (4xx client, zod/JSON parse on model drift, plain errors) is not. The bot worker threads pg-boss retry metadata (`job.retrycount`/`retrylimit`) into `respondTo({ isFinalAttempt })` and escalates only on a terminal error or the final attempt, so a sustained outage still reaches a human. The analysis workers (`analyze-message`, `classify-ticket`) rethrow transient / swallow terminal — stopping wasted retries on deterministic failures. Classifier is duck-typed (numeric `status` + message regex), **not** `instanceof` on the SDK error classes, so it's dependency-free and robust across module/bundler realms. (2026-06-23) |
 | **Generated FTS `tsv` column asserted at boot** (`RetrievalService.onModuleInit`) | Generated columns live in raw-SQL migrations, not `schema.prisma`; `migrate reset`/0-step migrations can silently drop them and break bot retrieval. Idempotent boot guard self-heals. (2026-06-01) |
 | **Athena `Learn more:` link rendered in code, not by the LLM** (`BotService.appendSource`) | The bot answer used to rely on the LLM typing the source link into `answer`. Under structured-JSON output `gemini-2.5-flash-lite` fills the `citations` array but drops the inline link; `gemini-2.0-flash` didn't. Link now appended deterministically from `citations[0]` (matched to a retrieved chunk for a heading label), so it's model-independent. (2026-06-01) |
 | **KB + Shifts controllers: `@UseGuards(AuthGuard, AgentGuard)` at class level, ADMIN-only on every mutation** | They had zero auth guards (KB even had a literal `// TODO: Add auth guard`) — anyone could crawl/delete the knowledge base, trigger `manualIndex` (SSRF surface), or CRUD on-call shifts. Matched the existing `ConfigController`/`AgentsController` pattern: class-level guard + per-mutation `if (agent.role !== 'ADMIN') throw new ForbiddenException(...)`. Read-only `GET` routes (`kb/status`, `kb/sources`, `shifts`) require auth but not ADMIN. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.1) |
@@ -72,6 +80,7 @@ ngrok http 3001
 | **Single shared SSRF guard** — `apps/api/src/common/net/assert-public-url.ts` (`assertPublicUrl` + `fetchPublic` + `readBodyCapped`) | Three server-side `fetch()`s of admin/config-supplied URLs (`config.service.extractBrand`, KB crawler `fetchPage`/`fetchRobotsSitemaps`/`fetchSitemapUrlsWithLastmod`) had no protection against internal targets (loopback, link-local incl. `169.254.169.254`, RFC1918 ranges, `localhost`), non-`http(s)` schemes, redirect chains, or oversized bodies. One module now: resolves the hostname via DNS at call time (covers DNS-rebinding), rejects private/loopback/link-local ranges + non-public schemes (`http` allowed only outside `production`), and `fetchPublic` re-validates every redirect hop (capped at 3) and caps response bytes (5 MB) via `readBodyCapped`. (2026-06-07, plan `you-are-a-senior-wiggly-piglet` T1.2) |
 | **Portal reply ack to customer, not self-addressed mirror** — `sendPortalReplyAck` replaces `sendPortalReplyCopy` | Self-addressed mirrors were awkward: the customer's portal message was quoted back at them in a later agent reply, and the mirror only landed in the support inbox. A direct "Received your response" ack To the customer puts the portal message in the thread on both sides cleanly. Agent/bot reply emails also drop all quoted history — the thread is in the email client's native chain. (2026-06-16) |
 | **Dropdown `value` is a frozen key; UI resolves `value → label` everywhere** (`apps/bridge/src/lib/useFieldConfig.ts`) | `Ticket.field1/field2` and analytics `groupBy` key on the option `value`, never the label. The ticket sidebar + both analytics dashboards were showing the raw value (e.g. `google-sheets`); they now resolve to the configured label via the shared `useFieldConfig`/`labelForValue`. Branding form derives `value` from the label (`slugify`) for **new** options only and freezes persisted keys, so a label rename is cosmetic + retroactive (no migration). Considered collapsing to labels-only — rejected: renaming would orphan existing tickets. Deleting an in-use option is gated by `GET /config/field-usage` (admin) counts. (2026-06-22) |
+| **Production deploys via PM2 (`ecosystem.config.cjs`), Docker dropped** | The `docker/` dir (3 app Dockerfiles + `docker-compose.yml` + `nginx.conf`) was removed. The three Node apps now run under PM2 on the host (`athena-api`:3001, `athena-portal`:3000, `athena-bridge`:3002); reverse proxy + TLS handled at the server level. Postgres (pgvector) and S3-compatible object storage are provisioned separately and wired via root `.env` (MinIO is dev-only; prod points `S3_*` at the E2E S3 endpoint over HTTPS). The app Dockerfiles were already broken anyway (`Dockerfile.dashboard` referenced the non-existent `apps/dashboard`, and copied `.next/standalone` though neither Next app sets `output:'standalone'`). Docker is still required for the **test** suite (Testcontainers spins up ephemeral pgvector+MinIO) — that's the Docker *daemon*, not a deployment artifact, and was kept. Runbook: `DEPLOY.md`. (2026-06-23) |
 | **GitHub label/state change → `Ticket.githubUpdatePending` attention flag, NOT `TicketStatus`** | The webhook now reacts to all `issues` label/state actions on a linked issue (was: only `fix-deployed` → notification). It raises a dedicated boolean flag + `githubUpdatedAt` and lets the agent decide the real next step. Injecting a GitHub state into the workflow `TicketStatus` enum would corrupt analytics buckets, bot logic, and kanban columns that all read `status`. The flag clears on `POST /tickets/:id/github/acknowledge` or the next agent `findById` (portal reads never clear it). (2026-06-22) |
 | **`GithubIssueEvent` table (not a JSON column on `GithubIssue`)** | The linked-issue activity timeline is append-only and ordered; a relational row keeps `create` atomic under GitHub's near-simultaneous webhook deliveries (a read-modify-write JSON append would race) and stays queryable. Mirrors `BotInteraction`/`CustomerSignal`. (2026-06-22) |
 | **Label config + agent→GitHub push removed entirely** | Dropped `AppConfig.fixDeployedLabel`/`pendingConfirmationLabel`, the `PATCH /github/webhook-config` label endpoint, the "Mark pending confirmation" button (`POST /tickets/:id/github/pending`), the `/github` "Action needed" page, and the `GITHUB_FIX_DEPLOYED` notification type (→ `GITHUB_ISSUE_UPDATED`). A label is purely an inbound signal now; the old config/round-trip flow added surface for no benefit. Acknowledge lives on `TicketsController` (mutates `Ticket`, rides `findById`). (2026-06-22) |
@@ -225,13 +234,207 @@ read the atlas. If you want to know how it got that way, read this.
 | Export as CSV (portal)                      | Low                | Button renders; no handler                                             |
 | `EMAIL_CREDS_KEY` env var must be set       | Medium             | 64-char hex key required for IMAP/SMTP password + OAuth token encryption; app starts without it but IMAP won't connect |
 | OAuth env vars not yet set                  | Medium             | `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `MICROSOFT_OAUTH_CLIENT_ID/SECRET`, `OAUTH_CALLBACK_BASE`, `BRIDGE_URL` must be configured before OAuth login works |
-| `orgs` module still exists on disk          | Cleanup            | Gutted stub; never imported — safe to delete                           |
+| `orgs` module still exists on disk          | Intentional        | Gutted stub, never imported; kept on purpose (possible future multi-tenant) — 2026-06-23 |
 | Auth token stored in localStorage           | Medium             | Acceptable for internal tool; consider httpOnly cookies for production |
 | GitHub Issues analytics dashboard           | Deferred — Phase 2 | Charts: issue volume by destination/connector, resolution time trends  |
 
 ---
 
 ## Session Log
+
+### 2026-06-23 — Squashed the broken migration history into one baseline
+
+**Problem:** no migration ever created the `AppConfig` table — it only ever existed because of an
+old untracked `db push`. Every later migration just `ALTER`s it. So building a DB **from scratch**
+crashed at `20260530000000_athena_bot` (`relation "AppConfig" does not exist`). Verified this breaks
+**both** `prisma migrate dev` (shadow-DB replay) **and** `prisma migrate deploy` on a fresh DB — i.e.
+a first-time production deploy (DEPLOY.md Scenario A) would have failed.
+
+**Fix (safe because production isn't live yet):** replaced the 17-migration history with a single
+`packages/db/prisma/migrations/00000000000000_init` baseline that reproduces the current schema.
+Generated it from the live dev DB via `prisma migrate diff --from-empty --to-schema-datasource`, then
+hand-corrected three things Prisma's generator gets wrong for raw-SQL features: prepended
+`CREATE EXTENSION vector`/`pg_trgm`, fixed the generated `tsv` column (`GENERATED ALWAYS … STORED`,
+not an invalid `DEFAULT`), and dropped the bogus `ASC` on the GIN index. Reset the dev DB's
+`_prisma_migrations` ledger and `migrate resolve --applied` the baseline (no data/schema touched).
+Old files backed up under `/tmp` + retained in git history.
+
+**Verified:** `migrate deploy` onto an empty DB applies cleanly; `migrate dev` no longer crashes;
+dev DB `migrate status` = up to date.
+
+**Known footnote:** the bot FTS `tsv` column lives outside `schema.prisma` (owned by
+`RetrievalService.onModuleInit`, which re-creates it idempotently every boot), so `migrate dev`
+will offer a spurious `DROP tsv` in generated migrations — strip those two lines, or it self-heals
+on next API boot anyway. Optional permanent silencer: declare `tsv Unsupported("tsvector")?` on
+`KnowledgeChunk`.
+
+### 2026-06-23 — Retry transient Gemini failures (bot + AI analysis) instead of escalating/giving up
+
+User reported a bot reply failed. Watched the logs first (per the debugging rule): at `12:24:37`
+`GeneratorService.generateAnswer` → `BotService.respondTo` failed with a Gemini **503 "model
+experiencing high demand"**, and the ticket immediately escalated to a human (Admin replied manually
+9 min later). Root cause: `respondTo`'s catch escalated on the **first** failure without rethrowing,
+so the queue's `retryLimit:3` never fired — a momentary upstream blip permanently burned the bot's
+attempt. The same 503 hit `AnalyzeMessageWorker` but that path self-healed (it rethrows → pg-boss
+retried it).
+
+- **New shared helper** `apps/api/src/common/ai/transient-error.ts` → `isTransientGeminiError(err)`.
+  Duck-typed (numeric `status` ∈ {408,429,500,502,503,504} → transient; else a network/abort/timeout
+  message regex), **not** `instanceof` on the SDK error classes — dependency-free and robust across
+  module/bundler realms. 4xx, zod/JSON parse failures, and plain errors are terminal.
+- **Bot** (`bot.service.ts` + `respond-to-new-ticket.worker.ts`): worker registers with
+  `{ includeMetadata: true }` and threads `isFinalAttempt = job.retrycount >= job.retrylimit` into
+  `respondTo(ticketId, { isFinalAttempt })`. The catch rethrows transient errors while retries remain
+  (pg-boss retries with backoff) and escalates only on a terminal error or the final attempt — so a
+  sustained outage still reaches a human. The `BotInteraction` audit row is skipped when rethrowing
+  for a retry (a later attempt writes the definitive row).
+- **Analysis workers** (`analyze-message.worker.ts`, `classify-ticket.worker.ts`): catch now rethrows
+  **only** transient errors and swallows terminal ones (`return`), so a deterministic failure (model
+  drift failing zod, a Prisma constraint) no longer burns the remaining retry attempts and their
+  tokens. Both are idempotent, so a retried transient is safe.
+- **Tests**: `tests/unit/api/gemini-transient-retry.spec.ts` (R266) — classifier table + bot
+  `isFinalAttempt` threading + both analysis workers rethrow-transient/swallow-terminal. All green.
+- **Also fixed** the 2 **pre-existing** `worker-guards.spec` (R194) failures noted in the S3 session:
+  the ClassifyTicketWorker mock was missing `isTicket: true`, so commit `a889545`'s `isTicket` guard
+  early-returned before `$transaction`. One-line mock fix; unrelated to the retry change.
+- Docs: `docs/atlas/bot.md`, `docs/atlas/ai.md`, `tests/regression-catalogue.md` (R266),
+  `worldgraph/atlas.world.json` (validated — 118 nodes), Decisions table above.
+- Known unrelated red: `sso-auth.spec` fails to load locally (`@nestjs/common` unresolvable from the
+  repo root in this machine's pnpm layout — it directly imports the package from `tests/`). Committed
+  in `26ae21f`, pre-existing, environment-specific; not touched here.
+
+### 2026-06-23 — S3 SDK migration (storage client: minio → @aws-sdk/client-s3)
+
+The API wouldn't bootstrap. Root cause: `.env` had `MINIO_ENDPOINT=https://objectstore.e2enetworks.net`
+(a full URL). The `minio` client requires a **bare host**, so it threw `InvalidEndpointError` in
+`FilesService`'s constructor → DI failed. Because `NestFactory.create` defaults to
+`abortOnError: true`, Nest called `process.exit(1)` **silently** — the error only reached the
+file/GCP logger (no console transport), so `node dist/main.js` exited 1 with zero output. Setting
+`abortOnError: false` surfaced the real stack.
+
+- **`main.ts`**: `NestFactory.create(..., { abortOnError: false })` + a `bootstrap().catch()` that
+  prints to the console and exits — fatal bootstrap errors are now visible instead of vanishing.
+- **Storage migrated to `@aws-sdk/client-s3`** (the original ask was just to fix startup, but the
+  user opted to switch off the brittle minio client). One client serves both MinIO (local) and E2E
+  (prod) via `endpoint` + `forcePathStyle: true`. `FilesService` keeps the same five operations:
+  `HeadBucketCommand` (bucket guard), `PutObjectCommand`, `getSignedUrl(GetObjectCommand)` ×2
+  (the risky-type path uses `ResponseContentDisposition`), and `GetObjectCommand` +
+  `transformToByteArray()` for the email-attachment byte fetch. `minio` removed from deps.
+- **`S3_ENDPOINT` is a full URL, passed straight through**: verified the AWS SDK rejects a bare host
+  and `host:port` but accepts a full URL — so the original `.env` value was right and minio was the
+  only problem. Dropped the minio-era `S3_PORT`/`S3_USE_SSL` split (scheme + port encode both) and
+  the endpoint-normalisation block — `FilesService` just forwards `S3_ENDPOINT` to the client.
+- **Env vars renamed `MINIO_*` → `S3_*`** across `.env`, `.env.example`, `files.service.ts`,
+  `scripts/backfill-attachment-keys.ts`, the integration/e2e test setups, and `playwright.config.ts`.
+- **Test setups now provision the bucket** (`CreateBucketCommand`) — `FilesService` no longer
+  auto-creates it (the prod bucket is shared and pre-provisioned; this was a pre-existing working-tree
+  change, surfaced when the integration test went red). `@aws-sdk/client-s3` added to root devDeps.
+- **Verified**: API bootstraps (port 3001); `files-sync.spec` 13/13 green against a real MinIO
+  container (upload→presign→fetch); new `files-service-endpoint.spec` (R265) guards the regression.
+- Docs: updated `docs/atlas/files.md`, `DEPLOY.md`, `worldgraph/atlas.world.json` (validated). The
+  2 failing `worker-guards.spec` (R194) cases are **pre-existing** and unrelated to storage.
+
+### 2026-06-23 — Pre-deployment cleanup & safety pass
+
+Audited the repo for unused files / harmful scripts / prod-unsafe config before going live, then
+actioned the agreed items (most findings left as-is by decision — see the plan for the full list).
+
+- **Untracked build caches**: `git rm --cached` the three `tsconfig.tsbuildinfo` files
+  (bridge/portal/worldgraph viewer) and added `*.tsbuildinfo` to `.gitignore`. Build cache, no
+  source value; one was the worldgraph *viewer* cache, unrelated to `atlas.world.json`.
+- **Removed the Chatwoot importer**: deleted `packages/db/src/import-chatwoot.ts`, its
+  `import:chatwoot` package script, and `docs/import-chatwoot-plan.md`. Its `--clean-all` path could
+  `deleteMany({})` all tickets/messages/attachments — a foot-gun with no place in production.
+- **Guarded the seed against production**: `packages/db/src/seed.ts` `main()` now aborts when
+  `NODE_ENV=production` (override `--force`). It injects demo data + a weak `admin123` admin and is
+  the E2E fixture, so it's kept for dev/test but can no longer pollute prod.
+- **Documented manual admin bootstrap**: the seed was the *only* admin-creation path
+  (`/auth/signup` makes customers, not agents). Replaced the `db:seed` first-install step in
+  `DEPLOY.md` with a "Create the first admin (production)" recipe — scrypt hash one-liner (matching
+  `auth.service.ts` verifier) + `INSERT INTO "Agent" …`.
+- **No worldgraph change** (no node covered chatwoot/seed). No `docs/atlas/` change — no user-facing
+  feature behavior changed.
+
+### 2026-06-23 — PM2 deployment, Docker dropped
+
+Switched production deployment from Docker to **PM2** ahead of going live.
+
+- **Removed** the `docker/` directory: `docker-compose.yml`, `Dockerfile.api`, `Dockerfile.portal`,
+  `Dockerfile.dashboard`, `nginx.conf`. (The app Dockerfiles were already stale —
+  `Dockerfile.dashboard` referenced `apps/dashboard` which doesn't exist, and they copied
+  `.next/standalone` though neither Next app enables standalone output.)
+- **Added** `ecosystem.config.cjs` (repo root) — three fork-mode processes: `athena-api`
+  (`node dist/main.js`, :3001), `athena-portal` / `athena-bridge` (`next start`, :3000/:3002).
+- **Added** `DEPLOY.md` — runbook from `git clone` → install → `.env` → `prisma migrate deploy` →
+  `pnpm build` (sources `.env` so `NEXT_PUBLIC_*` get inlined) → `pm2 start ecosystem.config.cjs`,
+  plus update/rollback and local-infra `docker run` commands.
+- **Infra**: Postgres (pgvector) + S3-compatible object storage provisioned separately, wired via
+  root `.env`. MinIO is dev-only; prod points `MINIO_*` at the E2E S3 endpoint over HTTPS. Reverse
+  proxy + TLS handled at the server level (out of repo).
+- **Kept**: Docker daemon for the test suite (Testcontainers) — not a deployment concern.
+- **Docs**: CLAUDE.md (§4 commands + §5 structure), `docs/atlas/architecture.md` (stack +
+  deployment section), this Decisions row + Session Log.
+
+No code/feature behavior changed — deployment-only. No worldgraph node covered Docker, so no
+worldgraph change.
+
+### 2026-06-23 — Secure, durable attachment links (sign-on-click)
+
+Fixed the attachment download flow. Bug: `FilesService.storeBuffer` minted a 7-day presigned URL
+**once at upload** and persisted it in `Attachment.url`; it was never refreshed, so every link
+died 7 days after upload regardless of how recently the ticket was opened.
+
+Changes:
+- **Schema**: added nullable `Attachment.objectKey`. Backfill script
+  `scripts/backfill-attachment-keys.ts` derives `objectKey` from legacy URLs.
+- **FilesService**: config-driven `minio` client (`MINIO_USE_SSL`/`MINIO_REGION` — local HTTP, prod
+  E2E HTTPS); `storeBuffer` persists `objectKey`; new `presignReadUrl` mints a fresh short-lived URL
+  (`MINIO_READ_URL_TTL_SECONDS`, default 600 s) with `response-content-disposition: attachment` for
+  risky types; `getAttachmentBuffer` (email path) now resolves bytes via `objectKey` (URL-parse
+  fallback); `.exe` uploads rejected.
+- **Endpoint**: `GET /files/:id/sign` — authorizes (agent any / customer owns ticket, mirrors the
+  upload IDOR guard) then returns a fresh URL; link attachments return their stored URL.
+- **Frontend**: portal + bridge attachment chips changed from static `<a href>` to a click handler
+  that opens a blank tab, `fetch`es the sign endpoint with the Bearer token, and navigates the tab
+  to the returned URL. `MessageCard` gained an `onOpenAttachment` callback (token lives on the
+  ticket page).
+- **Tests**: `files-sync.spec` R173 (objectKey persisted), R174 (.exe rejected), R175 (fresh URL +
+  IDOR 403 + 401). Catalogue rows R262–R264. (Two `worker-guards.spec` failures are pre-existing on
+  master, unrelated.)
+- **Docs**: `docs/atlas/files.md`, `_generated/` (atlas:gen — new route), worldgraph
+  (`feature:files` + new route node, validated).
+
+Deferred (agreed with user): virus scanning; broader upload allowlist.
+
+### 2026-06-23 — TMR back-office server-to-server auth
+
+The `tmr_data_service` back-office API (consumed by `TmrDataService` for customer product metadata)
+previously had no enforced auth on Athena's calls — Athena sent a key in a custom `x-api-key`
+header that the back-office middleware never validated (its JWT auth was commented out for free
+local integration). Added a **dual-auth** scheme that adds Athena's path *without touching* the
+existing frontend JWT flow:
+
+- **Athena side** (`tmr-data.service.ts`): now sends the secret as `Authorization: Bearer
+  <TMR_DATA_SERVICE_API_KEY>` plus an inert marker header `x-auth-mode: service`. Dropped the
+  `TMR_DATA_SERVICE_API_KEY_HEADER` env var (removed from `.env`/`.env.example`).
+- **Back-office side** (`tmr_data_service/src/middleware/back-office.middleware.ts`): when
+  `x-auth-mode: service` is present, validates the Bearer token against `BACK_OFFICE_API_KEY` using
+  a **constant-time compare** (`crypto.timingSafeEqual`, length-guarded) → 200 on match, 401
+  otherwise. Requests without the marker fall straight through to the existing (still-commented)
+  JWT/frontend path — unchanged. healthCheck stays open.
+
+**Why `Authorization` + marker over `x-api-key`:** the secret in `Authorization` is auto-redacted
+by logging/APM tooling (a custom `x-api-key` would print in cleartext); the marker is only a
+routing flag (carries no secret) so it cleanly selects the API-key branch without modifying the
+JWT scheme. Both are equally secure on the wire — choice is about redaction + clean coexistence.
+Requires HTTPS in prod. New env: back-office `BACK_OFFICE_API_KEY` (must equal Athena's
+`TMR_DATA_SERVICE_API_KEY`).
+
+Tests: `tests/integration/tmr-data.spec.ts › R233` (asserts the outbound auth headers). Docs:
+`docs/atlas/tmr-data.md` (External API contract), worldgraph `feature:tmr-data`,
+regression-catalogue R261. type-check clean (both repos); worldgraph valid. Note: the tmr-data
+integration suite's upstream-success cases can't run in this sandbox (MSW doesn't intercept Node-22
+native `fetch` here — R223 fails identically), but pass in CI.
 
 ### 2026-06-22 — Pre-deployment UI/email bug fixes (5 manual-QA findings)
 
@@ -584,6 +787,10 @@ Tests: `tests/unit/api/email-html-body.spec.ts` (R258), `tests/unit/api/strip-in
 - Verified end-to-end: API boots → pg-boss starts → worker registers → IMAP connects → real inbound email enqueued and processed by the new worker (loop guard correctly dropped a `Precedence: Bulk` marketing email)
 
 ### 2026-05-21 — Chatwoot conversation import
+
+> **Removed 2026-06-23** — the one-shot importer (`packages/db/src/import-chatwoot.ts`) and its
+> `import:chatwoot` script were deleted pre-deployment (its `--clean-all` path could wipe all
+> tickets/messages). The entry below is kept as a historical record only.
 
 - **`packages/db/src/import-chatwoot.ts`**: one-shot importer for legacy Chatwoot conversation exports
   - Filters to message types 0 (user) + 1 (agent); skips 2 (automation) + 3 (CSAT)

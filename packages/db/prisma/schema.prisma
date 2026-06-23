@@ -489,6 +489,7 @@ model Attachment {
   mimeType  String
   size      Int
   url       String
+  objectKey String? // MinIO/S3 object key; null for legacy rows + link attachments
   isLink    Boolean @default(false)
   linkUrl   String?
 }

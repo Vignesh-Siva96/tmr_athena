@@ -10,10 +10,13 @@
  *   R170 — POST /sync/archive/resume: archiveStatus → RUNNING (state transition)
  *   R171 — POST /sync/poll/now: invokes pollOne without waiting on cron (returns polled count)
  *   R172 — Sync routes auth boundary: agent guard (401 without token)
+ *   R173 — POST /files/upload: persists objectKey on the row (durable handle)
+ *   R174 — POST /files/upload: rejects blocked extensions (.exe)
+ *   R175 — GET /files/:id/sign: mints a fresh URL; agent any, customer only own ticket (IDOR)
  */
 
 import { harness } from './harness'
-import { makeAgent, makeUser, signJwt } from './factories'
+import { makeAgent, makeUser, makeTicket, signJwt } from './factories'
 import './setup'
 
 async function seedAppConfig(overrides: Record<string, unknown> = {}) {
@@ -69,6 +72,95 @@ describe('R167 — POST /files/upload link/JSON', () => {
       where: { url: 'https://example.com/doc.pdf' },
     })
     expect(attachment).not.toBeNull()
+  })
+})
+
+// ─── R173 — upload persists objectKey ────────────────────────────────────────
+
+describe('R173 — POST /files/upload persists objectKey', () => {
+  it('stores the durable object key on the Attachment row', async () => {
+    const agent = await makeAgent({ role: 'SECONDARY_AGENT' })
+    const token = await signJwt({ id: agent.id, role: 'agent' })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/files/upload')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', Buffer.from('hello'), { filename: 'note.txt', contentType: 'text/plain' })
+
+    expect(res.status).toBe(201)
+    const id = res.body.data.attachment.id as string
+    const row = await harness.prisma.attachment.findUniqueOrThrow({ where: { id } })
+    expect(row.objectKey).toBeTruthy()
+    // key = <uuid>.txt, mirrors storeBuffer naming
+    expect(row.objectKey).toMatch(/\.txt$/)
+  })
+})
+
+// ─── R174 — upload rejects blocked extensions ────────────────────────────────
+
+describe('R174 — POST /files/upload rejects .exe', () => {
+  it('returns 400 for a blocked extension', async () => {
+    const agent = await makeAgent({ role: 'SECONDARY_AGENT' })
+    const token = await signJwt({ id: agent.id, role: 'agent' })
+
+    const res = await harness
+      .request()
+      .post('/api/v1/files/upload')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', Buffer.from('MZ'), { filename: 'malware.exe', contentType: 'application/octet-stream' })
+
+    expect(res.status).toBe(400)
+  })
+})
+
+// ─── R175 — GET /files/:id/sign (fresh URL + IDOR) ───────────────────────────
+
+describe('R175 — GET /files/:id/sign', () => {
+  async function uploadAsAgent(): Promise<string> {
+    const agent = await makeAgent({ role: 'SECONDARY_AGENT' })
+    const token = await signJwt({ id: agent.id, role: 'agent' })
+    const res = await harness
+      .request()
+      .post('/api/v1/files/upload')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', Buffer.from('data'), { filename: 'doc.pdf', contentType: 'application/pdf' })
+    return res.body.data.attachment.id as string
+  }
+
+  it('mints a fresh presigned URL for an agent (any attachment)', async () => {
+    const id = await uploadAsAgent()
+    const agent = await makeAgent({ role: 'SECONDARY_AGENT' })
+    const token = await signJwt({ id: agent.id, role: 'agent' })
+
+    const res = await harness.request().get(`/api/v1/files/${id}/sign`).set('Authorization', `Bearer ${token}`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.url).toMatch(/^https?:\/\//)
+    // signed URLs carry an expiry signature — confirms it's a fresh presign, not the stored value
+    expect(res.body.data.url).toContain('X-Amz-')
+  })
+
+  it('lets the owning customer sign, but blocks a different customer (IDOR)', async () => {
+    const owner = await makeUser()
+    const ticket = await makeTicket({ userId: owner.id })
+    // claim an uploaded attachment onto the owner's ticket
+    const id = await uploadAsAgent()
+    await harness.prisma.attachment.update({ where: { id }, data: { ticketId: ticket.id } })
+
+    const ownerToken = await signJwt({ id: owner.id, role: 'user' })
+    const ok = await harness.request().get(`/api/v1/files/${id}/sign`).set('Authorization', `Bearer ${ownerToken}`)
+    expect(ok.status).toBe(200)
+
+    const intruder = await makeUser()
+    const intruderToken = await signJwt({ id: intruder.id, role: 'user' })
+    const denied = await harness.request().get(`/api/v1/files/${id}/sign`).set('Authorization', `Bearer ${intruderToken}`)
+    expect(denied.status).toBe(403)
+  })
+
+  it('returns 401 without a token', async () => {
+    const id = await uploadAsAgent()
+    const res = await harness.request().get(`/api/v1/files/${id}/sign`)
+    expect(res.status).toBe(401)
   })
 })
 

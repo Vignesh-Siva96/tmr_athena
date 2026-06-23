@@ -17,10 +17,16 @@ export class RespondToNewTicketWorker implements OnModuleInit {
 
     this.queue.getBoss().work<{ ticketId: string }>(
       BOT_RESPOND_QUEUE,
+      { includeMetadata: true },
       async (job) => {
         const { ticketId } = job.data
-        this.logger.debug(`Processing bot:respond-to-ticket job for ticket ${ticketId}`)
-        await this.bot.respondTo(ticketId)
+        // pg-boss increments retrycount on each retry; once it reaches retrylimit
+        // there are no attempts left, so BotService escalates instead of rethrowing.
+        const isFinalAttempt = job.retrycount >= job.retrylimit
+        this.logger.debug(
+          `Processing bot:respond-to-ticket job for ticket ${ticketId} (attempt ${job.retrycount + 1}/${job.retrylimit + 1})`,
+        )
+        await this.bot.respondTo(ticketId, { isFinalAttempt })
       },
     )
 

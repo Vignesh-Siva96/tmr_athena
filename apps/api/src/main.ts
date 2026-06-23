@@ -8,7 +8,7 @@ import { WinstonLogger } from './common/logger/logger.service'
 
 async function bootstrap(): Promise<void> {
   const logger = new WinstonLogger()
-  const app = await NestFactory.create(AppModule, { rawBody: true, logger })
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger, abortOnError: false })
 
   app.setGlobalPrefix('api/v1')
   app.enableCors({
@@ -28,4 +28,11 @@ async function bootstrap(): Promise<void> {
   logger.log(`API running on port ${port}`, 'Bootstrap')
 }
 
-bootstrap()
+// `abortOnError: false` (above) makes NestFactory reject instead of silently
+// calling process.exit(1), so a fatal bootstrap error (e.g. a bad integration
+// credential) surfaces here on the console instead of vanishing.
+bootstrap().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('Fatal: API failed to bootstrap\n', err)
+  process.exit(1)
+})

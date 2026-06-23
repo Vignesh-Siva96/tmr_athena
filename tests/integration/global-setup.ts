@@ -6,7 +6,7 @@
  *   - MinIO (attachment storage)
  *
  * Exposes connection details via env vars before any test file is imported:
- *   DATABASE_URL, MINIO_ENDPOINT, MINIO_PORT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET
+ *   DATABASE_URL, S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET
  *
  * Per-worker schema isolation is handled inside setup.ts via `?schema=test_w<id>`,
  * so a single Postgres container serves all Vitest workers in this run.
@@ -14,6 +14,7 @@
 
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
+import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3'
 import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
@@ -82,12 +83,22 @@ async function bootContainers(): Promise<void> {
 
   globalThis.__TEST_MINIO__ = minio
 
-  process.env.MINIO_ENDPOINT = minio.getHost()
-  process.env.MINIO_PORT = String(minio.getMappedPort(9000))
-  process.env.MINIO_USE_SSL = 'false'
-  process.env.MINIO_ACCESS_KEY = 'testkey'
-  process.env.MINIO_SECRET_KEY = 'testsecret'
-  process.env.MINIO_BUCKET = 'attachments-test'
+  const endpoint = `http://${minio.getHost()}:${minio.getMappedPort(9000)}`
+  process.env.S3_ENDPOINT = endpoint
+  process.env.S3_ACCESS_KEY = 'testkey'
+  process.env.S3_SECRET_KEY = 'testsecret'
+  process.env.S3_BUCKET = 'attachments-test'
+
+  // FilesService no longer auto-creates the bucket (prod uses a shared bucket
+  // that must be provisioned ahead of time), so the test bucket is created here.
+  const s3 = new S3Client({
+    endpoint,
+    forcePathStyle: true,
+    region: 'us-east-1',
+    credentials: { accessKeyId: 'testkey', secretAccessKey: 'testsecret' },
+  })
+  await s3.send(new CreateBucketCommand({ Bucket: 'attachments-test' }))
+  s3.destroy()
 
   // ---------- Misc env that the API expects ----------
   process.env.EMAIL_CREDS_KEY = '0'.repeat(64) // 32-byte hex

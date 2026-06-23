@@ -12,6 +12,7 @@
  *   R230 — Backfill email does NOT enqueue TMR sync
  *   R231 — POST /users/:id/tmr-metadata/refresh → 202 + enqueues
  *   R232 — GET /users/:id returns tmrMetadata, tmrMetadataStatus, tmrMetadataAt fields
+ *   R233 — syncUser sends Authorization: Bearer <key> + x-auth-mode: service headers
  */
 
 import { http, HttpResponse } from 'msw'
@@ -123,6 +124,50 @@ describe('R223 — TmrDataService.syncUser happy path', () => {
     expect(updated?.tmrMetadata).toBeTruthy()
     const meta = updated?.tmrMetadata as { accounts: unknown[] }
     expect(meta.accounts).toHaveLength(1)
+  })
+})
+
+// ─── R233 — syncUser sends server-to-server auth headers ─────────────────────
+
+describe('R233 — TmrDataService.syncUser auth headers', () => {
+  it('sends Authorization: Bearer <key> + x-auth-mode: service to back-office', async () => {
+    const user = await makeUser()
+    const captured: { authorization: string | null; authMode: string | null }[] = []
+    mswServer.use(
+      http.post(`${TMR_BASE}/back-office/getUsersByFuzzySearch`, ({ request }) => {
+        captured.push({
+          authorization: request.headers.get('authorization'),
+          authMode: request.headers.get('x-auth-mode'),
+        })
+        return HttpResponse.json({
+          status: 'success',
+          data: [{ userId: 'tmr-user-1', emailId: user.email }],
+        })
+      }),
+      http.post(`${TMR_BASE}/back-office/getUserDetails`, ({ request }) => {
+        captured.push({
+          authorization: request.headers.get('authorization'),
+          authMode: request.headers.get('x-auth-mode'),
+        })
+        return HttpResponse.json({ status: 'success', data: {} })
+      }),
+    )
+
+    process.env['TMR_DATA_SERVICE_BASE_URL'] = TMR_BASE
+    process.env['TMR_DATA_SERVICE_API_KEY'] = 'test-key'
+    try {
+      const svc = await getTmrService()
+      await svc.syncUser(user.id)
+    } finally {
+      delete process.env['TMR_DATA_SERVICE_BASE_URL']
+      delete process.env['TMR_DATA_SERVICE_API_KEY']
+    }
+
+    expect(captured.length).toBeGreaterThan(0)
+    for (const h of captured) {
+      expect(h.authorization).toBe('Bearer test-key')
+      expect(h.authMode).toBe('service')
+    }
   })
 })
 

@@ -21,6 +21,7 @@ process.env['TESTCONTAINERS_RYUK_DISABLED'] = 'true'
 
 import { GenericContainer, Wait } from 'testcontainers'
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
+import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3'
 import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -96,14 +97,24 @@ async function up(): Promise<void> {
     `UPDATE "AppConfig" SET "oauthProvider"='GOOGLE', "oauthEmail"='support@e2e.test', "oauthAccessTokenEnc"='e2e-dummy', "oauthRefreshTokenEnc"='e2e-dummy';`])
   if (markConnected.exitCode !== 0) throw new Error(`AppConfig oauth update failed: ${markConnected.output}`)
 
+  // FilesService no longer auto-creates the bucket (prod uses a shared bucket
+  // provisioned ahead of time), so create the e2e bucket explicitly.
+  const s3Endpoint = `http://${minio.getHost()}:${minio.getMappedPort(9000)}`
+  const s3 = new S3Client({
+    endpoint: s3Endpoint,
+    forcePathStyle: true,
+    region: 'us-east-1',
+    credentials: { accessKeyId: 'e2ekey', secretAccessKey: 'e2esecret' },
+  })
+  await s3.send(new CreateBucketCommand({ Bucket: 'attachments-e2e' }))
+  s3.destroy()
+
   const envLines = [
     `DATABASE_URL=${databaseUrl}`,
-    `MINIO_ENDPOINT=${minio.getHost()}`,
-    `MINIO_PORT=${minio.getMappedPort(9000)}`,
-    `MINIO_USE_SSL=false`,
-    `MINIO_ACCESS_KEY=e2ekey`,
-    `MINIO_SECRET_KEY=e2esecret`,
-    `MINIO_BUCKET=attachments-e2e`,
+    `S3_ENDPOINT=${s3Endpoint}`,
+    `S3_ACCESS_KEY=e2ekey`,
+    `S3_SECRET_KEY=e2esecret`,
+    `S3_BUCKET=attachments-e2e`,
   ]
   writeFileSync(ENV_FILE, envLines.join('\n') + '\n')
   writeFileSync(STATE_FILE, JSON.stringify({ pgId: pg.getId(), minioId: minio.getId(), databaseUrl }))

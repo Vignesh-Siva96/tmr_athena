@@ -1,7 +1,9 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
+  Param,
   UseGuards,
   UploadedFile,
   UseInterceptors,
@@ -60,5 +62,47 @@ export class FilesController {
       return this.filesService.uploadLink(parsed.data.linkUrl, ticketId)
     }
     throw new BadRequestException('Provide either a file or a linkUrl')
+  }
+
+  /**
+   * Mint a fresh, short-lived download URL for an attachment, on click. Authorizes first
+   * (agents may read any attachment; a customer must own the ticket the attachment belongs to),
+   * mirroring the upload IDOR guard above. For link attachments, returns the stored link as-is.
+   */
+  @Get(':id/sign')
+  async sign(
+    @CurrentAgent() agent: Agent | undefined,
+    @CurrentUser() user: User | undefined,
+    @Param('id') id: string,
+  ): Promise<{ url: string }> {
+    const attachment = await this.db.attachment.findUnique({
+      where: { id },
+      select: {
+        ticketId: true,
+        filename: true,
+        url: true,
+        objectKey: true,
+        isLink: true,
+        linkUrl: true,
+      },
+    })
+    if (!attachment) throw new NotFoundException('Attachment not found')
+
+    // Authorize: agents read any attachment; a customer only their own ticket's attachments.
+    if (!agent) {
+      if (!attachment.ticketId) throw new ForbiddenException('Not authorized for this attachment')
+      const ticket = await this.db.ticket.findUnique({
+        where: { id: attachment.ticketId },
+        select: { userId: true },
+      })
+      if (!ticket || !user || ticket.userId !== user.id) {
+        throw new ForbiddenException('Not authorized for this attachment')
+      }
+    }
+
+    if (attachment.isLink) {
+      return { url: attachment.linkUrl ?? attachment.url }
+    }
+    return { url: await this.filesService.presignReadUrl(attachment) }
   }
 }

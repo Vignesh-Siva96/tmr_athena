@@ -110,7 +110,7 @@ export function DashboardSidebar() {
   return (
     <>
       <style>{`@keyframes bfPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }`}</style>
-      <aside style={{ width: (activeSection === 'tickets' || activeSection === 'customers') ? 48 : 220, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
+      <aside style={{ width: activeSection === 'analytics' ? 220 : 48, flexShrink: 0, height: '100vh', display: 'flex', background: 'var(--d-bg)', borderRight: '1px solid var(--d-border)', position: 'sticky', top: 0 }}>
 
         {/* ── Rail ── */}
         <div style={{ width: 48, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: '1px solid var(--d-rail-border)', paddingTop: 8, background: 'var(--d-rail)' }}>
@@ -178,8 +178,8 @@ export function DashboardSidebar() {
           </button>
         </div>
 
-        {/* ── Panel — hidden when tickets or customers section active (rail-only mode) ── */}
-        {activeSection !== 'tickets' && activeSection !== 'customers' && (
+        {/* ── Panel — only the analytics section has panel content; all others are rail-only ── */}
+        {activeSection === 'analytics' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
           {/* App name */}

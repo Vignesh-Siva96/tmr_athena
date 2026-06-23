@@ -47,6 +47,20 @@ Advocacy signals are passive — insert `CustomerSignal(type=ADVOCACY)` only. No
 
 CSAT delays the first send by 30 minutes so the customer isn't pinged the instant the agent clicks Resolve.
 
+### Transient-vs-terminal retry gating (R266)
+
+`retryLimit` alone retries *every* failure, including deterministic ones (model
+drift failing the zod schema, a Prisma constraint) that fail identically each
+attempt and waste tokens. Both analysis workers (`analyze-message`,
+`classify-ticket`) now classify the caught error with the shared
+[`common/ai/transient-error.ts`](../../apps/api/src/common/ai/transient-error.ts)
+`isTransientGeminiError()` helper: **rethrow only transient** errors (Gemini
+503/429, network blip) so pg-boss retries with backoff; **swallow terminal**
+errors (`return` without rethrow) so the remaining attempts aren't burned — the
+message/ticket simply stays un-analysed until a later edit/resolve re-enqueues
+it. The bot's `respondTo` uses the same helper to decide retry-vs-escalate (see
+[bot.md](bot.md)).
+
 ## Pricing constants (gemini-2.5-flash-lite)
 
 ```
@@ -66,6 +80,7 @@ Stored in `gemini.service.ts` → `PRICES` (duplicated in `bot/generator.service
 | [`apps/api/src/modules/ai/workers/analyze-message.worker.ts`](../../apps/api/src/modules/ai/workers/analyze-message.worker.ts) | pg-boss worker for `ai:analyze-message` |
 | [`apps/api/src/modules/ai/workers/classify-ticket.worker.ts`](../../apps/api/src/modules/ai/workers/classify-ticket.worker.ts) | pg-boss worker for `ai:classify-ticket` (topic + CSAT) |
 | [`apps/api/src/modules/ai/workers/request-csat.worker.ts`](../../apps/api/src/modules/ai/workers/request-csat.worker.ts) | pg-boss worker for `ai:request-csat` (sends rating email, 30 min delay) |
+| [`apps/api/src/common/ai/transient-error.ts`](../../apps/api/src/common/ai/transient-error.ts) | `isTransientGeminiError()` — shared retry-vs-give-up classifier (bot + analysis workers) |
 | [`scripts/backfill-ai-analytics.ts`](../../scripts/backfill-ai-analytics.ts) | One-shot backfill against existing tickets/messages |
 
 ## Enqueue points

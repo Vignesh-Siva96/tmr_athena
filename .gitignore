@@ -16,6 +16,9 @@ coverage/
 # Generated
 packages/db/src/generated/
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Misc
 .DS_Store
 *.log

@@ -86,8 +86,24 @@ RespondToNewTicketWorker
         │       │            status → WAITING, send email (HTML body — see email.md / R258)
         │       └─ ESCALATE: ShiftResolverService → assign ticket, create SYSTEM_EVENT
         │
-        └─ Write BotInteraction audit row (always)
+        ├─ ON ERROR: classify via isTransientGeminiError()
+        │       ├─ transient (Gemini 503/429, network blip) + retries left → rethrow
+        │       │     → pg-boss retries the job (retryLimit 3, 30s backoff)
+        │       └─ terminal, OR transient on the final attempt → escalate to human
+        │             (a sustained outage never leaves a customer un-answered)
+        │
+        └─ Write BotInteraction audit row (skipped only when rethrowing for retry)
 ```
+
+> **Transient-failure handling (R266).** A momentary Gemini 503 ("model
+> experiencing high demand") used to escalate the ticket to a human on the *first*
+> failure — `respondTo` caught the error and escalated without rethrowing, so the
+> queue's `retryLimit` never fired. Now the worker threads pg-boss's retry
+> metadata (`retrycount`/`retrylimit`) into `respondTo({ isFinalAttempt })`, and
+> the catch rethrows transient errors so the job retries with backoff, escalating
+> only on a terminal error or once retries are exhausted. Classification lives in
+> the shared `common/ai/transient-error.ts` — the analysis workers (sentiment,
+> topic/CSAT) use the same helper (see [ai.md](ai.md)).
 
 ---
 
@@ -210,7 +226,8 @@ Removed from UI (hardcoded): embedding model, test-connection button, enable/dis
 | `apps/api/src/modules/bot/generator.service.ts` | Gemini embed + generate calls |
 | `apps/api/src/modules/bot/shift-resolver.service.ts` | On-call agent resolution |
 | `apps/api/src/modules/bot/bot.prompts.ts` | Generation prompt templates |
-| `apps/api/src/modules/bot/workers/respond-to-new-ticket.worker.ts` | pg-boss worker |
+| `apps/api/src/modules/bot/workers/respond-to-new-ticket.worker.ts` | pg-boss worker (threads retry metadata → `isFinalAttempt`) |
+| `apps/api/src/common/ai/transient-error.ts` | `isTransientGeminiError()` — shared retry-vs-give-up classifier |
 | `apps/api/src/modules/knowledge-base/crawler.service.ts` | 3-tier page discovery |
 | `apps/api/src/modules/knowledge-base/chunker.service.ts` | Heading-aware markdown chunking |
 | `apps/api/src/modules/knowledge-base/indexer.service.ts` | Crawl→chunk→embed→upsert pipeline |
@@ -235,3 +252,4 @@ Removed from UI (hardcoded): embedding model, test-connection button, enable/dis
 | AgentRole rename AGENT → PRIMARY_AGENT | Semantically correct; every previously-assignable agent stays assignable as first responder |
 | Phase 1 defers reranker | RRF over top-50 is sufficient for help-center size; add if quality demands it |
 | Phase 1 defers Playwright for JS SPAs | Fallback already stubbed; activate when a JS-rendered docs platform is onboarded |
+| Retry transient Gemini errors before escalating (R266) | A momentary 503 shouldn't pull a human in; reuse pg-boss's existing `retryLimit`/backoff, escalate only on terminal errors or after retries are exhausted |
